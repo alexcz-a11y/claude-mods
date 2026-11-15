@@ -140,12 +140,20 @@ export type WorldOptions = {
    */
   store?: Record<string, unknown>
   /**
-   * The switches the person has set by hand (`/dp <name> on|off`, kept in `$.store`), before the test starts. The mod
-   * reads them at `session.start`, which the world runs by itself before the first thing the test makes the engine do
-   * (`submit`, `command`, `step`, ...; a `w.start()` of the test is the same one), so a test needs no `session` of its
-   * own. A feature that is off until the person turns it on (`unresolved`, #48) is asked for here: `{ unresolved: true }`.
+   * The switches the person has set by hand, before the test starts: the world types `/dp <name> on|off` for each (`master`:
+   * `/dp on|off`), as the person would, and then runs `session.start`, both by itself before the first thing the test makes
+   * the engine do (`submit`, `command`, `step`, ...; a `w.start()` of the test is the same one), so a test needs no `session`
+   * of its own. A feature that is off until the person turns it on is asked for here: `{ 'image-routing': true }`. (In a
+   * session the flip is written to the plugin's configuration and the engine loads the mod again with it; a test that
+   * needs the mod to load with a switch set gives it as an option: `{ options: { imageRouting: true } }`.)
    */
   switches?: Record<string, boolean>
+  /**
+   * The rows of the plugin's configuration `/config` holds (`$.config.list`), by option (`mainEffort`), as the test
+   * starts; what the mod writes (`$.config.set`) is read back with `w.configured(option)`. `false`: a session without a
+   * `/config` panel (`claude -p`): no rows, and every `$.config.set` rejects, as the engine's does for a key no row has.
+   */
+  config?: false | Record<string, unknown>
   /**
    * The engine's session around the mod: `w.start()` runs `session.start`, the commands and tools the mod
    * registers are recorded in `w.commands` and `w.tools` (`registerError` refuses both), `w.measure(...)`
@@ -374,12 +382,24 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   /** The argument vectors of every `$.process.run`, in order. */
   const ran: string[][] = []
   const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
-  const store = new Map(Object.entries({ ...(options.store ?? {}), ...(options.switches !== undefined ? { switches: { ...(options.store?.switches as object | undefined), ...options.switches } } : {}) }).map(([key, value]) => [key, JSON.stringify(value)]))
+  const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
+  /** The plugin's rows in `/config`, by key (`dispatch-pilot.<option>`), and every write the mod made, in order. */
+  const configRows = new Map(Object.entries(options.config === false ? {} : (options.config ?? {})).map(([option, value]) => [`dispatch-pilot.${option}`, value]))
+  const configWrites: { key: string; value: unknown }[] = []
   const sessionWorld = options.session ?? (options.switches !== undefined || options.env !== undefined ? true : undefined)
   /** The first session start: the one the world runs by itself for `options.switches` / `options.env`, or the test's first `w.start()`. */
   let starting: Promise<unknown> | undefined
+  /** The switches the test asked for (`options.switches`), typed as the person types them, once, before the session starts. */
+  let flipping: Promise<void> | undefined
+  const flipSwitches = () =>
+    (flipping ??= (async () => {
+      for (const [name, wanted] of Object.entries(options.switches ?? {})) {
+        const args = name === 'master' ? (wanted ? 'on' : 'off') : `${name} ${wanted ? 'on' : 'off'}`
+        await $.command.run({ command: 'dp', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
+      }
+    })())
   const beginSession = () => $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
-  const startSession = () => (starting ??= beginSession())
+  const startSession = () => (starting ??= flipSwitches().then(beginSession))
   /** Before the first thing a test makes the engine do: the session has started, so the switches the test set are loaded. */
   const booted = async () => {
     if (options.switches !== undefined || options.env !== undefined) await startSession()
@@ -481,7 +501,16 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   let sessionId = options.sessionId ?? 's1'
   on('session.id', () => ({ value: sessionId }))
   if (options.surfaces !== undefined) on('session.surfaces', () => ({ value: options.surfaces ?? [] }))
-  if (options.store !== undefined || options.switches !== undefined) {
+  // The plugin's configuration: its rows as `/config` lists them, and the writer (the engine's reload with the new options
+  // is not played: the mod keeps a flip for the rest of its load, core/switches.ts).
+  on('config.list', () => ({ value: [...configRows].map(([key, value]) => ({ key, label: key, kind: 'boolean' as const, value: value as boolean, provider: { plugin: 'dispatch-pilot', tier: 'user' as const }, isLocked: false })) }))
+  on('config.set', (_$, e) => {
+    if (options.config === false) return { deny: `$.config.set: no /config row with key ${e.key} ($.config.list names them)` }
+    configRows.set(e.key, e.value)
+    configWrites.push({ key: e.key, value: e.value })
+    return { value: e.value }
+  })
+  if (options.store !== undefined) {
     on('store.get', (_$, e) => ({ value: store.has(e.key) ? JSON.parse(store.get(e.key) as string) : undefined }))
     on('store.set', (_$, e) => {
       store.set(e.key, JSON.stringify(e.value))
@@ -765,6 +794,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     tools,
     /** What the mod last stored under `key` (JSON as it reads back); `undefined` when it never did. */
     stored: (key: string): unknown => (store.has(key) ? JSON.parse(store.get(key) as string) : undefined),
+    /** What the plugin's configuration holds for `option` (`mainEffort`): what the test seeded or the mod last wrote; `undefined` for a row never written. */
+    configured: (option: string): unknown => configRows.get(`dispatch-pilot.${option}`),
+    /** Every write the mod made to the configuration (`$.config.set`), in order. */
+    configWrites,
     /** The keys the store holds now, in the order they were first set. */
     storedKeys: (): string[] => [...store.keys()],
     /** Every completion the mod asked of `$.model.complete`, as it reached the model. */

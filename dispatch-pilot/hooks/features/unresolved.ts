@@ -60,7 +60,7 @@ type Write = { turn: string; subject: string; shown: Omit<TurnInput, 'previous'>
 export function registerUnresolved(on: On, ctx: Ctx): void {
   // On unless the person turns it off (ADR 0014): with the state within Jev's regular limits, the summary is how the earlier
   // rounds of a long conversation reach the decision model.
-  defineSwitch({ name: SUMMARY_SWITCH, info: '每轮结束后在后台用便宜的模型续写问题摘要，发消息时给决策模型读（默认开）' })
+  defineSwitch({ name: SUMMARY_SWITCH, info: '每轮结束后在后台续写一份简短的问题摘要，下次发消息时给决策模型读，让它知道更早几轮发生了什么。' })
 
   on('session.end', { reason: /(?:)/ }, async ($, e, next) => {
     refused = false

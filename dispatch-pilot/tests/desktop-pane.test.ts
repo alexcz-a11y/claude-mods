@@ -94,8 +94,8 @@ test('off the terminal each log entry is one line and the rest of it (the probab
   expect(await pane.find({ key: 'pane-entry-1' })).toBeUndefined()
 })
 
-test('off the terminal the switches are buttons at the bottom of the pane, folded at first: a press flips one and keeps it as /dp <name> off would', { options: KEY }, async ($, on) => {
-  const w = runWorld($, on, { backend: jev([0, 0, 1, 0, 0], { choice: 'sonnet' }), surfaces: ['desktop'], store: {} })
+test('off the terminal the switches are buttons at the bottom of the pane, folded at first: a press flips one and writes it into the configuration as /dp <name> off would', { options: KEY }, async ($, on) => {
+  const w = runWorld($, on, { backend: jev([0, 0, 1, 0, 0], { choice: 'sonnet' }), surfaces: ['desktop'] })
   await oneAgent(w)
   const pane = await w.pane({ surface: 'desktop' })
 
@@ -109,14 +109,17 @@ test('off the terminal the switches are buttons at the bottom of the pane, folde
   await pane.press({ key: 'pane-switch-skills' })
   await w.clock.settle()
   await pane.redraw()
-  expect(w.stored('switches')).toEqual({ skills: false })
+  expect(w.configWrites).toEqual([{ key: 'dispatch-pilot.skills', value: false }])
   expect(await w.command('dp', 'status')).toMatch(/ {2}关 {2}skills/)
   expect(await pane.find({ key: 'pane-switch-skills' })).toMatchObject({ props: { dimColor: true } })
 
   // The whole of Dispatch Pilot is the first button.
   await pane.press({ key: 'pane-switch-master' })
   await w.clock.settle()
-  expect(w.stored('switches')).toEqual({ skills: false, master: false })
+  expect(w.configWrites).toEqual([
+    { key: 'dispatch-pilot.skills', value: false },
+    { key: 'dispatch-pilot.enabled', value: false },
+  ])
 })
 
 test('off the terminal the effort lock is a picker beside the switches: a pick locks the main agent as /dp lock would, 不锁定 releases it', { options: KEY }, async ($, on) => {

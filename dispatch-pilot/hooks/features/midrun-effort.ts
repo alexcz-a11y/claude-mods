@@ -126,9 +126,9 @@ function isReportIntoTurn(e: { text: string; origin?: PromptOrigin; turnId?: str
 }
 
 export function registerMidrunEffort(on: On, ctx: Ctx): void {
-  defineSwitch({ name: MIDRUN_SWITCH, info: '一轮进行中，在失败复现、结果交回、加载 skill 这类事件上重新判断主 agent 的 effort' })
-  defineSwitch({ name: MIDRUN_DOWN_SWITCH, info: '一轮进行中，剩下的只是照做时把 effort 降到比发消息时低一档' })
-  defineSwitch({ name: MIDRUN_STEPS_SWITCH, info: '一轮进行中，没有事件时也每隔 midrunEverySteps 步重新判断一次主 agent 的 effort', default: false })
+  defineSwitch({ name: MIDRUN_SWITCH, info: '一轮进行中，遇到这几类事件时重新判断主 agent 的 effort：改了又失败的命令、agent 交回的结果、新加载的 skill、送进来的报告。关掉后，派出的 agent 失败时也升不了 effort。' })
+  defineSwitch({ name: MIDRUN_DOWN_SWITCH, info: '一轮进行中，剩下的工作只是照做时，把 effort 降到比发消息时低一档。关掉后中途只升档和回到原档。' })
+  defineSwitch({ name: MIDRUN_STEPS_SWITCH, info: '一轮进行中一直没有事件时，也每隔几步重新判断一次主 agent 的 effort；隔几步由「每隔几步重看一次」定。', default: false })
 
   on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
     // The main agent's own calls only: not a dispatched agent's, nor another plugin's `$.tool.call`.

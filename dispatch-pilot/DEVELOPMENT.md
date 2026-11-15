@@ -245,7 +245,7 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 ```
 
 - 命令在一轮进行中也立即执行：锁定或解锁从下一步起生效。
-- 开关保存在 `$.store`，下次启动会话时还是你离开时的样子；只保存和默认值不同的开关，所以一个新增的功能默认开着。几个会话同时在用时，改动不会覆盖别的会话刚保存的开关，但已经在运行的会话要到下次启动才会读到。
+- 开关保存在 plugin 的配置里（0.14.0，ADR 0027）：每个开关是 `userConfig` 的一个布尔选项，`/dp` 用 `$.config.set` 写它，引擎随即带着新选项重新加载 mod；下次启动会话时还是你离开时的样子。已经在运行的别的会话要到下次启动（或它自己重载）才会读到。没有配置行的会话（`claude -p`）写不进去，翻转只在那个会话里有效。
 - 锁定只在当前会话里有效，`/dp unlock` 或会话结束时解除。锁定期间决策照常进行并记录（锁定优先），不想为此等决策模型的话，用 `/dp main-effort off`。
 - `/dp log N` 列出每项功能记录的决策：做了什么决定、针对哪条消息、理由（决策模型给出的各档概率、回答的位置、抬高它的那条下限，置信度只记录）。`/dp`、`/dp status`、`/dp log N` 和各开关的回答都是中文，格式见下面的「语言」。同样的内容也写进 debug log，依据面板的决策日志也是这些条目。
 - 会话的读数（上下文占用、5 小时和 7 天限额的百分比、会话花费）每次变化时写一行进 debug log，例如 `signals: context 3% (28866/1000000 tokens); limits five_hour 26% resets ..., seven_day 50% resets ...; cost $0.1433; changed context, rateLimits, cost`。这些读数只是记录，不参与任何决策，留给以后设计「省额度模式」用；`/dp signals off` 可以停止记录。
@@ -260,13 +260,13 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 
 | 选项 | 说明 |
 |---|---|
-| `decisionModel` | 决策模型，在 `/config` 里是下拉选择：`jev`（TypeSafe，用 `jev-latest`，ADR 0021）、`pplx`（Perplexity，#50，0.9.0 起不再评测）、`d1-ultra`（Liquid，ADR 0017）或 `d1.1`（Liquid，ADR 0021，见「d1.1 的预算」）。默认 `jev`（ADR 0014；0.4.0 到 0.8.x 默认 `pplx`，#52，ADR 0006）；填了别的值（包括已移除的 `clef`），引擎按默认值处理并给出警告。只看这个值，不按密钥换（下面「选哪个决策模型」）。 |
+| `decisionModel` | 决策模型，在 `/config` 里是下拉选择：`jev`（TypeSafe，用 `jev-latest`，ADR 0021）、`pplx`（Perplexity，#50，0.9.0 起不再评测）、`d1-ultra`（Liquid，ADR 0017）或 `d1.1`（Liquid，ADR 0021，见「d1.1 的预算」）。默认 `jev`（ADR 0014；0.4.0 到 0.8.x 默认 `pplx`，#52，ADR 0006）；填了别的值，引擎按默认值处理并给出警告。只看这个值，不按密钥换（下面「选哪个决策模型」）。 |
 | `typesafeApiKey` | TypeSafe 的 API key，是敏感字段，保存在安全存储里。为空时读环境变量 `TYPESAFE_API_KEY`（#35），两处都有用这里的；两处都没有，Jev 不发送任何请求。读法见「pplx 的默认值和密钥」。 |
 | `perplexityApiKey` | Perplexity 的 API key（#50），是敏感字段。为空时读环境变量 `PERPLEXITY_API_KEY`，两处都有用这里的。读法见「pplx 的默认值和密钥」。 |
 | `timeoutMs` | 等待决策模型的最长时间，范围 200–8000 毫秒。 |
 | `contextMessages` | 随你的消息一起发送的最近消息条数，范围 0 到决策模型的上限（`BACKEND_DEFAULTS` 的 `contextMessagesMax`，两个决策模型都是 2000；Jev 在 2026-10-15 之前是 32）。默认取上限：真正限制发多少的是 `contextTokens`，放不下的旧消息整条丢掉（见「Jev 的上下文默认值怎么算」）。 |
 | `contextTokens` | 发给决策模型的 state 的 token 预算，范围 100–16000：你的消息加上最近对话，按发出去的样子数（整个 state 序列化成 JSON，连同字段名、引号和转义）。默认值按 Jev 的上限算出来，而且按请求的种类分开取：带 skill 题的请求一个值，其余种类一个更大的值；你设了值，每个种类取它和自己上限里较小的一个（见「Jev 的上下文默认值怎么算」）。整个 state 都要在预算之内，不靠字段的顺序。 |
-| `escalateAfter` | 一个派出 agent（包括 Workflow 里的）计入的失败累计满几次，就从它的下一步起升一档模型（见「失败时升模型」），范围 1–20。是累计，不是接连：中间成功一次不清零，升过一次（或到了门槛却升不了）之后重新数。主 agent 的失败不升任何东西，这一轮结束时记下计入的失败到没到这个数（`facts.stuck`，规则 R4 读它）。0.9.0 之前到了这个数是问决策模型、强制升 effort。 |
+| `escalateAfter` | 一个派出 agent（包括 Workflow 里的）计入的失败累计满几次，就从它的下一步起升一档模型（见「失败时升模型」），范围 0–20；0 表示关闭（0.14.0：失败照常计数，什么都不升，`facts.stuck` 恒为否；之前 0 被夹成 1）。是累计，不是接连：中间成功一次不清零，升过一次（或到了门槛却升不了）之后重新数。主 agent 的失败不升任何东西，这一轮结束时记下计入的失败到没到这个数（`facts.stuck`，规则 R4 读它）。0.9.0 之前到了这个数是问决策模型、强制升 effort。 |
 | `escalateLimit` | 一个派出 agent 最多升几次模型，范围 0–10；0 表示派出之后从不换模型，失败只一档一档升 effort，直到 max（ADR 0023）。 |
 | `escalateHaikuTo` | 失败的 haiku agent 升到哪个模型。写别名（`sonnet`、`opus`、`fable`）或完整的模型 id；别名由 mod 换成步骤需要的完整 id（`decision/model-ids.ts`，引擎对每一步的模型不认别名），不是已知模型的值不换。你为这个 agent 点名的模型不换，你排除的模型跳过。留空表示 haiku 不升。0.9.0 之前是 haiku 的 effort 到顶之后才换。 |
 | `agentFable` | 打开后，派出 agent（包括 Workflow 里的）的可选模型加入 fable（比 opus 更贵）。你自己点名 fable 时不受这个开关限制。 |
@@ -860,7 +860,7 @@ claude --plugin-dir ./dispatch-pilot --settings '{"enabledPlugins":{"jev-pilot@j
 TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide.ts '把登录模块重构成三层' [--zh | --en] [--choice]   # 用 Node 调一次真实的 Jev；问题默认用 mod 对这个决策模型的写法（Jev 中文）
 TYPESAFE_API_KEY=... node dispatch-pilot/scripts/decide-agent.ts --file <subagent.jsonl> --id subagent-011 [--lang en] [--zh] [--work] [--noul] [--fable]   # 一个派出 agent 的判断（Jev），请求与 mod 发出的相同
 node dispatch-pilot/eval/validate.ts                      # 校验评测集（接缝 2，见下文「评测」），再核对 README 的配置表和 plugin.json、BACKEND_DEFAULTS 一致（#18）
-node dispatch-pilot/eval/validate.ts docs                 # 只核对文档：README 的配置表、README 里 `/dp` 开关的列表（和代码里 defineSwitch 登记的一致，新加开关要写进「功能的开关是」那句）、「结构」树、一个写者
+node dispatch-pilot/eval/validate.ts docs                 # 只核对文档：README 的配置表、README 里 `/dp` 开关的列表（和代码里 defineSwitch 登记的一致，新加开关要写进「功能的开关是」那句）、每个开关在 plugin.json 里的选项（同名的驼峰写法、布尔、默认值和 `info` 一字不差，ADR 0027）、「结构」树、一个写者
 node dispatch-pilot/eval/run.ts effort-submit --estimate  # 估算请求数、token 和费用，不发请求
 node dispatch-pilot/eval/run.ts effort-submit --label <名字>   # 用真实 Jev 跑一次评测，结果存进 eval/results/
 node dispatch-pilot/eval/run.ts subagent --label <名字>   # 派出 agent 的模型和 effort（#15）：三个变体 × 中英，600 个请求，Jev 约 0.07 美元（估算，题比 0.8.x 多，按 token 算会更贵一些）；--variants nouls 只跑 mod 的问法（选 Jev 时 mod 的问法），200 个请求，约 0.03 美元
@@ -922,7 +922,7 @@ hooks/
 │   ├── rationale.ts        依据面板看到的东西（纯函数）：选中的 agent 和它的决定（cardOf）、规则推演每一步的说法（stepLines，只读存下的步骤，不重算）、按轮分组的日志和折叠键（logGroups）；面板的 id（每项功能的开关字「开」「关」和整个 mod 关着时的「Dispatch Pilot 已关…」那一行，直接写在 `pane.tsx` 里）
 │   ├── reference.ts        卡片上「参考图」一行的中文（#63）：复杂度读数的档位、说明、来自几张图；只把存下的读数说成人话
 │   ├── pane.tsx            终端的依据面板：顶部灰字（每项功能的开关状态、锁定）、‹ 上一个 (p) / 下一个 › (n)、看它的对话 (x)（`$.ui.view`，派出 agent 才有；主视图是某个 agent 时变成 ↩ 回主对话）、圆角的依据卡片、按轮分组的决策日志；悬挂缩进，不截断
-│   ├── pane-app.tsx        其他端（Desktop、VS Code、手机）的依据面板：一排 agent 标签（选中的是 primary）、看它的对话（引擎 ≥2.1.300 才画）和「关闭」；卡片用 pane.tsx 的 `cardRows` 的 `app` 样式（大一号的名字、没有 ├ └ 的规则清单、份额写在概率条下一行）；日志按轮点标题折叠，每条一行，其余（概率、skill、理由）用 hover 的 `scope` 在指着时显出；最下面折起的「功能开关」：每个开关一个按钮、effort 锁定的 Select，按下就改，和 `/dp` 一样存进 `$.store`（`keepSwitch`）
+│   ├── pane-app.tsx        其他端（Desktop、VS Code、手机）的依据面板：一排 agent 标签（选中的是 primary）、看它的对话（引擎 ≥2.1.300 才画）和「关闭」；卡片用 pane.tsx 的 `cardRows` 的 `app` 样式（大一号的名字、没有 ├ └ 的规则清单、份额写在概率条下一行）；日志按轮点标题折叠，每条一行，其余（概率、skill、理由）用 hover 的 `scope` 在指着时显出；最下面折起的「功能开关」：每个开关一个按钮、effort 锁定的 Select，按下就改，和 `/dp` 一样写进配置（`writeSwitch`）
 │   └── kit.tsx             视觉语言：色板（含状态格的 `STATUS_COLOR`）、effort 色阶、模型标签、单元格宽度、标记（`Marks`：时间色带、概率条和置信条，终端是 Raster 的格子，别的端是 SVG）；band、脚部和面板共用的 `readout`（模型·effort）、`skillsText`、`pctText`
 ├── core/                   各功能共用的机制，不含具体功能
 │   ├── core.ts             核心的 hook：发消息时的决策请求、一轮的开始、每一步的写入、认出 settings hook 拦下的调用、记下用户运行的命令
@@ -949,7 +949,7 @@ hooks/
 │   ├── video-frames.ts     录屏抽帧（#60）：`readRecording` 经 `ImageFilesIo` 调 ffmpeg 查长度、在时间段内逐帧取成 JPEG，再交 `loadImages` 规整；失败回一句原因，从不抛
 │   ├── unresolved.ts       未解决次数（#39）和问题摘要（#40）的唯一写入者（moveCount、clearCount、queueSummary、landSummary 等）、「决定」的字句（含摘要没写成的）和 `UnresolvedRecord`（卡片画的记录）
 │   ├── skills.ts           skill 目录：loadCatalog（经闭包读命令、引擎的 skill 清单、settings、磁盘，找到每个 skill 的文件）；读和裁剪 skill 列表（#10）；rankingSettings、describeStages（#11）
-│   ├── switches.ts         开关：总开关和各功能的开关，defineSwitch 登记、isOn 判断；isShown：一项功能拥有的看板部分（parts）此刻画不画
+│   ├── switches.ts         开关：总开关和各功能的开关，defineSwitch 登记、isOn 判断；值来自配置的选项（入口的 loadSwitches，optionOf 给出选项名），writeSwitch 把翻转写进配置，moveStoredSwitches 把 0.13.0 及更早存在 `$.store` 的开关搬过去（ADR 0027）；isShown：一项功能拥有的看板部分（parts）此刻画不画
 │   └── setup.ts            把 userConfig 读成 ctx：每个选项的范围和缺省值只在这里（Config），以及决策后端
 └── decision/               决策请求模块：纯模块，不依赖 $，Node 可以直接 import（#4 的评测会用）
     ├── system-one.ts       System One 请求和回答的类型；mergeParts、answersFor
@@ -1186,18 +1186,19 @@ effort 问题的档位描述是共用的：用 `effortQuestion(instructions, ctx
 每项功能在自己的 register 里登记一个开关，一行：
 
 ```ts
-defineSwitch({ name: 'escalation', info: '派出的 agent 工具调用接连失败时，改用更强的模型；主 agent 这一轮的失败记下来，留给下一条消息', parts: ['counts'] })
+defineSwitch({ name: 'escalation', info: '派出的 agent 的工具调用失败够多次时，先升一档 effort，再失败就换更强的模型；主 agent 这一轮的失败记下来，留给下一条消息判断。', parts: ['counts'] })
 ```
 
-`/dp` 的列表里会自动出现它，`/dp escalation off` 可以关掉它，状态存进 `$.store`，不需要别的接线。功能在要动手的地方用 `isOn(name)` 判断，例如 `if (!isPersonsMessage(e) || !isOn('main-effort')) return next(e)`。
+再在 `.claude-plugin/plugin.json` 的 `userConfig` 里给它一个布尔选项（ADR 0027）：选项名是开关名的驼峰写法（`hook-block-failures` 是 `hookBlockFailures`，`core/switches.ts` 的 `optionOf`），`default` 和开关的默认值一样，`description` 和 `info` 一字不差，`title` 是一个简短的中文名；README「配置」的「功能开关」表里加一行。`node dispatch-pilot/eval/validate.ts docs` 核对这几处。`/dp` 的列表里会自动出现它，`/dp escalation off` 可以关掉它（写进配置的这一项），不需要别的接线。功能在要动手的地方用 `isOn(name)` 判断，例如 `if (!isPersonsMessage(e) || !isOn('main-effort')) return next(e)`。
 
 - `isOn` 同时看总开关：总开关关着时它对所有功能都返回 false，功能不必再单独判断总开关。总开关关着时核心也自己放行：`prompt.submit` 不发决策请求，`turn.step` 不改写任何一步（锁定也不生效），band 上没有 Dispatch Pilot 的内容，脚部只写 `○ dp 已关`。
-- 在发消息、每一步、事件发生的时候判断，不要在 register 里判断：register 时还没有读到用户保存的开关（`features/control.ts` 在 `session.start` 里读，热重载后会重新读）。
+- 在发消息、每一步、事件发生的时候判断，不要在 register 里判断：开关的值在入口的 `loadSwitches(options)` 之后才有（它在各功能 register 之前调用），一个会话里还会被 `/dp` 翻转；0.13.0 及更早存在 `$.store` 的开关要到 `session.start` 才搬进来（`features/control.ts`）。
 - `name`：小写字母、数字和 `-`，以字母开头；不能是 `/dp` 自己的词（`master`、`on`、`off`、`all`、`reset`、`status`、`help`、`lock`、`unlock`、`log`），否则登记时抛错。建议和功能的文件名一致。重复登记同一个名字会替换前一次。
-- `info`：一行中文，显示在 `/dp status` 的列表和开关的回答里。名字是用户要输入的，保持 ASCII；`info` 是给人看的，不受字符宽度的限制，终端和别的端都用同一份（band、脚部和面板不再靠一行状态行，没有「只准单宽字符」这条约定）。
+- `info`：一行中文，显示在 `/dp status` 的列表和开关的回答里，也是 plugin.json 里这个选项的 `description`（两处一字不差）。名字是用户要输入的，保持 ASCII；`info` 是给人看的，不受字符宽度的限制，终端和别的端都用同一份（band、脚部和面板不再靠一行状态行，没有「只准单宽字符」这条约定）。
 - `parts`（可选）：这项功能写在看板节点上的部分（`core/switches.ts` 的 `BoardPart`：`counts` 是失败计数，`checks` 是看图核对和截图接管的计数）。功能的决定和事件凭开关名就是它的（日志条目和 note 的 `feature`），不用登记。关掉这项功能时，画面（`hooks/board/`）在画的时候用 `isOn(name)` 和 `isShown(part)` 把它们都略过，`/dp` 经 `report(io, { switched: true })` 让画面重画一次；看板数据和决策日志不动，打开后照常出现。
 - `default: false`（可选）：默认关闭；不写就默认开启。
-- `$.store` 的 `switches` 里只存用户改过的、和默认值不同的开关（总开关的键是 `master`）。`/dp` 保存时只改动这一个开关，别的会话存下的其他项原样保留，未知的名字也保留（功能改名或回退版本时不丢用户的选择）。
+- 开关只存在配置里（ADR 0027）：`isOn` 读的是这次加载拿到的选项，加上这次加载以来翻转过的（`flipped`）。`/dp` 和面板按钮先在内存里翻转，再用 `$.config.set({ key: 'dispatch-pilot.<选项>', value })` 写进配置；写成之后引擎重新加载模块，新的一次加载从选项里读到它。写不成（没有配置行的会话、托管设置锁住的行）时翻转只留在这次加载里，回答里写明原因。
+- 0.13.0 及更早存在 `$.store` 的 `switches`（总开关的键是 `master`）在 `session.start` 搬一次（`moveStoredSwitches`）：代码还定义的开关逐个写进配置，行上已经是这个值的不再写；全部写成之后删掉 store 里的这个键，没有代码定义的名字随之丢掉。每写一次引擎就重载一次、`session.start` 再来一次，所以「删 store」放在最后，由发现没有东西可写的那一次加载来做。写不成的会话只在自己这次加载里用这些开关，store 留给写得成的会话。
 
 ### 记录一次决策
 
@@ -2500,6 +2501,7 @@ Jev 出新版本时重跑一次，就知道看图核对准不准、能不能换�
   - **常驻提示到达主 agent**：`tool.describe` 在 Workflow 的描述后面附的文字，主 agent 能原样引用出来。
   - **端到端**（不用 key：先加载的探针插件替 `$.http.fetch` 回答 `api.typesafe.ai` 的请求，`next` 不往下走；另一个后加载的探针记下每一步发出的样子）：`scriptPath` 提交的脚本里，带 label 的调用、不写 label 的调用都在运行开始时判断，各自的 agent 每一步按 `claude-haiku-4-5` 发出、由 `claude-haiku-4-5-20251001` 作答；prompt 是数据的调用，agent 启动时等 transcript（约 100 毫秒）再判断，每一步按 `claude-opus-5-5`、`high` 发出。状态行 `by label: routed 3 agents`，主 agent 读到了说明。直接交来的脚本（本功能注册在 `workflow-agents` 内层之后）：`workflow-agents` 把带 label 的调用写成 haiku，那个 agent 每一步是引擎按脚本解析的 `claude-haiku-4-5-20251001`；prompt 是数据的调用由本功能在 agent 启动时判断，按 `claude-opus-5-5`、`high` 发出；状态行 `workflow routed 1 agent (1 as written) | by label: routed 1 agent`。两段说明作为同一个 `hook_additional_context` 附件到达主 agent，本功能的在前。用假 key 时（请求得到 401）各 agent 按引擎原样运行，状态行写明 `jev: key refused (HTTP 401)`。
 - 斜杠命令作为 `claude -p` 的整个 prompt 时在本地运行，不调用模型（`claude -p "/dp"`）。引擎会在命令回答的前面加上插件名（`dispatch-pilot: ...`），所以命令的文字自己不要再带前缀。`--input-format stream-json` 里连续发多条用户消息，其中的 `/dp ...` 照常当斜杠命令处理，`$.state` 在同一个进程里跨消息保留。
+- **`$.config`（2.1.323，2026-11-13，用一个带两个 `userConfig` 字段的探针 mod 实测）。** 交互会话里 `$.config.list()` 有每个启用的 plugin 的非敏感、非列表选项各一行，键是 `<plugin 名>.<字段>`（不带 `@marketplace`、`@inline`），`provider` 是 `{ plugin: '<名>@<来源>', tier }`。`$.config.set({ key, value })` 回 `{ value }`，写进 user settings 的 `pluginConfigs["<名>@<来源>"].options`，引擎当场重新加载这个模块（日志 `options changed — reloaded`）：新的模块实例带着新选项跑一遍 register 和 `session.start`，模块级变量从头开始；发起写入的那个旧实例的 hook 继续跑完，它后面的 `$` 调用照常回答。数值字段声明了 `min`、`max` 时，越界的写入回 `{ deny: "<标题> doesn't accept \"99\". It takes a number between 0 and 20." }`；而设置文件里已经存着的越界值会让整个模块加载失败（`options do not fit plugin.json userConfig: <标题> must be at most 20`），所以 Dispatch Pilot 的数值选项不声明 `min`、`max`，范围由 `readConfig` 夹取。`claude -p` 的会话里 `$.config.list()` 只有引擎自己的行，没有任何 plugin 的行，`$.config.set` 以 `no /config row with key <key>` 拒绝（抛错，不是 `{ deny }`）。别的端（Desktop、VS Code）没有测。
 - `$.command.register` 在 `session.start` 的 `next(e)` 之后调用，命令当场被列出；`$.store` 在 `next(e)` 之前就能读，读到上次保存的内容，两次 `claude -p` 之间也保留（文件在配置目录的 `plugins/store/` 下，`--plugin-dir` 加载时叫 `dispatch-pilot_inline-<hash>.json`）。
 - `session.measure` 在订阅会话里主 agent 的每一轮之后触发一次，读数有 `context`（`tokens`、`window`、`percent`）、`rateLimits`（`five_hour` 和 `seven_day`，各带 `percentUsed` 和 `resetsAt`）和 `cost.usd`；matcher `{ context: { window: /(?:)/ } }` 在真实引擎里命中。headless 下状态行以 `ui_status` 事件输出（也写进 debug log），`to: 'debug'` 的日志不会出现在输出流里。
 - 带 `options` 的字符串选项，值不在列表里时，引擎读作默认值并给出警告：`option <名字> in settings is not one of <列表>; it reads as the default, <默认值>`（kit 实测）。

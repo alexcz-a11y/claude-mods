@@ -179,7 +179,7 @@ function filesOf($: EngineInterface): ImageFilesIo {
 }
 
 export function registerImageRouting(on: On, ctx: Ctx): void {
-  defineSwitch({ name: IMAGE_ROUTING_SWITCH, info: '带图路由：发消息带参考图时，先读出图的复杂度，再决定主 agent 的 effort（默认关，图会发给决策模型）', default: false })
+  defineSwitch({ name: IMAGE_ROUTING_SWITCH, info: '你发消息带参考图时，先读出图的复杂度，再定主 agent 的 effort。会把你贴的图发给 TypeSafe 或 Perplexity。', default: false })
   /** Whether images met now are to be read: the feature is on and there is an image backend. */
   const reading = () => isOn(IMAGE_ROUTING_SWITCH) && ctx.images !== null
 

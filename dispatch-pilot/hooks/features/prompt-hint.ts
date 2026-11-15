@@ -47,7 +47,7 @@ async function hintDecorations($: EngineInterface, text: string): Promise<Prompt
 }
 
 export function registerPromptHint(on: On): void {
-  defineSwitch({ name: SWITCH, info: 'show after the draft what dp will do with it (dim, never sent)' })
+  defineSwitch({ name: SWITCH, info: '你写消息时，在草稿后面用灰字提示 Dispatch Pilot 会怎么处理它；只是显示，不随消息发出。' })
 
   on('prompt.edit', { origin: { kind: 'composer' } }, async ($, e, next) => {
     const box = await next(e)

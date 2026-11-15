@@ -226,7 +226,7 @@ test('with Dispatch Pilot switched off (/dp off), find_skill says so when called
 })
 
 test('find_skill has a switch of its own: with the suggestions off since an earlier session (so the skills were not read at its start), it reads them and answers', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.8 }), skills: SKILLS, disk: PERSON_FILES, store: { switches: { skills: false } }, session: true })
+  const w = world($, on, { backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.8 }), skills: SKILLS, disk: PERSON_FILES, switches: { skills: false } })
   await w.start()
   const answer = String((await w.findSkill('write the tests first')).result)
 

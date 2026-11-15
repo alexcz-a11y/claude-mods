@@ -11,7 +11,7 @@
 
 import { expect, test } from 'claude-code/testing'
 import { BACKEND_DEFAULTS } from '../hooks/core/setup.ts'
-import { checkConfigTable, checkEngineStaysHome, checkOneWriter, checkStructureTree, checkSwitchList, declaredSwitches } from '../eval/lib/docs.ts'
+import { checkConfigTable, checkEngineStaysHome, checkOneWriter, checkStructureTree, checkSwitchList, checkSwitchOptions, declaredSwitches, declaredSwitchSpecs } from '../eval/lib/docs.ts'
 
 /** The decision models' defaults as these tests state them. */
 const DEFAULTS = {
@@ -233,6 +233,50 @@ test('a name in the list that no code defines is left over from a switch that wa
 
 test('a README with no such sentence is one problem, not one for each switch', () => {
   expect(checkSwitchList('## 控制\n\n- 命令\n', ['main-effort', 'visual-check'])).toEqual(['the README has no sentence that starts with "功能的开关是"'])
+})
+
+// ADR 0027: each switch is an option of the plugin's configuration, the only place it is kept: plugin.json declares a boolean
+// for every switch the code defines (its name in camel case) with the switch's default and, word for word, its `info`, and
+// `enabled` for the master switch.
+
+/** The options that agree with SWITCH_SOURCES: the master switch's, and one for each switch with its default and `info`. */
+const SWITCH_OPTIONS = {
+  enabled: { type: 'boolean', default: true, description: 'the whole mod' },
+  mainEffort: { type: 'boolean', default: true, description: 'x' },
+  visualCheck: { type: 'boolean', default: true, description: 'x' },
+  imageRouting: { type: 'boolean', default: false, description: 'x' },
+}
+
+test('the switches are found with what they say and their defaults; a call shown in a comment defines nothing', () => {
+  const specs = declaredSwitchSpecs({ ...SWITCH_SOURCES, 'core/switches.ts': "//   defineSwitch({ name: 'escalation', info: 'an example' })\nexport function defineSwitch(spec) {}" })
+  expect(specs.sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+    { name: 'image-routing', info: 'x', default: false },
+    { name: 'main-effort', info: 'x', default: true },
+    { name: 'visual-check', info: 'x', default: true },
+  ])
+})
+
+test('a manifest with a boolean for the master switch and for each switch, with its default and its words, passes', () => {
+  expect(checkSwitchOptions(SWITCH_OPTIONS, declaredSwitchSpecs(SWITCH_SOURCES))).toEqual([])
+})
+
+test('a switch with no option, and a manifest without `enabled`, are named', () => {
+  const { visualCheck: _, enabled: __, ...rest } = SWITCH_OPTIONS
+  const problems = checkSwitchOptions(rest, declaredSwitchSpecs(SWITCH_SOURCES))
+  expect(problems).toHaveLength(2)
+  expect(problems[0]).toMatch(/`enabled`.*master switch/)
+  expect(problems[1]).toMatch(/`visualCheck`.*no such option.*`visual-check`/)
+})
+
+test("an option that is not a boolean, one whose default is not the switch's, and one that says something else are each reported", () => {
+  const problems = checkSwitchOptions(
+    { ...SWITCH_OPTIONS, mainEffort: { type: 'string', default: true, description: 'x' }, imageRouting: { type: 'boolean', default: true, description: 'x' }, visualCheck: { type: 'boolean', default: true, description: 'something else' } },
+    declaredSwitchSpecs(SWITCH_SOURCES),
+  )
+  expect(problems).toHaveLength(3)
+  expect(problems.find((problem) => problem.startsWith('`mainEffort`'))).toContain('must be a boolean')
+  expect(problems.find((problem) => problem.startsWith('`imageRouting`'))).toMatch(/default is true.*off by default/)
+  expect(problems.find((problem) => problem.startsWith('`visualCheck`'))).toContain('word for word')
 })
 
 // ADR 0004: the decision report is the one writer of what people see, and no screen of the mod is the status row

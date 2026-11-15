@@ -373,39 +373,7 @@ test("the eval and scripts/decide*.ts read the same table: a run for Jev gets Je
   expect(settingsFrom(optionsFor('jev', userConfig, ['contextTokens=4000'])).context.tokens).toBe(4000)
 })
 
-// Clef was removed in 0.4.0: a `decisionModel` of clef left in a 0.3.x configuration reads as unset, which is Jev (the
-// default since 0.9.0, ADR 0014). The engine itself reads a value outside the option's list as the default and warns, so the
-// mod is handed `jev`; it finds the old value in the person's settings file and says in the debug log why the model is not the
-// one written.
-
-const CLEF_LEFT_IN_SETTINGS = { pluginConfigs: { 'dispatch-pilot@alex-mods': { options: { decisionModel: 'clef', timeoutMs: 2500 } } } }
-
-test('a decisionModel of clef, left over from 0.3.x, reads as unset (Jev), and the debug log says clef 已移除', { options: { decisionModel: 'jev', typesafeApiKey: 'ts-test-key' } }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), session: true, userSettings: CLEF_LEFT_IN_SETTINGS })
-  await w.start()
-  expect(w.logs.map((log) => log.text)).toContain('decisionModel clef 已移除，按没设处理')
-  await w.submit('看看这个报错是怎么回事')
-  await w.step({ index: 0, effort: 'xhigh' })
-  expect(w.requests[0]?.url).toBe('https://api.typesafe.ai/v1/systemone')
-  expect((await w.board()).main).toMatchObject({ effort: 'high', routed: true })
-})
-
-const NOT_CLEF = [
-  { name: 'no settings file', userSettings: undefined },
-  { name: 'an empty one', userSettings: {} },
-  { name: 'one that names jev', userSettings: { pluginConfigs: { 'dispatch-pilot@alex-mods': { options: { decisionModel: 'jev' } } } } },
-  { name: "another plugin's clef", userSettings: { pluginConfigs: { 'other@somewhere': { options: { decisionModel: 'clef' } } } } },
-]
-
-for (const { name, userSettings } of NOT_CLEF) {
-  test(`with ${name}, the debug log says nothing about Clef`, { options: KEY }, async ($, on) => {
-    const w = world($, on, { session: true, ...(userSettings === undefined ? {} : { userSettings }) })
-    await w.start()
-    expect(w.logs.map((log) => log.text).filter((text) => text.includes('clef'))).toEqual([])
-  })
-}
-
-test('readConfig: a decisionModel of clef passed straight in (the eval, a script) reads as unset', () => {
+test('readConfig: a decisionModel that names no decision model (a typo, a model since removed) reads as unset', () => {
   expect(readConfig({ decisionModel: 'clef' })).toEqual(readConfig({}))
 })
 

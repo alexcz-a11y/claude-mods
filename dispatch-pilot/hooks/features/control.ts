@@ -15,7 +15,10 @@
 // elsewhere the person clicks, and a pane asking for the keys is shown again
 // whenever it is hidden (Desktop, while the engine lists the request).
 //
-// What the person flips is kept in $.store and loaded back at session start.
+// What the person flips is written into the plugin's configuration (`$.config.set`,
+// core/switches.ts, ADR 0027): each switch is an option there, the only place it is
+// kept, and the engine reloads the module with the new options. The switches 0.13.0
+// and earlier kept in $.store are moved there once, at session start.
 // The engine puts the plugin's name before a command's answer, so the texts
 // here do not start with one.
 //
@@ -27,8 +30,8 @@ import type { EngineInterface, On, RenderSurface, SessionMeasureInput } from 'cl
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
 import { ultrathinkOffBy } from '../decision/message-effort.ts'
 import { decisionLine, LOG_ENTRIES, report, unplacedText, type DecisionModelIo, type LogEntry, type SwitchIo } from '../core/report.ts'
-import { describeDefaults, keySource, removedDecisionModel, type Ctx } from '../core/setup.ts'
-import { defineSwitch, isOn, keepSwitch, listSwitches, loadOverrides, masterOn, setMaster, setSwitch, SWITCHES_KEY } from '../core/switches.ts'
+import { describeDefaults, keySource, type Ctx } from '../core/setup.ts'
+import { defineSwitch, isOn, listSwitches, MASTER, masterOn, moveStoredSwitches, setMaster, setSwitch, STORED_SWITCHES_KEY, writeSwitch } from '../core/switches.ts'
 import { errorText } from '../decision/backend.ts'
 import { PANE_COLUMNS, PANE_ID, PANE_TITLE } from '../board/rationale.ts'
 
@@ -37,12 +40,18 @@ const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 const BOARD = { plugin: 'dispatch-pilot', key: 'board' } as const
 
 export function registerControl(on: On, ctx: Ctx): void {
-  defineSwitch({ name: 'signals', info: '把上下文、限额和花费的读数记进 debug log，不参与任何决策' })
+  defineSwitch({ name: 'signals', info: '把上下文占用、限额和花费的读数记进 debug log；只记录，不参与任何决策。' })
 
   // Under a match-all matcher: other features set themselves up at session start too.
   on('session.start', { cwd: /(?:)/ }, async ($, e, next) => {
-    // The person's switches first: the features beneath read them while the session starts.
-    loadOverrides(await $.store.get(SWITCHES_KEY).catch(() => undefined))
+    // The switches an earlier version kept in $.store, first: the features beneath read the switches while the session starts.
+    const moved = await moveStoredSwitches({
+      read: () => $.store.get(STORED_SWITCHES_KEY),
+      clear: () => $.store.delete(STORED_SWITCHES_KEY),
+      rows: () => $.config.list(),
+      write: (args) => $.config.set(args),
+    })
+    if (moved.length > 0) $.ui.log(`switches kept in the store by an earlier version, moved into the configuration: ${moved.join(', ')}`, { to: 'debug' })
     // The environment's keys (the options' come first), for the requests that follow; never written down, only where they came from.
     // Read before anything is said of the decision model: who takes images depends on them (core/setup.ts, `Ctx`).
     ctx.secrets.perplexityEnvKey = ((await $.env.get('PERPLEXITY_API_KEY').catch(() => undefined)) ?? '').trim()
@@ -68,9 +77,6 @@ export function registerControl(on: On, ctx: Ctx): void {
     if (ctx.config.backend === 'd1-ultra' || ctx.config.backend === 'd1.1') $.ui.log(`${ctx.config.backend} key: ${keySource(ctx.config.liquidApiKey, ctx.secrets.liquidEnvKey, 'LIQUID_API_KEY')}`, { to: 'debug' })
     // Jev's key serves the decisions when Jev decides and the images when Jev takes them (whatever decides the rest).
     if (ctx.config.backend === 'jev' || images?.name === 'jev') $.ui.log(`jev key: ${keySource(ctx.config.typesafeApiKey, ctx.secrets.typesafeEnvKey, 'TYPESAFE_API_KEY')}`, { to: 'debug' })
-    // A decisionModel left over in the person's settings that names a model since removed: the engine reads it as the default.
-    const removed = removedDecisionModel(await $.settings.read({ source: 'user' }).catch(() => undefined))
-    if (removed !== null) $.ui.log(`decisionModel ${removed} 已移除，按没设处理`, { to: 'debug' })
     const result = await next(e)
     await $.command
       .register({
@@ -99,10 +105,12 @@ export function registerControl(on: On, ctx: Ctx): void {
     const command = parseControl(e.args)
     // The screens draw again: they leave out what a feature that is off owns.
     const reporting: SwitchIo = { redraw: () => $.ui.invalidate('ui.render') }
-    // Keeps one switch as the person just flipped it, beside whatever another session saved meanwhile;
-    // says so when it cannot.
-    const save = async (name: string) =>
-      (await keepSwitch({ get: () => $.store.get(SWITCHES_KEY), set: (value) => $.store.set(SWITCHES_KEY, value) }, name)) ? '' : '（没有保存：本地存储用不了，只在这个会话里有效）'
+    // Writes one switch into the configuration as the person just flipped it; says so when it cannot (a session
+    // without a /config panel has no row to write: the flip then holds for this session alone).
+    const save = async (name: string, wanted: boolean) => {
+      const why = await writeSwitch((args) => $.config.set(args), name, wanted)
+      return why === null ? '' : `（没有写进配置，只在这个会话里有效：${why}）`
+    }
     try {
       switch (command.kind) {
         case 'pane': {
@@ -125,7 +133,7 @@ export function registerControl(on: On, ctx: Ctx): void {
         case 'master':
           setMaster(command.on)
           await report(reporting, { switched: true })
-          return { text: `Dispatch Pilot 已${command.on ? '打开' : '关闭'}${await save('master')}` }
+          return { text: `Dispatch Pilot 已${command.on ? '打开' : '关闭'}${await save(MASTER, command.on)}` }
         case 'switch': {
           const spec = listSwitches().find((s) => s.name === command.name)
           if (spec === undefined || !setSwitch(command.name, command.on)) {
@@ -133,7 +141,7 @@ export function registerControl(on: On, ctx: Ctx): void {
             return { text: `没有叫「${command.name}」的开关（现有：${names}）` }
           }
           await report(reporting, { switched: true })
-          return { text: `${spec.name} 已${command.on ? '打开' : '关闭'}：${spec.info}${await save(spec.name)}` }
+          return { text: `${spec.name} 已${command.on ? '打开' : '关闭'}：${spec.info}${await save(spec.name, command.on)}` }
         }
         case 'lock': {
           await $.state.set(LOCK, command.effort)

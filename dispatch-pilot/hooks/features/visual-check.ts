@@ -74,7 +74,7 @@ function filesOf($: EngineInterface): ImageFilesIo {
 }
 
 export function registerVisualCheck(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: '看图核对：agent 交上截图和检查项，决策模型对每条回答过、不过或没把握', parts: ['checks'] })
+  defineSwitch({ name: SWITCH, info: 'agent 交上截图或录屏和几条检查项，由决策模型逐条回答过、不过或没把握，agent 不必自己看图。图会发给 TypeSafe（没有它的 key 时发给 Perplexity）。', parts: ['checks'] })
 
   // Registered once every plugin is loaded, under a match-all matcher. Without a decision model that takes images (no TypeSafe
   // and no Perplexity key) the tool would only ever fail, so it is not offered.

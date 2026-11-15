@@ -120,32 +120,30 @@ test('the command takes any case and spacing, and what it does not understand ch
   expect(await w.command('dp', 'status')).toMatch(/关 +main-effort +\S/)
 })
 
-// ---- What the person flipped is kept ---------------------------------------
+// ---- Where the switches are kept: the plugin's configuration (ADR 0027) ------
 
-test('what the person flips is kept in the store, and only while it differs from the default', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), store: {} })
+test('what the person flips is written into the configuration, the master switch as `enabled`, each time it is flipped', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]) })
 
-  await w.command('dp', 'main-effort off')
-  expect(w.stored('switches')).toEqual({ 'main-effort': false })
+  expect(await w.command('dp', 'main-effort off')).toBe('main-effort 已关闭：你每发一条消息，先问决策模型，再按固定规则定主 agent 这一轮开始时的 effort。')
+  expect(w.configured('mainEffort')).toBe(false)
+  await w.command('dp', 'midrun-steps on')
   await w.command('dp', 'off')
-  expect(w.stored('switches')).toEqual({ 'main-effort': false, master: false })
   await w.command('dp', 'on')
   await w.command('dp', 'main-effort on')
-  expect(w.stored('switches')).toEqual({})
+  expect(w.configWrites).toEqual([
+    { key: 'dispatch-pilot.mainEffort', value: false },
+    { key: 'dispatch-pilot.midrunSteps', value: true },
+    { key: 'dispatch-pilot.enabled', value: false },
+    { key: 'dispatch-pilot.enabled', value: true },
+    { key: 'dispatch-pilot.mainEffort', value: true },
+  ])
+  // Nothing is kept anywhere else: the store is not touched.
+  expect(w.storedKeys()).toEqual([])
 })
 
-test('flipping a switch keeps what another session saved meanwhile', { options: KEY }, async ($, on) => {
-  // Another session saved master off after this one loaded its switches (it never did here).
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), store: { switches: { master: false, 'future-feature': false } } })
-
-  await w.command('dp', 'signals off')
-  expect(w.stored('switches')).toEqual({ master: false, 'future-feature': false, signals: false })
-  await w.command('dp', 'signals on')
-  expect(w.stored('switches')).toEqual({ master: false, 'future-feature': false })
-})
-
-test('a new session starts as the person left it: Dispatch Pilot off stays off, and /dp is registered to run mid-turn', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), store: { switches: { master: false } }, session: true })
+test('the mod loads with the switches its options give: Dispatch Pilot off stays off, and /dp is registered to run mid-turn', { options: { ...KEY, enabled: false } }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), session: true })
 
   await w.start()
   expect(w.commands.map((c) => ({ name: c.name, immediate: c.immediate }))).toEqual([{ name: 'dp', immediate: true }])
@@ -154,31 +152,90 @@ test('a new session starts as the person left it: Dispatch Pilot off stays off, 
   expect(await w.command('dp', 'status')).toContain('Dispatch Pilot 关着')
 })
 
-test('a feature the person left off stays off in the next session', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), store: { switches: { 'main-effort': false } }, session: true })
+test('a feature whose option is off loads off, one whose option is on loads on, whatever its default', { options: { ...KEY, mainEffort: false, midrunSteps: true } }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), session: true })
 
   await w.start()
   await w.submit('把登录模块重构成三层')
   expect(w.requests).toHaveLength(0)
+  const status = await w.command('dp', 'status')
+  expect(status).toMatch(/关 +main-effort +\S/)
+  expect(status).toMatch(/开 +midrun-steps +\S/)
+  // Flipped back for the session, and written.
+  await w.command('dp', 'main-effort on')
+  await w.submit('再看看别的模块')
+  expect(w.requests).toHaveLength(1)
+  expect(w.configured('mainEffort')).toBe(true)
+})
+
+test('with the options left as the manifest gives them, every switch is at its default: four are off until the person turns them on', { options: KEY }, async ($, on) => {
+  const w = world($, on, {})
+  const status = await w.command('dp', 'status')
+
+  expect(status).toContain('Dispatch Pilot 开着')
+  expect([...status.matchAll(/^ {2}关 {2}(\S+)/gm)].map((match) => match[1]).sort()).toEqual(['hook-block-failures', 'image-routing', 'midrun-steps', 'screenshot-takeover'])
+  expect([...status.matchAll(/^ {2}开 {2}(\S+)/gm)]).toHaveLength(13)
+})
+
+test('in a session without a /config panel the flip holds for the session, and the command says it was not written', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), session: true, config: false })
+
+  await w.start()
+  const text = await w.command('dp', 'main-effort off')
+  expect(text).toContain('main-effort 已关闭')
+  expect(text).toContain('（没有写进配置，只在这个会话里有效：')
+  expect(text).toContain('no /config row with key dispatch-pilot.mainEffort')
+  await w.submit('把登录模块重构成三层')
+  expect(w.requests).toHaveLength(0)
+  expect(await w.command('dp', 'off')).toContain('没有写进配置')
+})
+
+// ---- The switches 0.13.0 and earlier kept in $.store are moved, once ---------
+
+test('switches an earlier version kept in the store are moved into the configuration at the session start, and the store is emptied', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), store: { switches: { 'main-effort': false, 'midrun-steps': true, master: false } }, session: true })
+
+  await w.start()
+  expect(w.configWrites).toEqual([
+    { key: 'dispatch-pilot.mainEffort', value: false },
+    { key: 'dispatch-pilot.midrunSteps', value: true },
+    { key: 'dispatch-pilot.enabled', value: false },
+  ])
+  expect(w.storedKeys()).toEqual([])
+  expect(w.logs).toContainEqual({ text: 'switches kept in the store by an earlier version, moved into the configuration: main-effort, midrun-steps, master', to: 'debug' })
+  // They hold from the start of this very session.
+  const status = await w.command('dp', 'status')
+  expect(status).toContain('Dispatch Pilot 关着')
+  expect(status).toMatch(/关 +main-effort +\S/)
+  expect(status).toMatch(/开 +midrun-steps +\S/)
+})
+
+test('a stored switch whose row already says so is not written again (a write reloads the mod, which comes here again), and names no code defines are dropped', { options: KEY }, async ($, on) => {
+  const w = world($, on, { store: { switches: { 'main-effort': false, signals: false, unresolved: true } }, config: { mainEffort: false }, session: true })
+
+  await w.start()
+  expect(w.configWrites).toEqual([{ key: 'dispatch-pilot.signals', value: false }])
+  expect(w.storedKeys()).toEqual([])
   expect(await w.command('dp', 'status')).toMatch(/关 +main-effort +\S/)
 })
 
-test('a store that holds anything but switches leaves everything on', { options: KEY }, async ($, on) => {
+test('a session that cannot write the configuration takes the stored switches for itself and leaves the store for one that can', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), store: { switches: { 'main-effort': false } }, config: false, session: true })
+
+  await w.start()
+  await w.submit('把登录模块重构成三层')
+  expect(w.requests).toHaveLength(0)
+  expect(w.stored('switches')).toEqual({ 'main-effort': false })
+})
+
+test('a store that holds anything but switches leaves everything as the options give it, and writes nothing', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), store: { switches: { 'main-effort': 'no', master: 0, '../x': false } }, session: true })
 
   await w.start()
   await w.submit('把登录模块重构成三层')
   expect(w.requests).toHaveLength(1)
   expect(await w.command('dp', 'status')).toContain('Dispatch Pilot 开着')
-})
-
-test('with no store to read or write, the switches work for the session and the command says they are not saved', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 0, 1, 0, 0]), session: true })
-
-  await w.start()
-  expect(await w.command('dp', 'main-effort off')).toContain('没有保存')
-  await w.submit('把登录模块重构成三层')
-  expect(w.requests).toHaveLength(0)
+  expect(w.configWrites).toEqual([])
 })
 
 test('a /dp the engine refuses to register does not stop the session, and the debug log says why', { options: KEY }, async ($, on) => {
