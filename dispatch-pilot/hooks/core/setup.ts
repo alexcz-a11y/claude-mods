@@ -39,8 +39,7 @@ const NAMED_ONLY: readonly BackendName[] = ['jev', 'pplx', 'd1-ultra', 'd1.1']
 
 /**
  * The decision model that decides (ADR 0014, ADR 0017, ADR 0021, ADR 0026): Jev, pplx, d1-ultra or d1.1 only when
- * `decisionModel` names it, else Drex Max, the default. Anything else (unset, a typo, the `clef` of a 0.3.x configuration)
- * reads as unset. Nothing falls back on the keys: without its key the model chosen fails every request with that key named as
+ * `decisionModel` names it, else Drex Max, the default. Anything else (unset, a typo) reads as unset. Nothing falls back on the keys: without its key the model chosen fails every request with that key named as
  * the one missing, and the board says so.
  */
 export function backendNameOf(options: PluginOptions): BackendName {
@@ -62,23 +61,6 @@ export type Choice = { backend: ImageBackendName; fellBack: boolean }
 export function chooseImageBackend(keys: { perplexity: string; typesafe: string }): Choice | null {
   if (keys.typesafe !== '') return { backend: 'jev', fellBack: false }
   return keys.perplexity !== '' ? { backend: 'pplx', fellBack: true } : null
-}
-
-/**
- * A `decisionModel` that names a decision model since removed (Clef, 0.4.0), left in the person's settings from before.
- * The engine reads a value outside the option's list as the option's default (and warns), so the mod is handed the
- * default, never the old value: this finds it in the settings file itself (`pluginConfigs[dispatch-pilot@...].options`,
- * as `$.settings.read({ source: 'user' })` returns them). Null when the settings name none.
- */
-export function removedDecisionModel(settings: unknown): 'clef' | null {
-  const configs = (settings as { pluginConfigs?: unknown } | null | undefined)?.pluginConfigs
-  if (typeof configs !== 'object' || configs === null) return null
-  for (const [plugin, config] of Object.entries(configs)) {
-    if (!plugin.startsWith('dispatch-pilot@')) continue
-    const options = (config as { options?: unknown } | null)?.options
-    if (typeof options === 'object' && options !== null && (options as { decisionModel?: unknown }).decisionModel === 'clef') return 'clef'
-  }
-  return null
 }
 
 /** The options whose default depends on the decision model: the manifest gives them none. */
@@ -448,7 +430,7 @@ export type Config = {
   }
   /** Forced escalation (#7, ADR 0013): a dispatched agent whose calls keep failing goes on as the next model up. */
   escalation: {
-    /** Counted failures that make an agent step up. */
+    /** Counted failures that make an agent step up (`escalateAfter`); 0: failures raise nothing, and no turn of the main agent's counts as stuck. */
     after: number
     /** Step-ups an agent gets at most in a run. */
     limit: number
@@ -664,7 +646,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     contextByKind,
     midrun: { everySteps: whole(options.midrunEverySteps, 6, 60, 15) },
     escalation: {
-      after: whole(options.escalateAfter, 1, 20, 2),
+      after: whole(options.escalateAfter, 0, 20, 2),
       limit: whole(options.escalateLimit, 0, 10, 2),
       haikuTo: haikuToWritten === '' ? null : resolveModel(haikuToWritten),
       haikuToWritten,

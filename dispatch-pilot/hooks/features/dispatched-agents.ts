@@ -60,7 +60,7 @@ const MAX_NOTES = 32
 const MAX_SAID = 8
 
 export function registerDispatchedAgents(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: '主 agent 派出 agent 时决定它的模型和 effort' })
+  defineSwitch({ name: SWITCH, info: '主 agent 派出 agent 时，由决策模型为它选模型和 effort。' })
   const settings = dispatchSettings(ctx)
 
   // The person's words this turn: a message sent while idle starts them

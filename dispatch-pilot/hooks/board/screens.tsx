@@ -25,7 +25,7 @@
 import type { EngineInterface, On, RenderInput, Timer } from 'claude-code'
 import { errorText } from '../decision/backend.ts'
 import { report, type NoticeIo, type SwitchIo } from '../core/report.ts'
-import { isOn, isShown, keepSwitch, listSwitches, masterOn, setMaster, setSwitch, SWITCHES_KEY } from '../core/switches.ts'
+import { isOn, isShown, listSwitches, masterOn, setMaster, setSwitch, writeSwitch } from '../core/switches.ts'
 import type { Effort } from '../decision/effort.ts'
 import { bandTree, statusText } from './band.tsx'
 import { FOOTER_COLUMNS, footerTree, TAG_CHARS } from './footer.tsx'
@@ -288,13 +288,13 @@ export function registerScreens(on: On): void {
       const marks = marksOf($, e)
       if (e.surface === 'terminal') return paneTree(t, input, e.props.bodyColumns, act, marks)
       // Elsewhere the pane is clicked: the switches and the lock change where they are shown, as `/dp` would change
-      // them (control.ts): the switch kept in $.store, the screens drawn again without what a switch that is off owns.
+      // them (control.ts): the switch written into the configuration, the screens drawn again without what a switch that is off owns.
       const reporting: SwitchIo = { redraw: () => $.ui.invalidate('ui.render') }
       const flip = async (name: string, wanted: boolean) => {
         if (name === 'master') setMaster(wanted)
         else if (!setSwitch(name, wanted)) return
         await report(reporting, { switched: true })
-        await keepSwitch({ get: () => $.store.get(SWITCHES_KEY), set: (value) => $.store.set(SWITCHES_KEY, value) }, name)
+        await writeSwitch((args) => $.config.set(args), name, wanted)
       }
       const acts = {
         ...act,

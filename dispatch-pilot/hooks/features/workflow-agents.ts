@@ -69,7 +69,7 @@ type Route =
   | { kind: 'start'; parsed: ParsedWorkflow; outcomes: CallOutcome[]; script: string | null }
 
 export function registerWorkflowAgents(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: '主 agent 提交 Workflow 时，决定脚本里每个 agent() 的模型和 effort' })
+  defineSwitch({ name: SWITCH, info: '主 agent 提交 Workflow 时，为脚本里每个 agent() 调用选模型和 effort。' })
   const settings = dispatchSettings(ctx)
   const describe = (failure: Parameters<typeof failureText>[1]) => failureText(ctx.backend.name, failure)
   // `rewrite` (the default) writes the decisions into the script; `return` sends the Workflow back with them, once.

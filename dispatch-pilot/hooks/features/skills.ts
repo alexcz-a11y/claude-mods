@@ -119,7 +119,7 @@ async function mentionsNote($: EngineInterface, e: { text: string; origin?: Prom
 export function registerSkills(on: On, ctx: Ctx): void {
   // On until the person flips it, whichever decision model decides: the switch is defined now, before the session start has settled
   // which one that is (core/setup.ts, `Ctx`), so its default cannot depend on it.
-  defineSwitch({ name: SWITCH, info: '给每条消息推荐合适的 skill，完整的 skill 列表不再交给主 agent' })
+  defineSwitch({ name: SWITCH, info: '不把完整的 skill 列表交给主 agent，改为每条消息先判断要不要 skill，最多推荐一个。' })
 
   /** Skills the main agent keeps in its listing (names as the listing spells them). */
   const alwaysListed = new Set(ctx.config.skills.alwaysListed)

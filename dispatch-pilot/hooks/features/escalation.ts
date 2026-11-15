@@ -29,6 +29,9 @@
 //     model, the person named it), the effort goes up another level instead,
 //     as the main agent's does, to max. With `escalateLimit` 0 that is all a
 //     failing agent gets: its model is never changed once it is dispatched.
+//   - with `escalateAfter` 0 the failures raise nothing: they are counted and
+//     shown as before, no agent's effort or model goes up, and no turn of the
+//     main agent's counts as stuck.
 //   - the main agent's turn keeps its facts (the effort its steps went out at,
 //     its calls, failures and hook blocks, the last error lines); when a turn
 //     the person's own message started ends, they go on its turn record
@@ -97,15 +100,20 @@ type Counted = { failures: number; hookBlocks: number }
 
 /** What the feature runs with: the step-up's settings and the bar and cap of the counts. */
 type Settings = StepUpSettings & {
-  /** Counted failures that make an agent step up. */
+  /** Counted failures that make an agent step up; 0: failures raise nothing. */
   after: number
   /** Step-ups an agent gets at most in a run. */
   limit: number
 }
 
+/** Whether counted failures have reached the bar (`escalateAfter`); never with a bar of 0, which raises nothing. */
+function reachedBar(counted: number, after: number): boolean {
+  return after > 0 && counted >= after
+}
+
 export function registerEscalation(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: '派出的 agent 工具调用接连失败时，先升一档 effort，再失败就改用更强的模型（escalateLimit 设成 0 就不换模型，只一档一档升 effort）；主 agent 这一轮的失败记下来，留给下一条消息', parts: ['counts'] })
-  defineSwitch({ name: BLOCKS_SWITCH, info: '数工具调用的失败时，把被你的 hook 拦下的调用也算上', default: false })
+  defineSwitch({ name: SWITCH, info: '派出的 agent 的工具调用失败够多次时，先升一档 effort，再失败就换更强的模型；主 agent 这一轮的失败记下来，留给下一条消息判断。', parts: ['counts'] })
+  defineSwitch({ name: BLOCKS_SWITCH, info: '数失败次数时，把被你自己的 hook 拦下的调用也算上（你亲手拒绝的调用从不算）。', default: false })
   // Read at each use: which decision model's settings these are is settled at the session start (core/setup.ts, `Ctx`).
   const settings: Settings = {
     get after() {
@@ -192,7 +200,7 @@ async function countMain($: EngineInterface, ended: string, failed: string | nul
 }
 
 /**
- * An agent's failed (or blocked) call: counted, and when the counted failures reach `escalateAfter`, the agent's effort goes
+ * An agent's failed (or blocked) call: counted, and when the counted failures reach `escalateAfter` (never, when it is 0), the agent's effort goes
  * one level up (the first time, where it can: `effortUp`), else the agent goes on as the next model up (while it has
  * step-ups left), else its effort goes up again (where the model cannot: no step-up left, `escalateLimit` 0, the top
  * model, a model the person named), or the decision says why nothing can. Either way the counts start over from there.
@@ -219,7 +227,7 @@ async function countAgent($: EngineInterface, s: Settings, agentId: string, ende
   const { before, after } = await replace(cell, (r) => {
     const loop = r ?? newLoop('')
     const counted = { ...loop, failures: loop.failures + (ended === 'failed' ? 1 : 0), hookBlocks: loop.hookBlocks + (ended === 'blocked' ? 1 : 0) }
-    if (!enabled || total(countedOf(counted)) < s.after) return counted
+    if (!enabled || !reachedBar(total(countedOf(counted)), s.after)) return counted
     // This call reaches the bar: the counts start over from here, with the raise that is made.
     // The effort or the model went up in this very step and no step has run on it yet: the step's other failing calls
     // start the count over and raise nothing (the next raise would land before the new level or model was ever used; and
@@ -381,7 +389,7 @@ async function keepFacts($: EngineInterface, s: Settings, turnId: string): Promi
     calls: loop.calls,
     failed: loop.failures,
     blocked: loop.hookBlocks,
-    stuck: total(countedOf(loop)) >= s.after,
+    stuck: reachedBar(total(countedOf(loop)), s.after),
     errors: loop.errors,
   }
   await update(cell, (r) => ({ ...(r ?? turn), facts }))

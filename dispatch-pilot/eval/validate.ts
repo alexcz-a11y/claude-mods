@@ -1,6 +1,6 @@
 // Checks eval datasets against their format (lib/datasets.ts states it), the
 // README's configuration table against plugin.json and the decision models'
-// defaults, its list of switches against the switches the code defines, DEVELOPMENT.md's 「结构」 tree against the modules under hooks/, and
+// defaults, its list of switches against the switches the code defines, each switch against its option in plugin.json, DEVELOPMENT.md's 「结构」 tree against the modules under hooks/, and
 // that only the decision report writes the screens, and that `$` never crosses a file (lib/docs.ts): the checks of the docs a test file cannot make, for it cannot
 // read the files.
 //
@@ -18,7 +18,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { validateDataset } from './lib/datasets.ts'
-import { checkConfigTable, checkEngineStaysHome, checkOneWriter, checkStructureTree, checkSwitchList, declaredSwitches } from './lib/docs.ts'
+import { checkConfigTable, checkEngineStaysHome, checkOneWriter, checkStructureTree, checkSwitchList, checkSwitchOptions, declaredSwitches, declaredSwitchSpecs } from './lib/docs.ts'
 import { longContextJsonl } from './long-context-items.ts'
 import { DATASETS_DIR, EVAL_V2_JSONL, MOD_DIR, catalogFor, checkPictures, datasetFile, readDataset, readManifest, validateEvalV2 } from './node.ts'
 
@@ -68,6 +68,10 @@ if (everything || positionals.includes('docs')) {
   console.log(`README.md list of switches: ${switches.length === 0 ? 'ok' : `${switches.length} problems`}`)
   for (const problem of switches) console.log(`  ${problem}`)
   if (switches.length > 0) failed = true
+  const options = checkSwitchOptions(readManifest().userConfig ?? {}, declaredSwitchSpecs(sources))
+  console.log(`plugin.json an option for each switch (ADR 0027): ${options.length === 0 ? 'ok' : `${options.length} problems`}`)
+  for (const problem of options) console.log(`  ${problem}`)
+  if (options.length > 0) failed = true
   const writers = checkOneWriter(sources)
   console.log(`hooks/ one writer of the screens (ADR 0004): ${writers.length === 0 ? 'ok' : `${writers.length} problems`}`)
   for (const problem of writers) console.log(`  ${problem}`)

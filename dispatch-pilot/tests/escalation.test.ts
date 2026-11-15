@@ -255,6 +255,46 @@ test('a dispatched agent whose calls reach escalateAfter goes on as the next mod
   expect(board.main?.counts).toBeUndefined()
 })
 
+test('escalateAfter 0 switches the raising off: a failing agent keeps its model and its effort, its failures are still counted and shown', { options: { ...KEY, escalateAfter: 0 } }, async ($, on) => {
+  const w = world($, on, { backend: withAgents({ model: { sonnet: 1 }, effort: MEDIUM }), messages: agentRows })
+  const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Fix auth tests' })) as { agentId: string }
+  await w.step(agentStep(agentId, 0, { tools: agentFailing }))
+  await w.step(agentStep(agentId, 1, { tools: agentFailing }))
+  await w.step(agentStep(agentId, 2, { tools: agentFailing }))
+  await w.step(agentStep(agentId, 3))
+
+  expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(Array(4).fill('claude-sonnet-5-5 medium'))
+  expect(w.appended).toEqual([])
+  expect(await escalations(w)).toEqual([])
+  expect((await w.board()).agents.find((node) => node.id === agentId)?.counts).toEqual({ failed: 6, blocked: 0, raised: 0 })
+})
+
+test('escalateAfter 0: no turn of the main agent counts as stuck, however many of its calls failed', { options: { ...KEY, escalateAfter: 0 } }, async ($, on) => {
+  const w = world($, on, { backend: jev(MEDIUM) })
+  await w.submit('把登录模块重构成三层')
+  await w.step(failing(0))
+  await w.step(failing(1))
+  await w.step({ index: 2 })
+  await w.complete()
+
+  expect(w.turnRecord('t1')?.facts).toMatchObject({ calls: 4, failed: 4, stuck: false })
+})
+
+test('escalateAfter 6: five failures raise nothing, the sixth is the first raise', { options: { ...KEY, escalateAfter: 6 } }, async ($, on) => {
+  const w = world($, on, { backend: withAgents({ model: { sonnet: 1 }, effort: MEDIUM }), messages: agentRows })
+  const { agentId } = (await w.spawn({ prompt: agentRows[0]?.text ?? '', description: 'Fix auth tests' })) as { agentId: string }
+  await w.step(agentStep(agentId, 0, { tools: agentFailing }))
+  await w.step(agentStep(agentId, 1, { tools: agentFailing }))
+  await w.step(agentStep(agentId, 2, { tools: [agentFailing[0] as ToolRun] }))
+  expect(await escalations(w)).toEqual([])
+  await w.step(agentStep(agentId, 3, { tools: [agentFailing[0] as ToolRun] }))
+  await w.step(agentStep(agentId, 4))
+
+  expect(w.steps.map((s) => s.model)).toEqual(['claude-sonnet-5-5', 'claude-sonnet-5-5', 'claude-sonnet-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5'])
+  const [stepped] = await escalations(w)
+  expect(stepped?.reason).toContain('工具调用失败 6 次（门槛 6）')
+})
+
 /** A Haiku 5.5 agent's step. */
 const HAIKU = { model: 'claude-haiku-5-5', effort: 'medium' as const }
 

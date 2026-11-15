@@ -141,7 +141,7 @@ test('a command turn counts like a message; a locked effort or one the person na
 })
 
 for (const set of [true, false]) {
-  test(`the count has no switch: a setting kept under the old name (unresolved ${set ? 'on' : 'off'}) changes nothing, and /dp lists no such switch`, { options: KEY }, async ($, on) => {
+  test(`the count has no switch: a switch an earlier version kept in the store under the old name (unresolved ${set ? 'on' : 'off'}) changes nothing, and /dp lists no such switch`, { options: KEY }, async ($, on) => {
     const w = world($, on, { backend: backend({ says: 'still' }), session: true, store: { switches: { unresolved: set } } })
     await w.start()
     await w.submit('还是不行')

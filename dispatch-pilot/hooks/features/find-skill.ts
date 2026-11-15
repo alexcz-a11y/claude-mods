@@ -99,7 +99,7 @@ async function openingOf($: EngineInterface, catalog: readonly CatalogSkill[], n
 }
 
 export function registerFindSkill(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: '回答主 agent 的 find_skill：挑出适合它说的那项工作的 skill' })
+  defineSwitch({ name: SWITCH, info: '回答主 agent 的 find_skill 查询：它说出要做的工作，返回适合的 skill。' })
 
   /** Skills never offered (the option the skills feature reads too). */
   const neverSuggested = new Set(ctx.config.skills.neverSuggested)

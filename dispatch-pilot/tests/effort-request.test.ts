@@ -136,7 +136,7 @@ test('each request is logged on its own line in the debug log', { options: KEY }
 })
 
 test('with only the effort question (skills off) one request goes out, none for the skills', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS, store: { switches: { skills: false } }, session: true })
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS, switches: { skills: false } })
   await w.start()
   await w.submit('先写一个失败的测试')
 
@@ -144,7 +144,7 @@ test('with only the effort question (skills off) one request goes out, none for 
 })
 
 test('with only the skills question (main-effort off) one request goes out, none for the effort', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, store: { switches: { 'main-effort': false } }, session: true })
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: SKILLS, switches: { 'main-effort': false } })
   await w.start()
   await w.submit('先写一个失败的测试')
 

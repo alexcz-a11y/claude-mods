@@ -81,7 +81,7 @@ const HINT_WITHOUT_FIND_SKILL =
   "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it; load one, or any skill you know, with the Skill tool by its exact name."
 
 test('with find_skill switched off (/dp find-skill off, kept from an earlier session), the note does not name it', { options: KEY }, async ($, on) => {
-  const w = world($, on, { skills: SKILLS, store: { switches: { 'find-skill': false } }, session: true })
+  const w = world($, on, { skills: SKILLS, switches: { 'find-skill': false } })
   await w.start()
   expect(await w.listing(LISTING)).toEqual({ text: HINT_WITHOUT_FIND_SKILL })
 })
@@ -120,7 +120,7 @@ test('the note follows the find-skill switch as it stands when the engine asks: 
 })
 
 test('with the skills switch off (/dp skills off, kept from an earlier session), nothing is asked about the skills and the main agent reads the listing as the engine wrote it', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS, store: { switches: { skills: false } }, session: true })
+  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS, switches: { skills: false } })
   await w.start()
   await w.submit('先写一个失败的测试')
   expect(Object.keys(w.requests[0]?.body.questions)).toEqual(OWN_EFFORT)
@@ -477,7 +477,7 @@ for (const text of ['<pasted_content id="a1">照 /grill-me 来</pasted_content> 
 }
 
 test('with the skills switch off nothing is said about a skill named mid-turn', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES, store: { switches: { skills: false } }, session: true })
+  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES, switches: { skills: false } })
   await w.start()
   expect(await typedInto(w, '接下来严格按照 /grill-me 来')).toEqual([])
 })
@@ -697,7 +697,7 @@ test('without a decision model the debug log says the listing stays', async ($, 
 
 test('the skills switch is listed by /dp with what it does', { options: KEY }, async ($, on) => {
   const w = world($, on, { skills: SKILLS })
-  expect(await w.command('dp', 'status')).toMatch(/开 +skills +给每条消息推荐合适的 skill/)
+  expect(await w.command('dp', 'status')).toMatch(/开 +skills +不把完整的 skill 列表交给主 agent/)
 })
 
 test('each listing withheld from the main agent is noted in the debug log, with what it kept and whether the note names find_skill', { options: { ...KEY, skillsAlwaysListed: ['tdd'] } }, async ($, on) => {

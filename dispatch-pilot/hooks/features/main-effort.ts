@@ -96,7 +96,7 @@ function liftNote(decision: MessageDecision): string | undefined {
 }
 
 export function registerMainEffort(on: On, ctx: Ctx): void {
-  defineSwitch({ name: 'main-effort', info: '发消息时决定主 agent 的 effort' })
+  defineSwitch({ name: 'main-effort', info: '你每发一条消息，先问决策模型，再按固定规则定主 agent 这一轮开始时的 effort。' })
 
   on('prompt.submit', { text: /(?:)/ }, async ($, e, next) => {
     // The person's own message, or a report that starts a turn of its own (a dispatched agent's hand-back, a task notice).

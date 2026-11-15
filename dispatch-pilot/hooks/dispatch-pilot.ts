@@ -13,6 +13,7 @@ import { registerCore } from './core/core.ts'
 import { registerLoopStart } from './core/loop-start.ts'
 import { registerReport } from './core/report.ts'
 import { setup } from './core/setup.ts'
+import { loadSwitches } from './core/switches.ts'
 import { registerControl } from './features/control.ts'
 import { registerDispatchedAgents } from './features/dispatched-agents.ts'
 import { registerEscalation } from './features/escalation.ts'
@@ -30,6 +31,8 @@ import { registerWorkflowLabels } from './features/workflow-labels.ts'
 
 export const register: Register = (on, options) => {
   const ctx = setup(options)
+  // The switches are options of the configuration (ADR 0027): taken before any feature registers its own.
+  loadSwitches(options)
 
   // The status line where the band is not drawn: outermost of all, so a turn's end reads the board the report wrote.
   registerStatus(on)

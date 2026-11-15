@@ -107,7 +107,7 @@ type AgentRoute = { model: AgentModel | null; effort: Effort | null }
 const launching = new Map<string, Promise<LabelRun | null>>()
 
 export function registerWorkflowLabels(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: 'Workflow 里脚本改写不到的 agent，派出时按 label 设定模型和 effort' })
+  defineSwitch({ name: SWITCH, info: 'Workflow 里脚本改写不到的 agent，在它启动时按 label 设定模型和 effort。' })
   const settings = dispatchSettings(ctx)
 
   // The standing hint: the engine renders a tool's description once per session

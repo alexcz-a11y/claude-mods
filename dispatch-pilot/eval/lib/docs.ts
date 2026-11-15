@@ -1,6 +1,7 @@
 // What the docs and the code must agree on, checked as text: the README's configuration table against what the mod ships (#18,
 // `checkConfigTable`), DEVELOPMENT.md's 「结构」 tree against the modules under hooks/ (`checkStructureTree`), the README's list of
-// switches against the switches the code defines (`checkSwitchList`), and, over the sources of hooks/, the rules the docs state:
+// switches against the switches the code defines (`checkSwitchList`), each switch against its option in plugin.json
+// (`checkSwitchOptions`, ADR 0027), and, over the sources of hooks/, the rules the docs state:
 // the decision report is the one writer of what people see (`checkOneWriter`, ADR 0004) and `$` never leaves the file of its
 // hook (`checkEngineStaysHome`). Pure: no `$`, no fs. The tests feed it tables of their own (tests/docs-sync.test.ts);
 // `node dispatch-pilot/eval/validate.ts` runs it on the real README.md and plugin.json, which a test file cannot read.
@@ -18,6 +19,7 @@
 // a `|`.
 
 import { BACKEND_DEFAULTS, PER_BACKEND_OPTIONS, type BackendDefaults, type BackendName, type PerBackendOption } from '../../hooks/core/setup.ts'
+import { MASTER, optionOf } from '../../hooks/core/switches.ts'
 import type { OptionSpec } from './suite.ts'
 
 type Row = { option: string; cells: string[] }
@@ -176,6 +178,52 @@ export function checkSwitchList(readme: string, declared: readonly string[]): st
     ...declared.filter((name) => !listed.includes(name)).map((name) => `\`${name}\`: a switch the code defines, but the README's list of switches (功能的开关是) does not name it`),
     ...listed.filter((name) => !declared.includes(name)).map((name) => `\`${name}\`: in the README's list of switches (功能的开关是), but the code defines no such switch`),
   ]
+}
+
+/** A switch as the code defines it: its name, what `/dp` says it does, and whether it is on until flipped. */
+export type DeclaredSwitch = { name: string; info: string; default: boolean }
+
+/**
+ * The switches the code defines, each with its `info` and default (`sources`: text by path relative to hooks/): every
+ * `defineSwitch({ name, info: '...' })` written on one line, as each feature writes it; off by default only with `default: false`.
+ */
+export function declaredSwitchSpecs(sources: Readonly<Record<string, string>>): DeclaredSwitch[] {
+  const found: DeclaredSwitch[] = []
+  for (const source of Object.values(sources)) {
+    // A comment may show a call as an example (core/switches.ts does): only the code defines a switch.
+    const text = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+    for (const [call, name, info] of text.matchAll(/defineSwitch\(\s*\{\s*name:\s*([^,\s}]+),\s*info:\s*'((?:[^'\\]|\\.)*)'[^\n]*/g)) {
+      const literal = /^(['"])(.*)\1$/.exec(name ?? '')?.[2]
+      const constant = literal === undefined ? new RegExp(`const\\s+${name}\\s*=\\s*(['"])([^'"]*)\\1`).exec(text)?.[2] : undefined
+      const named = literal ?? constant
+      if (named !== undefined) found.push({ name: named, info: info ?? '', default: !/default:\s*false/.test(call) })
+    }
+  }
+  return found
+}
+
+/**
+ * ADR 0027: every switch is an option of the plugin's configuration, and the configuration is the only place it is kept.
+ * Each switch the code defines (`declared`, from declaredSwitchSpecs) has its option in `userConfig` (core/switches.ts
+ * `optionOf`: the name in camel case), a boolean whose `default` is the switch's and whose `description` is the switch's
+ * `info`, word for word (what `/config` and `/dp status` say of a switch is one text); the master switch has its own, on
+ * by default.
+ */
+export function checkSwitchOptions(userConfig: Readonly<Record<string, OptionSpec & { description?: unknown }>>, declared: readonly DeclaredSwitch[]): string[] {
+  const problems: string[] = []
+  for (const spec of [{ name: MASTER, info: null, default: true }, ...declared]) {
+    const option = optionOf(spec.name)
+    const decl = userConfig[option]
+    const what = spec.name === MASTER ? 'the master switch' : `the switch \`${spec.name}\``
+    if (decl === undefined) {
+      problems.push(`\`${option}\`: plugin.json declares no such option, but ${what} is kept there`)
+      continue
+    }
+    if (decl.type !== 'boolean') problems.push(`\`${option}\`: the option of ${what} must be a boolean, not ${String(decl.type)}`)
+    if (decl.default !== spec.default) problems.push(`\`${option}\`: plugin.json's default is ${String(decl.default)}, but ${what} is ${spec.default ? 'on' : 'off'} by default`)
+    if (spec.info !== null && decl.description !== spec.info) problems.push(`\`${option}\`: plugin.json's description is not the \`info\` of ${what}, word for word`)
+  }
+  return problems
 }
 
 /** The host closure through which a feature's report raises a toast (core/report.ts `ReportIo.toast`): the one way to `$.ui.toast`. */

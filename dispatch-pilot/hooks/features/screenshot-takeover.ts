@@ -52,7 +52,7 @@ function reportIoOf($: EngineInterface): ReportIo {
 }
 
 export function registerScreenshotTakeover(on: On, ctx: Ctx): void {
-  defineSwitch({ name: SWITCH, info: '截图接管：agent 本循环里自己生成的图不给它看，换成一句说明，由看图核对去看', default: false })
+  defineSwitch({ name: SWITCH, info: 'agent 自己生成的图不给它看，换成一句说明，交给看图核对去看。这项功能自己不向外发图。', default: false })
 
   /** Whether the takeover acts now: the switch is on (with the whole mod), and the agent has visual_check to send the images to. */
   const acts = (): boolean => isOn(SWITCH) && isOn(VISUAL_CHECK_SWITCH) && ctx.images !== null
