@@ -9,6 +9,7 @@
 
 import type { Register } from 'claude-code'
 import { registerScreens, registerStatus } from './board/screens.tsx'
+import { bridgeResume, type BridgeStep } from './core/bridge.ts'
 import { registerCore } from './core/core.ts'
 import { registerLoopStart } from './core/loop-start.ts'
 import { registerReport } from './core/report.ts'
@@ -33,6 +34,17 @@ export const register: Register = (on, options) => {
   const ctx = setup(options)
   // The switches are options of the configuration (ADR 0027): taken before any feature registers its own.
   loadSwitches(options)
+
+  // The noun the second plugin (dispatch-pilot-extras) runs the bridged hooks through (core/bridge.ts, ADR 0028): the hooks
+  // of `tool.call`, `agent.spawn` and `classic.PreToolUse` are registered there, a few lines each, and run here. The noun's
+  // own methods answer `pass` (no hook of that name here); a call is taken by the hook a feature registers on
+  // `dispatchPilot.start` under its hook's name, and by the one on `dispatchPilot.resume` below.
+  on('engine.create', async (_$, e, next) => {
+    const built = await next(e)
+    const pass = async (): Promise<BridgeStep> => ({ kind: 'pass' })
+    return { ...built, dispatchPilot: { start: pass, resume: pass } }
+  })
+  on('dispatchPilot.resume', async (_$, answer) => ({ value: await bridgeResume(answer) }))
 
   // The status line where the band is not drawn: outermost of all, so a turn's end reads the board the report wrote.
   registerStatus(on)

@@ -1,7 +1,8 @@
 // The visual-check results read again by the bars of 2026-10-15 (seam 2: the pure functions the script eval/rescore-visual-check.ts uses): the
 // probabilities a result keeps give, for any bars, the verdicts they would have given, with no request. Worked by hand on a few checks.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { BARS_BEFORE, barsNow, rescoreResult, rescoreVariant } from '../eval/lib/visual-check-rescore.ts'
 
 type Check = { holds: boolean; verdict: 'pass' | 'fail' | 'unsure'; p: number | null; trust: 'both' | 'fail' }

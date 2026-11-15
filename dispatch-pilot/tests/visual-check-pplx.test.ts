@@ -2,7 +2,8 @@
 // image covers at most 2,048 tiles of 32 by 32 pixels, a request holds at most 8 images, and the request waits its turn at the
 // rate limit like every pplx request. Seam 1, as visual-check.test.ts.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { readFake } from './support/images.ts'
 import { pplx, world } from './support/world.ts'
 

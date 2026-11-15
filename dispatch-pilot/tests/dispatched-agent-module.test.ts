@@ -4,7 +4,8 @@
 // Workflow rewriter (#8) reuses for each agent() of a script. Pure, no `$`.
 // The model is the model table's on the Nouls about the brief (ADR 0015).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import {
   AGENT_MODELS,

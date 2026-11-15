@@ -1,7 +1,8 @@
 // The main agent's effort, decided when the person sends a message: seam 1
 // (engine events in, what reaches the engine and the decision backend out).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { SessionMessage } from 'claude-code'
 import { estimateTokens, turnStartState } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'

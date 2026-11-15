@@ -3,7 +3,8 @@
 // band draws nothing more. Seam 1: the board data and the screens mounted through
 // the mod.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { shown } from './support/drawn.ts'
 import { jev, KEY, type Sent, UNRESOLVED_ON, world } from './support/world.ts'
 

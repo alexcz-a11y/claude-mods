@@ -1,7 +1,8 @@
 // visual_check (#57): whatever goes wrong, the checks it touches end UNSURE with the reason in the answer, and the tool itself
 // never fails: a timeout, an HTTP error, sips failing, no CLI, a file that is not there. Seam 1, as visual-check.test.ts.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { ffmpeg, sips } from './support/images.ts'
 import { jev, world } from './support/world.ts'

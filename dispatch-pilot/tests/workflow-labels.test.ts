@@ -6,7 +6,8 @@
 // agent starts on, the model and effort each step goes out with, the decision
 // requests, what the main agent is told, the board (`w.board()`).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { siteJev, type SiteAnswer } from './support/workflow.ts'
 import { persisted, runWorld } from './support/workflow-run.ts'
 import { KEY, withoutBrief } from './support/world.ts'

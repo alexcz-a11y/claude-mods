@@ -2,7 +2,8 @@
 // the signals the engine reports. Seam 1: engine events in, what reaches the
 // engine, the decision backend, the store and the debug log out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { jev, KEY, world } from './support/world.ts'
 
 // ---- The lock ---------------------------------------------------------------

@@ -2,7 +2,8 @@
 // check of every pair in it and which two levels the pair is, in the person's words; the count is of the checks made (a check on each
 // pair); a request that fails is a note, never a toast. Seam 1: engine events in; the board data (`w.board()`) and the toasts out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { level, levels, seriesBackend } from './support/series.ts'
 import { KEY, world } from './support/world.ts'
 

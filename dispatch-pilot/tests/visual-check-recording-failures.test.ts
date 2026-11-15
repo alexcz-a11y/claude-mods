@@ -2,7 +2,8 @@
 // itself never fails: no ffmpeg, a file ffmpeg cannot read, a frame it cannot cut. Also what a recording is not for (a comparison),
 // and `look` on one. Seam 1, as visual-check-recording.test.ts.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { ffmpeg, type FakeVideo, readFake } from './support/images.ts'
 import { jev, world } from './support/world.ts'
 

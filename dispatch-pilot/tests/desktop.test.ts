@@ -4,7 +4,8 @@
 // loses Desktop the press in flight), the ribbons that grow by themselves in between, the band's 依据 and the pane's 关闭. Seam 1: the person's prompts, steps and presses in; what the surfaces are
 // drawn and the status lines the mod sets out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { Engine } from 'claude-code/testing'
 import type { On, PromptEditInput, PromptEditResult } from 'claude-code'
 import { shown } from './support/drawn.ts'

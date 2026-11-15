@@ -1,6 +1,7 @@
 // The `long-context` dataset (seam 2): the format an item must have (what `eval/validate.ts` accepts and refuses) (#44).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { validateDataset } from '../eval/lib/datasets.ts'
 import { conversationOf } from '../eval/lib/long-conversation.ts'
 

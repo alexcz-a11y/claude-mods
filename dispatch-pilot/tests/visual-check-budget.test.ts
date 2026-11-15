@@ -2,7 +2,8 @@
 // for one question, so the images are kept to about 24k in all (ADR 0008); pplx counts an image again for every question, so there
 // the share of the budget an image gets falls as checks are added. Seam 1: the images in the request are read as a decoder would.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { readFake } from './support/images.ts'
 import { jev, pplx, world } from './support/world.ts'
 

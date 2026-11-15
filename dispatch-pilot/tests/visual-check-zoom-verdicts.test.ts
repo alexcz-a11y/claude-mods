@@ -2,7 +2,8 @@
 // passes, at 0.2 or less fails, between is unsure (ADR 0008, bar revised 2026-10-15). Where the crops could not be made or judged, the whole images' answer
 // stands, but only a fail from it is taken. Seam 1, as visual-check.test.ts: the world's backend answers the two requests.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { sips } from './support/images.ts'
 import { box, zoomBackend } from './support/zoom.ts'

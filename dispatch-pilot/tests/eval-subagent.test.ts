@@ -4,7 +4,8 @@
 // and what it decides from an answer is what the mod does with the same
 // answer (checked against the mod itself, through seam 1's world).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { PluginOptions } from 'claude-code'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'

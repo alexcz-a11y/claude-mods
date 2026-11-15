@@ -12,6 +12,11 @@
       "description": "Claude 之外的决策模型（默认 Nace 的 Drex Max v1.1，也可以改用 TypeSafe 的 Jev、Perplexity 的 pplx，或 Liquid 的 d1-ultra、d1.1；看图一直用 Jev；不按密钥自动换）在你每次发消息时决定主 agent 的 effort（agent 交回的报告开始一轮时也一样），一轮进行中在失败复现、结果交回这类事件上再看一次；也为主 agent 派出的 agent 和 Workflow 脚本里的 agent 按 Artificial Analysis 的基准选模型和 effort，并在你发消息时照 TypeSafe 的 skill 推荐 cookbook 最多推荐一个 skill，代替完整的 skill 列表。判断和依据都在看板和依据面板上。主 agent 的模型从不改变，所以 prompt cache 不受影响。只面向 Claude Code 订阅：Bedrock、Vertex 和网关上切换 effort 会让缓存失效。"
     },
     {
+      "name": "dispatch-pilot-extras",
+      "source": "./dispatch-pilot-extras",
+      "description": "Dispatch Pilot 的另一半：把工具调用和派出 agent 这几个事件接到 Dispatch Pilot 上，装上后 Dispatch Pilot 的全部功能照常工作。Claude Code 的 Code Mode（实验功能）不能和挂这几个事件的 mod 一起用：要开 Code Mode 的会话里禁用这一个，Dispatch Pilot 本身留着。它自己不做判断，不发请求。"
+    },
+    {
       "name": "prefer-search-tools",
       "source": "./prefer-search-tools",
       "description": "只改写 auto 模式提醒里让模型在 Bash 里用 grep 和 find 搜索的那一句，改成用 Grep 和 Glob 工具，提醒的其余部分原样保留；子 agent 的任务末尾也追加同一句。"

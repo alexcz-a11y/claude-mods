@@ -2,7 +2,8 @@
 // images, the pixels' tokens the decision model counts (Jev about 2,600 a megapixel, once; pplx about 1,000, for each question), never the
 // length of the base64 the images travel as (a text estimate would take that for about 0.25 token a character, far more than any model bills).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { estimateRequest, estimateRun } from '../eval/lib/estimate.ts'
 import { imageRef } from '../hooks/decision/images.ts'

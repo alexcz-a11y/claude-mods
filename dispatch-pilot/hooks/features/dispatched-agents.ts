@@ -23,6 +23,7 @@
 // Its switch is `dispatched-agents` (`/dp dispatched-agents off`).
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
+import { bridgeStart, type HookGiven } from '../core/bridge.ts'
 import { timedOut, within, type Failure } from '../decision/backend.ts'
 import { conversationUpTo, messageText, type ContextMessage } from '../decision/context.ts'
 import { dispatchEvidence, dispatchNote, dispatchReason, modelFamily, termsOf, type DispatchNote } from '../decision/dispatched-agent.ts'
@@ -79,15 +80,15 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
 
   // The note the spawn left for its Agent tool call goes beside the tool's result; a call whose spawn left none (a fork,
   // a teammate, a refused spawn) is answered as it is.
-  on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'agents.call' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: 'Agent' }>>>(started, async (e, next) => {
     const result = await next(e)
     const note = pendingNotes.get(e.tool_use_id)
     pendingNotes.delete(e.tool_use_id)
     if (note === undefined || result.deny !== undefined) return result
     return { ...result, context: [...(result.context ?? []), note] }
-  })
+  }) }))
 
-  on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'agents.spawn' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'agent.spawn', { tool_use_id: RegExp }>>>(started, async (e, next) => {
     // A Workflow's agent is the Workflow features': workflow-agents wrote its call into the script, or workflow-labels
     // routes it at this same spawn.
     if (e.workflow !== undefined) return next(e)
@@ -208,7 +209,7 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       $.ui.log(`agent ${about} started (${result.agentId ?? 'no id'}), but its plan was not recorded: ${String(error)}`, { to: 'debug' })
     }
     return result
-  })
+  }) }))
 }
 
 /**

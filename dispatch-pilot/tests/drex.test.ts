@@ -1,7 +1,8 @@
 // Drex Max v1.1, the default decision model (ADR 0026): what the mod sends Nace and how it reads what comes back. The request
 // and the answers are Jev's (System One); only where it goes, the key and the pinned model differ, and it is sent no images.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { BACKEND_DEFAULTS, DEFAULT_BACKEND, naceKey, readConfig, setup } from '../hooks/core/setup.ts'
 import { failureLine, type BackendIo } from '../hooks/decision/backend.ts'
 import { DREX_MODEL, DREX_URL, drexBackend } from '../hooks/decision/drex.ts'

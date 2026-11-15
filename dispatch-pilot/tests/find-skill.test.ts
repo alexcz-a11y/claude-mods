@@ -3,7 +3,8 @@
 // in; what reaches the decision backend, the tool's answer, the board data and
 // the logs out; a failed call is a note on the board.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { isSecondSkillsRequest, jev, KEY, OWN_EFFORT, pplx, rates, type SkillsWorld, UNRESOLVED_ON, world } from './support/world.ts'
 

@@ -3,7 +3,8 @@
 // order of time, as frames and not as a contact sheet. Only coarse questions of motion are asked. Seam 1: the engine's tool call in;
 // the world's disk and ffmpeg, the requests that reach the decision model and the tool's answer out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { ffmpeg, type FakeVideo, readFake } from './support/images.ts'
 import { jev, pplx, world } from './support/world.ts'
 

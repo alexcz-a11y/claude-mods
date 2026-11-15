@@ -3,7 +3,8 @@
 // graded against the item's accept set. The backend here is Jev's own client
 // (jevBackend) over a fake network, so only the network is pretend.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { EFFORTS } from '../hooks/decision/effort.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'

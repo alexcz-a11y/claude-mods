@@ -2,7 +2,8 @@
 // what the tool's description tells the agent about it, and that pplx, which cannot do the zoomed re-check a series is made of,
 // says so. Seam 1, as visual-check.test.ts: the tool never fails, it answers.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { level, levels, seriesBackend } from './support/series.ts'
 import { pplx, world } from './support/world.ts'
 

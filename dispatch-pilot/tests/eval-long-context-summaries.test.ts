@@ -3,7 +3,8 @@
 // with the cheap model's completion handed in. The count's moves (a message that says "unresolved" marks the last try; a
 // resolved or new problem clears the record) are the dataset's `says`, as the mod's own bars would have it.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { LongContextItem } from '../eval/lib/datasets.ts'
 import { conversationOf } from '../eval/lib/long-conversation.ts'
 import { writeSummary } from '../eval/lib/long-summaries.ts'

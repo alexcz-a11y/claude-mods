@@ -4,7 +4,8 @@
 // backend and when, and the board, out) on the mock clock; the 429 and its `Retry-After` as the API sends them are seam 2
 // (pplx.test.ts). Every test here sets `decisionModel: pplx` itself (Jev is the default), with `pplxQps` 1 or what it is about.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { readConfig } from '../hooks/core/setup.ts'
 import { pplx, rates, world, type Reply, type Sent, type SkillsWorld } from './support/world.ts'
 

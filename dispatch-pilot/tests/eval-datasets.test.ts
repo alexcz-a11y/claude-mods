@@ -2,7 +2,8 @@
 // accepts and refuses, for each of the four kinds of dataset. Pure: the
 // validator reads parsed JSONL, no disk.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { parseJsonl, validateDataset } from '../eval/lib/datasets.ts'
 
 /** A well-formed effort-submit item; `change` edits a copy. */

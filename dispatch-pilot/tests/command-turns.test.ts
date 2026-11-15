@@ -3,7 +3,8 @@
 // events in (`command.run`, then the prompt as typed, then the turn); out, the
 // decision request, what each step went out with, the board.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { jev, KEY, OWN_EFFORT, type SkillsWorld, UNRESOLVED_ON, world } from './support/world.ts'
 
 test('a command turn gets the effort question about the command as typed, and goes out at the decided effort', { options: KEY }, async ($, on) => {

@@ -4,7 +4,8 @@
 // decision model since 0.9.0 (ADR 0014: TypeSafe names English as the language Jev is most accurate in; before it Jev was
 // asked in Chinese, the eval's models-hint-zh). Seam 1: engine events in, the request the decision model got out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'

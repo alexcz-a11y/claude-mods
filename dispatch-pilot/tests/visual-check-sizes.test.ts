@@ -2,7 +2,8 @@
 // 1568 pixels and 78,400 to 2,458,624 in all, PNG or JPEG; the engine reads at most 4 MiB). Seam 1: the world's disk holds the
 // files, its sips changes them, and what a test reads is the image in the request.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { readFake } from './support/images.ts'
 import { jev, world } from './support/world.ts'
 

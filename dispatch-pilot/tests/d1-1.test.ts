@@ -3,7 +3,8 @@
 // `d1.1`, and its own row of the defaults (core/setup.ts BACKEND_DEFAULTS: d1-ultra's budgets, the waits measured on
 // 2026-11-10). The images still go to Jev; without a Liquid key nothing is sent. Pure modules first, then seam 1.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { BACKEND_DEFAULTS, readConfig, setup } from '../hooks/core/setup.ts'
 import { failureLine } from '../hooks/decision/backend.ts'
 import { D1_1_MODEL, LIQUID_URL, liquidBackend } from '../hooks/decision/liquid.ts'

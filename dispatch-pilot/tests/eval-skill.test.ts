@@ -4,7 +4,8 @@
 // through seam 1's world), and it suggests and hints what the mod would from
 // the same answers.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { PluginOptions } from 'claude-code'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'

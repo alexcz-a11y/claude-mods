@@ -2,7 +2,8 @@
 // how its answer is read, what the effort request is told of it, and how a group of images is recognised again. Pure, shared with
 // the eval (#65) and with the mid-turn re-decision and the dispatched agents (#64), which read the same way.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import {
   COMPLEXITY_LEVELS,
   complexityLimits,

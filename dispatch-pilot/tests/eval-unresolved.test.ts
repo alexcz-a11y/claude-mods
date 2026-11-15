@@ -3,7 +3,8 @@
 // and scores the answers: the final effort always, and the three-way question
 // when the mod asks it (spec #36, ticket #37; the mod asks it with the unresolved switch on).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { validateDataset } from '../eval/lib/datasets.ts'
 
 /** A conversation long enough to overrun a 6000-token budget: pasted logs, ASCII, 4 characters a token. */

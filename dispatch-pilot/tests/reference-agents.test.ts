@@ -3,7 +3,8 @@
 // decided as it starts) carries `reference_complexity`: the latest reading of the session, as text, with no image, within the
 // request's budget. Seam 1: the engine's events in, the requests out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import type { PastedImage } from './support/pasted.ts'
 import { siteJev } from './support/workflow.ts'

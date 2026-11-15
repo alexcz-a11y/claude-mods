@@ -3,7 +3,8 @@
 // beneath it as if another feature had written the table, and checks the
 // steps that reach the engine.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { On } from 'claude-code'
 import { jev, KEY, world } from './support/world.ts'
 

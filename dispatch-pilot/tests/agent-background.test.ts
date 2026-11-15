@@ -4,7 +4,8 @@
 // it starts reads what the turn that launched its run said, not a message the person sent since. Seam 1: the engine's
 // events in, the requests out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { SessionMessage } from 'claude-code'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { SUMMARY_FIELD } from '../hooks/decision/summary.ts'

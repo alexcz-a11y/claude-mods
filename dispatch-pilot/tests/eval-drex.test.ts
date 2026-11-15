@@ -2,7 +2,8 @@
 // (eval/lib/visual-check-criteria.ts): the body is Nace's (the images in a top-level array, "Image N" where the text speaks of
 // them), and each check goes out with criteria for both sides, the mod's own wording beside it.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { imageRef } from '../hooks/decision/images.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'
 import { DREX_MAX_IMAGES, DREX_MODEL, drexBackend, drexRequest } from '../eval/lib/drex.ts'

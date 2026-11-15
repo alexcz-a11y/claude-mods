@@ -3,7 +3,8 @@
 // backend is Jev's own client (jevBackend) over a fake network, so only the
 // network is pretend; the expected grades are worked out by hand.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import type { AgentItem } from '../eval/lib/datasets.ts'

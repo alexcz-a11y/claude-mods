@@ -3,7 +3,8 @@
 // case is a script as a main agent writes them; the writer's output is checked
 // against the text a person would write by hand.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { parseWorkflow, rewriteWorkflow, type CallWrite, type ParsedWorkflow } from '../hooks/decision/workflow-script.ts'
 import { problemBackground, problemFields, readingBackground, tellsTheWork } from '../hooks/decision/workflow.ts'
 import { submissionOf } from '../hooks/decision/workflow-labels.ts'

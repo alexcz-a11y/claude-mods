@@ -1,7 +1,8 @@
 // visual_check (#57): how the decision model's probabilities become verdicts, and what the answer carries with them. Seam 1, as
 // visual-check.test.ts.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { jev, world } from './support/world.ts'
 
 const JEV = { typesafeApiKey: 'ts-test-key' }

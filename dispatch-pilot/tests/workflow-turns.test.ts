@@ -3,7 +3,8 @@
 // Workflow tool call, the main turns, the agents' spawns and steps in; out, the
 // board.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { type Drawn, shown } from './support/drawn.ts'
 import { siteJev } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'

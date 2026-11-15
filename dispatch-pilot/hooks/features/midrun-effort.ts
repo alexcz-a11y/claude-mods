@@ -32,6 +32,7 @@
 // record through (both lost on a hot reload: the call that asked goes on without its answer, as a failed request would).
 
 import type { EngineInterface, HttpInit, On, PromptOrigin, TurnStepInput } from 'claude-code'
+import { bridgeStart, type HookGiven } from '../core/bridge.ts'
 import { describeAsked, errorText, type Asked, type BackendIo } from '../decision/backend.ts'
 import type { StandingConstraint } from '../decision/constraints.ts'
 import { describeState } from '../decision/context.ts'
@@ -130,7 +131,7 @@ export function registerMidrunEffort(on: On, ctx: Ctx): void {
   defineSwitch({ name: MIDRUN_DOWN_SWITCH, info: '一轮进行中，剩下的工作只是照做时，把 effort 降到比发消息时低一档。关掉后中途只升档和回到原档。' })
   defineSwitch({ name: MIDRUN_STEPS_SWITCH, info: '一轮进行中一直没有事件时，也每隔几步重新判断一次主 agent 的 effort；隔几步由「每隔几步重看一次」定。', default: false })
 
-  on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'midrun.call' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: RegExp }>>>(started, async (e, next) => {
     // The main agent's own calls only: not a dispatched agent's, nor another plugin's `$.tool.call`.
     if (e.agentId !== undefined || next.origin.plugin !== 'engine' || !isOn(MIDRUN_SWITCH)) return next(e)
     const startedAt = await $.clock.now()
@@ -142,7 +143,7 @@ export function registerMidrunEffort(on: On, ctx: Ctx): void {
       $.ui.log(`midrun: ${errorText(error)}`, { to: 'debug' })
     }
     return result
-  })
+  }) }))
 
   on('turn.step', { turnId: /(?:)/ }, async function* ($, e, next) {
     if (e.agentId !== undefined || !isOn(MIDRUN_SWITCH)) return yield* next(e)

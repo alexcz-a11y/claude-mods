@@ -2,7 +2,8 @@
 // the `Retry-After` a 429 or a 529 carries (jev-rate.ts waits for it), and the key kept out of the detail. Seam 2: the
 // backend's `ask` over a fake network.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'

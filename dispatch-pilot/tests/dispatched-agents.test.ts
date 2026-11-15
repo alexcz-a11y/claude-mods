@@ -4,7 +4,8 @@
 // model got, the board (`w.board()`), the decision log.
 
 import type { SessionMessage } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { dispatchPart, dispatchState, type Dispatch } from '../hooks/decision/dispatched-agent.ts'
 import { mergeParts } from '../hooks/decision/system-one.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'

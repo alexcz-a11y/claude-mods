@@ -1,7 +1,8 @@
 // visual_check (#57): the calls the tool refuses or turns away with a word, the switch, and a dispatched agent's call. Seam 1, as
 // visual-check.test.ts: the tool never fails, it answers.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { jev, world } from './support/world.ts'
 
 const JEV = { typesafeApiKey: 'ts-test-key' }

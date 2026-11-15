@@ -2,7 +2,8 @@
 // wizard writes one decision per line (`agree`, `edit` with new answers, or
 // `note` to follow up); the last line for an item is the decision.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { applyReview } from '../eval/lib/review.ts'
 
 function line(id: string, gold: string, accept: string[], spaced = false): string {

@@ -2,7 +2,8 @@
 // import to build exactly the requests the mod sends (seam 2's code side; no
 // network here). Pure functions, no `$`.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens, turnStartState } from '../hooks/decision/context.ts'
 import { baseEffort, EFFORTS, readEffort, turnStartEffortPart } from '../hooks/decision/effort.ts'
 import { redactSecrets } from '../hooks/decision/redact.ts'

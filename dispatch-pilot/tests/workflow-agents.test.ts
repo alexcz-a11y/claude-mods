@@ -4,7 +4,8 @@
 // script that reaches the tool, the decision requests, what the main agent is
 // told, the board (`w.board()`), the decision log, `$.state`.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { Reply } from './support/world.ts'

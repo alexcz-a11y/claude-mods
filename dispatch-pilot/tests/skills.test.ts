@@ -4,7 +4,8 @@
 // what reaches the model, the decision backend and the board data
 // (`w.board()`) out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { describeStages } from '../hooks/core/skills.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { LIQUID_GUIDE, TYPESAFE_GUIDE } from '../hooks/decision/guides.ts'

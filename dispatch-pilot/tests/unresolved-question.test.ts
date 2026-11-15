@@ -2,7 +2,8 @@
 // in them), the Nouls about the problem and how they move the count, the lasting rules kept. Seam 2, the pure functions the
 // mod and the eval share. No network, no `$`.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { constraintOf, CONSTRAINTS_FIELD, lastParagraph, MOST_CONSTRAINTS, withConstraint } from '../hooks/decision/constraints.ts'
 import { EFFORT_PART } from '../hooks/decision/effort.ts'
 import type { TurnFacts } from '../hooks/decision/escalation.ts'

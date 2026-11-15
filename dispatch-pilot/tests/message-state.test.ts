@@ -3,7 +3,8 @@
 // when it has something in it; and rule R4, which reads that turn.
 
 import type { SessionMessage } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { jev, KEY, type Sent, world } from './support/world.ts'
 
 const MEDIUM = [0, 1, 0, 0, 0]

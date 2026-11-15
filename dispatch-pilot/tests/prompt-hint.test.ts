@@ -3,7 +3,8 @@
 // Seam 1: the person's edits (`prompt.edit`), a recalled draft (`prompt.change`), `/dp` in; the decorations the box is
 // answered with and the fills the mod makes out. Plus the pure wording (`promptHint`).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { Engine } from 'claude-code/testing'
 import type { On, PromptChangeInput, PromptDecoration, PromptEditInput, PromptEditResult } from 'claude-code'
 import { promptHint } from '../hooks/decision/prompt-hint.ts'

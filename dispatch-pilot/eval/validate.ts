@@ -1,8 +1,8 @@
 // Checks eval datasets against their format (lib/datasets.ts states it), the
 // README's configuration table against plugin.json and the decision models'
 // defaults, its list of switches against the switches the code defines, each switch against its option in plugin.json, DEVELOPMENT.md's 「结构」 tree against the modules under hooks/, and
-// that only the decision report writes the screens, and that `$` never crosses a file (lib/docs.ts): the checks of the docs a test file cannot make, for it cannot
-// read the files.
+// that only the decision report writes the screens, that `$` never crosses a file, and that hooks/ registers none of the events Code Mode refuses while
+// dispatch-pilot-extras runs every hook it bridges (lib/docs.ts): the checks of the docs a test file cannot make, for it cannot read the files.
 //
 //   node dispatch-pilot/eval/validate.ts                      every eval/datasets/*.jsonl, eval v2, then the README's configuration table
 //   node dispatch-pilot/eval/validate.ts effort-submit        eval/datasets/effort-submit.jsonl
@@ -18,7 +18,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { parseArgs } from 'node:util'
 import { validateDataset } from './lib/datasets.ts'
-import { checkConfigTable, checkEngineStaysHome, checkOneWriter, checkStructureTree, checkSwitchList, checkSwitchOptions, declaredSwitches, declaredSwitchSpecs } from './lib/docs.ts'
+import { checkBridge, checkConfigTable, checkEngineStaysHome, checkOneWriter, checkStructureTree, checkSwitchList, checkSwitchOptions, declaredSwitches, declaredSwitchSpecs } from './lib/docs.ts'
 import { longContextJsonl } from './long-context-items.ts'
 import { DATASETS_DIR, EVAL_V2_JSONL, MOD_DIR, catalogFor, checkPictures, datasetFile, readDataset, readManifest, validateEvalV2 } from './node.ts'
 
@@ -80,5 +80,9 @@ if (everything || positionals.includes('docs')) {
   console.log(`hooks/ \`$\` stays in its file: ${engine.length === 0 ? 'ok' : `${engine.length} problems`}`)
   for (const problem of engine) console.log(`  ${problem}`)
   if (engine.length > 0) failed = true
+  const bridge = checkBridge(sources, readFileSync(join(MOD_DIR, '..', 'dispatch-pilot-extras', 'hooks', 'dispatch-pilot-extras.mjs'), 'utf8'), readFileSync(join(MOD_DIR, 'tests', 'support', 'extras.ts'), 'utf8'))
+  console.log(`hooks/ none of the events Code Mode refuses, and dispatch-pilot-extras runs each bridged hook (ADR 0028): ${bridge.length === 0 ? 'ok' : `${bridge.length} problems`}`)
+  for (const problem of bridge) console.log(`  ${problem}`)
+  if (bridge.length > 0) failed = true
 }
 process.exit(failed ? 1 : 0)

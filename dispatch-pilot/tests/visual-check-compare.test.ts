@@ -2,7 +2,8 @@
 // visual-check.test.ts. Of the whole images only a FAIL is taken; a match is unsure. (The zoomed re-check of #59 follows the first
 // request and decides when it can; here its request is refused, so what the whole images say is what stands: visual-check-zoom-*.)
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { readFake } from './support/images.ts'
 import { zoomBackend } from './support/zoom.ts'
 import { world } from './support/world.ts'

@@ -5,7 +5,8 @@
 // (`w.pane()`) and the surface's panes (`w.panes`, `w.paneActs`) out. The tests read the drawn tree by key and look for
 // the data a person needs, not for whole lines of wording.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { type Drawn, inventory, shown } from './support/drawn.ts'
 import { runWorld } from './support/workflow-run.ts'
 import { jev, KEY, type LogEntry, type Sent, world } from './support/world.ts'

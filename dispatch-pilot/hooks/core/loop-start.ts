@@ -13,6 +13,7 @@
 // resets the modules.
 
 import type { On } from 'claude-code'
+import { bridgeStart, type HookGiven } from './bridge.ts'
 import { errorText } from '../decision/backend.ts'
 import { MAIN } from './plans.ts'
 
@@ -50,12 +51,12 @@ export function registerLoopStart(on: On): void {
   })
 
   // The beginning is the moment the spawn is raised (the agent's id is known once it returns); a resumed run is a loop of its own.
-  on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'loops.spawn' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'agent.spawn', { tool_use_id: RegExp }>>>(started, async (e, next) => {
     const startedAt = await $.clock.now().catch(() => undefined)
     const started = await next(e)
     if (started.deny === undefined && startedAt !== undefined && started.agentId !== undefined) {
       await $.state.set({ ...LOOPS, id: started.agentId }, { startedAt }).catch((error: unknown) => $.ui.log(`loop start was not recorded: ${errorText(error)}`, { to: 'debug' }))
     }
     return started
-  })
+  }) }))
 }

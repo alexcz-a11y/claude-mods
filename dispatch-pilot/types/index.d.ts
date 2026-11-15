@@ -607,4 +607,19 @@ declare module 'claude-code' {
       skillListing: { answered: 'withheld' | 'passed' | 'restored'; text: string } | null
     }
   }
+
+  /**
+   * The noun this plugin adds to `$` in `engine.create` (hooks/core/bridge.ts, ADR 0028): dispatch-pilot-extras runs the
+   * hooks of the events Code Mode refuses a mod for through it. `start` runs the hook `name` up to its `next`,
+   * `resume` hands it what the engine's `next` came to.
+   */
+  interface EngineInterface {
+    dispatchPilot: {
+      start: (call: { name: string; id: string; e: unknown; origin?: { plugin?: string } }) => Promise<DispatchPilotStep>
+      resume: (answer: { id: string; result?: unknown; error?: string }) => Promise<DispatchPilotStep>
+    }
+  }
 }
+
+/** What one half of a bridged hook comes to (hooks/core/bridge.ts `BridgeStep`). */
+export type DispatchPilotStep = { kind: 'next'; input: unknown } | { kind: 'done'; result: unknown } | { kind: 'error'; message: string } | { kind: 'pass' }

@@ -6,7 +6,8 @@
 // the main agent's turn keeps its facts for the next message.
 
 import type { SessionMessage } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { briefOf, errorLine, outcomeOf, rowsFromTranscript, stepUp, withError, type StepUpSettings, type TranscriptRow } from '../hooks/decision/escalation.ts'
 import { agentJev, siteJev } from './support/workflow.ts'
 import { runDir, runWorld } from './support/workflow-run.ts'

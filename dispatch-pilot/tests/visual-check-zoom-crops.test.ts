@@ -4,7 +4,8 @@
 // 160 pixels each way and at most 3.5 to 1, and is enlarged until its long side is 1000 pixels. Seam 1, as visual-check.test.ts:
 // the world's sips cuts and enlarges, and a test reads the arguments it ran with and the images in the request.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { readFake } from './support/images.ts'
 import { box, zoomBackend } from './support/zoom.ts'

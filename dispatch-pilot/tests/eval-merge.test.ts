@@ -1,7 +1,8 @@
 // The merged run (eval/lib/merge.ts, run.ts --merge), the d1-ultra backend (eval/lib/d1.ts) and the paired test
 // (eval/lib/paired.ts): DEVELOPMENT.md 「d1-ultra 核验」. Only the network is pretend.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { EFFORTS } from '../hooks/decision/effort.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'

@@ -38,6 +38,7 @@
 //     (`facts`) for the next message's decision.
 
 import type { EngineInterface, On, TurnStepInput } from 'claude-code'
+import { bridgeStart, type HookGiven } from '../core/bridge.ts'
 import { errorText } from '../decision/backend.ts'
 import { briefOf, errorLine, outcomeOf, rowsFromTranscript, stepUp, withError, type StepUpSettings, type TranscriptRow, type TurnFacts } from '../decision/escalation.ts'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
@@ -133,7 +134,7 @@ export function registerEscalation(on: On, ctx: Ctx): void {
     },
   }
 
-  on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'escalation.call' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: RegExp }>>>(started, async (e, next) => {
     const result = await next(e)
     // The calls the model made, not another plugin's `$.tool.call`; counted while Dispatch Pilot is on, whatever this
     // feature's switch says (the main agent's turn keeps its facts all the same).
@@ -156,7 +157,7 @@ export function registerEscalation(on: On, ctx: Ctx): void {
       $.ui.log(`escalation: ${errorText(error)}`, { to: 'debug' })
     }
     return result
-  })
+  }) }))
 
   on('turn.step', { turnId: /(?:)/ }, async function* ($, e, next) {
     if (masterOn()) {

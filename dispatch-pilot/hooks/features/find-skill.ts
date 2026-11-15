@@ -17,6 +17,7 @@
 // switched off, it says so when called.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
+import { bridgeStart, type HookGiven } from '../core/bridge.ts'
 import { type Asked, type BackendIo, describeAsked, errorText, failureText } from '../decision/backend.ts'
 import { turnStartState } from '../decision/context.ts'
 import { fitsBarText, type SkillBars } from '../decision/guides.ts'
@@ -128,7 +129,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
 
   // The model's call: answered here, never passed on. Whatever goes wrong,
   // the answer says so at once (fail open: the turn goes on without a skill).
-  on('tool.call', { tool: TOOL_CALLED }, async ($, e) => {
+  on('dispatchPilot.start', { name: 'find-skill.call' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: typeof TOOL_CALLED }>>>(started, async (e) => {
     if (!masterOn()) return { result: `Dispatch Pilot is switched off (/dp on turns it back on), so find_skill rated no skills. ${CARRY_ON}` }
     if (!isOn(SWITCH)) return { result: `find_skill is switched off (/dp ${SWITCH} on turns it back on), so it rated no skills. ${CARRY_ON}` }
     // A dispatched agent's listing is left whole (ADR 0002): it has every skill in view.
@@ -206,7 +207,7 @@ export function registerFindSkill(on: On, ctx: Ctx): void {
       await report(io, { decision: { ...call, skipped: 'error' as const } })
       return { result: `find_skill could not rate the skills (an error in Dispatch Pilot, written to the debug log). ${CARRY_ON}` }
     }
-  })
+  }) }))
 }
 
 /** The answer: the skills that fit, each by name, relevance and description, most relevant first; or that none does. */
