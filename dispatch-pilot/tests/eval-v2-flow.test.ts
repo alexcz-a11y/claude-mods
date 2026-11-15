@@ -5,7 +5,8 @@
 // the same requests and prompts.
 
 import type { SessionMessage } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import { SUMMARY_SYSTEM, summaryState } from '../hooks/decision/summary.ts'

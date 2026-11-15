@@ -4,7 +4,8 @@
 // old place in line, when its time allows. Seam 2: the pacing over a backend that records when each request reached it, on
 // the mock clock.
 
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, mock } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { Asked, Backend, BackendIo } from '../hooks/decision/backend.ts'
 import { BURST_SECONDS, JEV_DEFAULT_LIMITS, jevRateLimited, jevRequestTokens, MAX_HOLD_MS, type JevLimits } from '../hooks/decision/jev-rate.ts'
 import type { DecisionRequest } from '../hooks/decision/system-one.ts'

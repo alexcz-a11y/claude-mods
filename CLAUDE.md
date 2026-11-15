@@ -94,6 +94,8 @@ pre-commit 和 pre-merge-commit hook 都跑 `scripts/check.sh`（无冲突的合
 validate 通过并不代表以下几条也满足，它们需要自己留意：
 
 - 运行时限制：每个 hook 有 10 秒超时（`prompt.edit` 只有 50 ms）。command、tool 和 pane 的名字只能用字母、数字、`_`、`-`，最长 64 个字符。
+- Code Mode（实验功能，2.1.323 起）不和挂了以下事件的 mod 一起开：`tool.call`、`tool.check`、`agent.offer`、`agent.spawn`、`session.send`，以及 `classic.PreToolUse`、`classic.PermissionRequest`、`classic.PermissionDenied`、`classic.PostToolUse`、`classic.PostToolUseFailure`、`classic.TaskCreated`、`classic.TaskCompleted`、`classic.Elicitation`、`classic.ElicitationResult`、`classic.WorktreeCreate`（2.1.325 实测，引擎按 hooks 模块的静态扫描判定，matcher 不看）。dispatch-pilot 本体不注册它们：这类 hook 的主体写在本体里，由 dispatch-pilot-extras 经 `$.dispatchPilot` 调过来（ADR 0028，`dispatch-pilot/hooks/core/bridge.ts`），`dispatch-pilot/eval/validate.ts` 会检查。
+- `$` 只能交给文件顶层声明的函数（或从本 mod 的文件导入的这类函数），不能交给局部函数或按名字查出来的函数；`engine.create` 里 `next(e)` 的结果不能当参数传出去。
 - 仓库约定（沿用 playground）：目录名用 kebab-case，与 `plugin.json` 中的 `name` 一致，同样不能带上面那些保留前缀。
 
 ## 把 Claude 写的 mod 收进本仓库

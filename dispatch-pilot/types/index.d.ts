@@ -449,7 +449,7 @@ declare module 'claude-code' {
         calls: number
         failed: number
         /** The latest steps, oldest first (at most 10): the end of what the assistant wrote, and each tool call's target, outcome and first error line, masked and clipped. */
-        recent: { step: number; assistant_text: string; earlier_calls_not_shown?: number; tools: readonly { tool: string; target: string; outcome: 'ok' | 'failed' | 'blocked' | 'denied'; error?: string }[] }[]
+        recent: { step: number; assistant_text: string; earlier_calls_not_shown?: number; tools: readonly { tool: string; target: string; outcome: 'ok' | 'failed' | 'blocked' | 'denied'; error?: string }[]; script_result?: string; script_error?: string }[]
         /** The shell commands seen, by class (at most 16): how often each passed and failed, how it last ended, the count of file edits then, its failures in a row after an edit, its latest error line, the step it was last seen in. */
         commands: Record<string, { ok: number; failed: number; last: 'ok' | 'failed'; editsAtLast: number; refails: number; error: string; seenAt: number }>
         /** File edits that went through. */
@@ -476,6 +476,12 @@ declare module 'claude-code' {
         ticks?: number
         tickedAt?: number | null
         wanted?: { way: 'raise' | 'lower'; step: number } | null
+        /** Steps since the last look in which the model only waited (Code Mode's `Poll`): a look by step count leaves them out. */
+        idle?: number
+        /** The steps of this turn in which the model only waited (the latest 64): the code's gaps are counted in steps of work. */
+        waited?: number[]
+        /** The scripts (Code Mode) whose end was read this turn, by the number each was dispatched under. */
+        evals?: number[]
       }>
       /**
        * The person's own words this turn, masked and clipped (core/setup.ts
@@ -607,4 +613,21 @@ declare module 'claude-code' {
       skillListing: { answered: 'withheld' | 'passed' | 'restored'; text: string } | null
     }
   }
+
+  /**
+   * The noun this plugin adds to `$` in `engine.create` (hooks/core/bridge.ts, ADR 0028): dispatch-pilot-extras runs the
+   * hooks of the events Code Mode refuses a mod for through it. `start` runs the hook `name` up to its `next`,
+   * `resume` hands it what the engine's `next` came to.
+   */
+  interface EngineInterface {
+    /** dispatch-pilot-extras' own noun: there when that plugin is loaded (hooks/core/bridge.ts `hasExtras`); a call on it throws when it is not. */
+    dispatchPilotExtras: { present: () => Promise<boolean> }
+    dispatchPilot: {
+      start: (call: { name: string; id: string; e: unknown; origin?: { plugin?: string } }) => Promise<DispatchPilotStep>
+      resume: (answer: { id: string; result?: unknown; error?: string }) => Promise<DispatchPilotStep>
+    }
+  }
 }
+
+/** What one half of a bridged hook comes to (hooks/core/bridge.ts `BridgeStep`). */
+export type DispatchPilotStep = { kind: 'next'; input: unknown } | { kind: 'done'; result: unknown } | { kind: 'error'; message: string } | { kind: 'pass' }

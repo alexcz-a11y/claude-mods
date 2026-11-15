@@ -3,7 +3,8 @@
 // eval/resummarize.ts runs on the files). The expected numbers are worked out
 // by hand below.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { resummarize, resummarizeAll } from '../eval/lib/resummarize.ts'
 
 /** A language's summary as an older run wrote it: no late, retried or inTime. */

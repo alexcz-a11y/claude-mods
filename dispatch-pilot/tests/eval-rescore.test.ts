@@ -3,7 +3,8 @@
 // run recorded (the most probable level, max at its thetaMax, the level above at its roundUp). Nothing is
 // asked: the figures are worked out by hand from the probabilities each stored answer holds. Pure, no `$`.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { legacyPickEffort, rescoreAgents, rescoreSubmit } from '../eval/lib/rescore.ts'
 import type { AgentItem, EffortSubmitItem } from '../eval/lib/datasets.ts'
 

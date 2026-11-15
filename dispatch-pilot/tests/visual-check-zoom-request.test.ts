@@ -2,7 +2,8 @@
 // it holds the Box questions: each named part in both images, and one for the whole screen, where the two differ. Seam 1, as
 // visual-check.test.ts: the world's backend answers, and a test reads the request that went out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { zoomBackend } from './support/zoom.ts'
 import { pplx, world } from './support/world.ts'

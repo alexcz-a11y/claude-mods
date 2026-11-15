@@ -5,7 +5,8 @@
 // requests are the mod's: the parts, the state and its budget come from the same
 // functions, and the answers are read by the same rules (ADR 0014).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import { summaryState, type Summary } from '../hooks/decision/summary.ts'

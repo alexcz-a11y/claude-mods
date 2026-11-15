@@ -2,7 +2,8 @@
 // screenshot the takeover saved) live in `$TMPDIR/dispatch-pilot/<session id>/`, one subdirectory for each session. Seam 1: the
 // world's disk and its sips; a test reads where the derived file landed.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { jev, world } from './support/world.ts'
 
 const JEV = { typesafeApiKey: 'ts-test-key' }

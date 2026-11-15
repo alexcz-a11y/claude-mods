@@ -282,3 +282,34 @@ export function checkEngineStaysHome(sources: Readonly<Record<string, string>>):
   }
   return problems
 }
+
+/** The events Claude Code's Code Mode refuses a mod for (2.1.325: it does not start beside a mod whose hooks module registers one of them). */
+export const CODE_MODE_REFUSES = /^(?:tool\.call|tool\.check|agent\.offer|agent\.spawn|session\.send|classic\.(?:PreToolUse|PermissionRequest|PermissionDenied|PostToolUse|PostToolUseFailure|TaskCreated|TaskCompleted|Elicitation|ElicitationResult|WorktreeCreate))$/
+
+/**
+ * The bridge (ADR 0028), checked across the two plugins: dispatch-pilot's hooks module registers none of the events
+ * Code Mode refuses a mod for; every hook it bridges (`on('dispatchPilot.start', { name })`) is run by one hook of
+ * dispatch-pilot-extras (`through($, e, next, name)`) and no other name is; and the copy of that plugin the tests load
+ * (tests/support/extras.ts) lists the same hooks on the same events in the same order.
+ */
+export function checkBridge(sources: Readonly<Record<string, string>>, extras: string, testExtras: string): string[] {
+  const problems: string[] = []
+  for (const [path, source] of Object.entries(sources)) {
+    // Code alone: a comment may spell a registration out (hooks/core/bridge.ts shows the hook a bridged body stands for).
+    const code = source.split('\n').filter((line) => !/^\s*(?:\/\/|\*|\/\*)/.test(line)).join('\n')
+    for (const match of code.matchAll(/\bon\(\s*['"]([A-Za-z.]+)['"]/g)) {
+      if (CODE_MODE_REFUSES.test(match[1] as string)) problems.push(`hooks/${path} registers ${match[1]}: Code Mode does not start beside a mod that hooks it; bridge the hook (hooks/core/bridge.ts)`)
+    }
+  }
+  const bridged = Object.values(sources).flatMap((source) => [...source.matchAll(/on\('dispatchPilot\.start', \{ name: '([a-z.-]+)' \}/g)].map((match) => match[1] as string))
+  const listOf = (text: string): string[] => [...text.matchAll(/on\('([A-Za-z.]+)'[^\n]*?, '([a-z.-]+)'\)\)/g)].map((match) => `${match[1]} ${match[2]}`)
+  const run = listOf(extras)
+  const names = run.map((row) => row.split(' ')[1] as string)
+  for (const name of bridged) if (!names.includes(name)) problems.push(`dispatch-pilot-extras runs no hook named ${name}, which hooks/ bridges`)
+  for (const name of names) if (!bridged.includes(name)) problems.push(`dispatch-pilot-extras runs a hook named ${name}, which hooks/ does not bridge`)
+  for (const name of new Set(names)) if (names.filter((one) => one === name).length > 1) problems.push(`dispatch-pilot-extras runs the hook ${name} more than once`)
+  const tested = listOf(testExtras)
+  if (run.join('\n') !== tested.join('\n')) problems.push(`tests/support/extras.ts does not list dispatch-pilot-extras' hooks as that plugin does: ${JSON.stringify(tested)} against ${JSON.stringify(run)}`)
+  return problems
+}
+

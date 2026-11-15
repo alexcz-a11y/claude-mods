@@ -11,6 +11,7 @@
 // Whatever goes wrong in a stage, the checks it touches end unsure with the reason, and the tool never fails.
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
+import { bridgeStart, hasExtras, type HookGiven } from '../core/bridge.ts'
 import { type Asked, type BackendIo, describeAsked, errorText, type Failure, failureText } from '../decision/backend.ts'
 import { imageMegapixelBudget, PPLX_MAX_IMAGES, type Picture } from '../decision/images.ts'
 import type { DecisionRequest } from '../decision/system-one.ts'
@@ -83,6 +84,9 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
     const images = ctx.images
     if (images === null) return result
     try {
+      // The tool is answered in `tool.call`, a hook dispatch-pilot-extras runs (core/bridge.ts): without that plugin (a Code Mode
+      // session) a call of it would find no answer, so the tool is not offered there.
+      if (!(await hasExtras(() => $.dispatchPilotExtras.present()))) return result
       const { tool } = await $.tool.register({
         name: VISUAL_CHECK_TOOL,
         description: visualCheckDescription(images.name),
@@ -106,7 +110,7 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
   })
 
   // The model's call: answered here, never passed on. Whatever goes wrong, the answer says so at once.
-  on('tool.call', { tool: VISUAL_CHECK_TOOL_CALLED }, async ($, e) => {
+  on('dispatchPilot.start', { name: 'visual-check.call' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: typeof VISUAL_CHECK_TOOL_CALLED }>>>(started, async (e) => {
     if (!masterOn()) return { result: `Dispatch Pilot is switched off (/dp on turns it back on), so visual_check checked nothing. ${LOOK_YOURSELF}` }
     if (!isOn(SWITCH)) return { result: `visual_check is switched off (/dp ${SWITCH} on turns it back on), so it checked nothing. ${LOOK_YOURSELF}` }
     const parsed = parseVisualCheckInput(e as Record<string, unknown>)
@@ -158,7 +162,7 @@ export function registerVisualCheck(on: On, ctx: Ctx): void {
       const whole = target === undefined || isRecording(target) ? null : await load(files, target, LOOK_IMAGE_LIMITS)
       return { result: whole?.ok === true ? [text, imageBlock(whole.image)] : [text] }
     }
-  })
+  }) }))
 }
 
 /** What a call needs of the world: files and programs, the decision model that takes images. */

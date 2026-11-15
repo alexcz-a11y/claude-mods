@@ -3,7 +3,8 @@
 // board and never a toast. Seam 1: engine events in; the board data (`w.board()`), the toasts and the screens mounted through
 // the mod out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { report, type Board, type LogEntry, type ReportIo } from '../hooks/core/report.ts'
 import { jev, KEY, world } from './support/world.ts'
 

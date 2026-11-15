@@ -2,7 +2,8 @@
 // what the mod sends when the person sends that message after that
 // conversation (checked against the mod itself, through seam 1's world).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { EffortAsk } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { EffortSubmitItem } from '../eval/lib/datasets.ts'

@@ -4,7 +4,8 @@
 // solved, a new task); their answers move the count; the count lives in `$.state`
 // and is kept whatever the switches say. The summary has a switch of its own.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { jev, KEY, type Sent, UNRESOLVED_ON, world } from './support/world.ts'
 
 /** What the decision model says of the problem, by the Nouls' ids in the request. */

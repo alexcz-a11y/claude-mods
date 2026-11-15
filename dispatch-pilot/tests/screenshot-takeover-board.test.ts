@@ -2,7 +2,8 @@
 // log (the path, the size), and all of them are counted on the agent's row, beside the checks' count: 接管 n. Seam 1: engine
 // events in; the board data, the band and the pane mounted through the mod out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { type Drawn, shown } from './support/drawn.ts'
 import { base64, screenshotContent } from './support/images.ts'
 import { jev, KEY, world } from './support/world.ts'

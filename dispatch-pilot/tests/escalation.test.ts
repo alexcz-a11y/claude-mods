@@ -6,7 +6,8 @@
 // the main agent's turn keeps its facts for the next message.
 
 import type { SessionMessage } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { briefOf, errorLine, outcomeOf, rowsFromTranscript, stepUp, withError, type StepUpSettings, type TranscriptRow } from '../hooks/decision/escalation.ts'
 import { agentJev, siteJev } from './support/workflow.ts'
 import { runDir, runWorld } from './support/workflow-run.ts'
@@ -361,7 +362,7 @@ test('with agentFable on, an opus agent whose calls keep failing goes on as fabl
   await w.step(agentStep(agentId, 0, { model: 'claude-opus-5-5', tools: agentFailing }))
   await w.step(agentStep(agentId, 1, { model: 'claude-opus-5-5' }))
 
-  expect(w.steps.map((s) => s.model)).toEqual(['claude-opus-5-5', 'claude-fable-5-1'])
+  expect(w.steps.map((s) => s.model)).toEqual(['claude-opus-5-5', 'claude-fable-5-2'])
 })
 
 test('a model the person named for the work is never changed, however its calls fail', { options: KEY }, async ($, on) => {
@@ -385,7 +386,7 @@ test('a model the person ruled out is passed over for the next one up', { option
   await w.step(agentStep(agentId, 0, { tools: agentFailing }))
   await w.step(agentStep(agentId, 1))
 
-  expect(w.steps.filter((s) => s.agentId === agentId).map((s) => s.model)).toEqual(['claude-sonnet-5-5', 'claude-fable-5-1'])
+  expect(w.steps.filter((s) => s.agentId === agentId).map((s) => s.model)).toEqual(['claude-sonnet-5-5', 'claude-fable-5-2'])
 })
 
 test("an agent's calls the person refused are no failures; a hook's blocks count with hook-block-failures on", { options: KEY }, async ($, on) => {
@@ -485,8 +486,8 @@ test('stepUp: haiku to escalateHaikuTo, sonnet to opus, opus to fable only among
   expect(stepUp('claude-haiku-5-5', SETTINGS, NO_TERMS)).toEqual({ to: { family: 'sonnet', id: 'claude-sonnet-5-5' }, note: '' })
   expect(stepUp('claude-sonnet-5-5', SETTINGS, NO_TERMS)).toEqual({ to: { family: 'opus', id: 'claude-opus-5-5' }, note: '' })
   expect(stepUp('claude-opus-5-5', SETTINGS, NO_TERMS)).toEqual({ why: '已经是 opus（fable 要打开 agentFable）' })
-  expect(stepUp('claude-opus-5-5', { ...SETTINGS, models: ['haiku', 'sonnet', 'opus', 'fable'] }, NO_TERMS)).toEqual({ to: { family: 'fable', id: 'claude-fable-5-1' }, note: '' })
-  expect(stepUp('claude-fable-5-1', { ...SETTINGS, models: ['haiku', 'sonnet', 'opus', 'fable'] }, NO_TERMS)).toEqual({ why: '已经是最高一档的 fable' })
+  expect(stepUp('claude-opus-5-5', { ...SETTINGS, models: ['haiku', 'sonnet', 'opus', 'fable'] }, NO_TERMS)).toEqual({ to: { family: 'fable', id: 'claude-fable-5-2' }, note: '' })
+  expect(stepUp('claude-fable-5-2', { ...SETTINGS, models: ['haiku', 'sonnet', 'opus', 'fable'] }, NO_TERMS)).toEqual({ why: '已经是最高一档的 fable' })
   expect(stepUp('gpt-5', SETTINGS, NO_TERMS)).toEqual({ why: 'gpt-5 不属于 haiku、sonnet、opus、fable，不知道往哪升' })
   expect(stepUp('', SETTINGS, NO_TERMS)).toEqual({ why: '它的模型 不属于 haiku、sonnet、opus、fable，不知道往哪升' })
 })

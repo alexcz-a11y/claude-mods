@@ -3,7 +3,8 @@
 // the screens mounted through the mod (`w.band()`, `w.footer()`) and the toasts out. The tests read the drawn trees
 // by key and look for the data a person needs (a model, an effort, a reason), not for whole lines of wording.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { type Drawn, inventory, shown } from './support/drawn.ts'
 import { siteJev } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'

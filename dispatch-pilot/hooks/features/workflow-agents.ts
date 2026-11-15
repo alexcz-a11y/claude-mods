@@ -23,6 +23,7 @@
 // Its switch is `workflow-agents` (`/dp workflow-agents off`).
 
 import type { EngineInterface, HttpInit, On } from 'claude-code'
+import { bridgeStart, type HookGiven } from '../core/bridge.ts'
 import { errorText, failureText } from '../decision/backend.ts'
 import { conversationUpTo, type ContextMessage } from '../decision/context.ts'
 import { termsOf } from '../decision/dispatched-agent.ts'
@@ -75,7 +76,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
   // `rewrite` (the default) writes the decisions into the script; `return` sends the Workflow back with them, once.
   const sendBack = ctx.config.agents.workflowMode === 'return'
 
-  on('tool.call', { tool: 'Workflow' }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'workflow-agents.call' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: 'Workflow' }>>>(started, async (e, next) => {
     if (!isOn(SWITCH)) return next(e)
     const log = (line: string) => $.ui.log(line, { to: 'debug' })
     const reporting: ReportIo = {
@@ -190,7 +191,7 @@ export function registerWorkflowAgents(on: On, ctx: Ctx): void {
     await reportCalls(parsed, outcomes)
     const note = rewriteNote(parsed, outcomes, describe)
     return note === null ? result : { ...result, context: [...(result.context ?? []), note] }
-  })
+  }) }))
 }
 
 /** The conversation of the loop `agentId` (absent: the main one), as the transcript rows; none when it cannot be read. */

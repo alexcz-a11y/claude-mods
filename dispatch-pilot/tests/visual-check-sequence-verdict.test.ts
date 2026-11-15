@@ -3,7 +3,8 @@
 // direction of the decision model's answers, so it takes every named part to pass (ADR 0008): one part that fails, or that nobody
 // could tell, and the pair is not the same.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { pairConclusion, pairWaves, seriesVerdict } from '../hooks/decision/visual-check-sequence.ts'
 
 const pass = { verdict: 'pass' } as const

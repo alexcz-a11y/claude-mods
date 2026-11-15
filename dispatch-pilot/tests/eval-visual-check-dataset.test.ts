@@ -1,7 +1,8 @@
 // The visual-check dataset's format (#65, seam 2's data side): what `eval/validate.ts` accepts and refuses for eval/datasets/visual-check.jsonl.
 // Pure: the validator reads parsed JSONL, no disk (that the files an item names are there is checked by eval/validate.ts, which can read them).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { validateDataset } from '../eval/lib/datasets.ts'
 import { picturesOf } from '../eval/lib/visual-check-items.ts'
 

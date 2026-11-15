@@ -1,7 +1,8 @@
 // The eval's metrics (seam 2): from the graded answers to what a run
 // reports. The expected numbers are worked out by hand below.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { Effort } from '../hooks/decision/effort.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import type { EffortSubmitItem } from '../eval/lib/datasets.ts'

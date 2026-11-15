@@ -1,7 +1,8 @@
 // What image routing shows (#63): the rationale card of a decision made with a complexity reading says what the images read as, how
 // many images it came from, and that it is only a hint. Seam 1: the board data and the pane mounted through the mod.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { shown } from './support/drawn.ts'
 import type { PastedImage } from './support/pasted.ts'
 import { jev, KEY, world } from './support/world.ts'

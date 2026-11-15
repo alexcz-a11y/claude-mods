@@ -6,7 +6,8 @@
 // A key may be in the environment, which the mod reads at the session start (asynchronously), after every feature has
 // registered: the tests with an environment key below show the chosen model takes it.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { jev, pplx, world, type Reply, type Sent } from './support/world.ts'
 
 const PPLX_URL = 'https://api.perplexity.ai/v1/decisions'

@@ -2,7 +2,8 @@
 // reports: the false passes (there must be none), the controls judged FAIL, UNSURE, the tokens, the latency and the price of each image, and
 // whether the groups of reference images read in the order of their complexity. Pure: rows in, figures out; no decision model asked.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { judge, type Verdict } from '../hooks/decision/visual-check.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { summarize } from '../eval/lib/metrics.ts'

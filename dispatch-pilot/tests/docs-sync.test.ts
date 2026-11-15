@@ -9,7 +9,8 @@
 // in an environment with no fs (`claude plugin test` loads it like a hooks
 // module), so it cannot read the real files; that run is the Node script's.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { BACKEND_DEFAULTS } from '../hooks/core/setup.ts'
 import { checkConfigTable, checkEngineStaysHome, checkOneWriter, checkStructureTree, checkSwitchList, checkSwitchOptions, declaredSwitches, declaredSwitchSpecs } from '../eval/lib/docs.ts'
 

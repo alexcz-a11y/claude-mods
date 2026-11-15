@@ -5,7 +5,8 @@
 // `image_url` parts. A request without images goes out exactly as before (pplx.test.ts and the rest of the suite).
 
 import type { HttpResponse } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { describeAsked, type BackendIo } from '../hooks/decision/backend.ts'
 import { imageRef, imageTokens } from '../hooks/decision/images.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'

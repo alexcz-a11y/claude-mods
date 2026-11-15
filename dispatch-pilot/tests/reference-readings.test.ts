@@ -4,7 +4,8 @@
 // disk and a sips of the test's own (tests/support/images.ts), a decision model that counts what it is asked, and a `$.state`
 // value held in memory.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { latestReading, readReferenceComplexity, type ComplexityIo, type ReferenceReadings } from '../hooks/core/complexity.ts'
 import type { ImageFilesIo } from '../hooks/core/image-files.ts'
 import type { Cell } from '../hooks/core/plans.ts'

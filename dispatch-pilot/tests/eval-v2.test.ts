@@ -1,7 +1,8 @@
 // The eval v2 files (seam 2, #45): what the checks accept and refuse in a pool segment, an item and a gold file, the
 // rules the authors write to (eval/datasets/eval-v2/FORMAT.md) and `eval/eval-v2-check.ts` and `eval/validate.ts` apply.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { checkFinalGold, checkGold, checkItem, checkSegment, datasetWarnings } from '../eval/lib/eval-v2.ts'
 
 /** About `n` tokens of plain Chinese prose (one token a character), ending in a full stop. */

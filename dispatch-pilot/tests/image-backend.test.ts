@@ -3,7 +3,8 @@
 // at images with pplx now and cannot zoom; else none, and the features that need images are unavailable. What the person
 // chose as `decisionModel` does not move it. Seam 1 for the log, `setup()` for the choice (the same ctx the features read).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { chooseImageBackend, setup } from '../hooks/core/setup.ts'
 import { world } from './support/world.ts'
 

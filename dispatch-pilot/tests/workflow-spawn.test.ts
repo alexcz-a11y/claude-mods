@@ -7,7 +7,8 @@
 // each agent starts on, the model and effort each step goes out with, the
 // decision requests, the board.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { shown } from './support/drawn.ts'
 import { siteJev, type SiteAnswer } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'

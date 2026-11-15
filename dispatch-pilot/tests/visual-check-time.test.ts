@@ -3,7 +3,8 @@
 // hook). When too little is left the request is not sent, and the checks it was for end unsure, with the reason. Seam 1, as
 // visual-check.test.ts: the world's decision model answers after the time a test gives it, and a test moves the mock clock.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { zoomBackend } from './support/zoom.ts'
 import { world } from './support/world.ts'
 

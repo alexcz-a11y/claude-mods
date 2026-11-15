@@ -1,7 +1,8 @@
 // The decision-report module (「决定汇报」, core/report.ts, ADR 0004) at seam 1: engine events in, the board data
 // in $.state out (`w.board()`), plus what `/dp log` and the debug log say of it.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { jev, KEY, type Reply, world } from './support/world.ts'
 

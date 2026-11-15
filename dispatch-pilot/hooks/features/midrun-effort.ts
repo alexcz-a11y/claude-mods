@@ -13,7 +13,8 @@
 // level holds for the tool steps after it. A step that carries input anyway (a report delivered into the turn, the step
 // after a Stop hook's feedback) needs no row.
 //
-//   tool.call      as a call of the main agent ends: the run's record (decision/midrun-track.ts), then at an event
+//   tool.call      (bridged, core/bridge.ts; without dispatch-pilot-extras the same from `session.append`, as a call's result is stored)
+//                  as a call of the main agent ends: the run's record (decision/midrun-track.ts), then at an event
 //                    a failure that came back, a skill loaded, an agent's hand-back, the task list moving on:
 //                                the decision model is asked (decision/midrun.ts), the code decides, the level moves
 //                    the command a raise was for passes again: the level goes back, no question asked
@@ -32,11 +33,13 @@
 // record through (both lost on a hot reload: the call that asked goes on without its answer, as a failed request would).
 
 import type { EngineInterface, HttpInit, On, PromptOrigin, TurnStepInput } from 'claude-code'
+import { bridgeStart, hasExtras, type HookGiven } from '../core/bridge.ts'
+import { callsEnded, onlyWaits, scriptEnded } from '../core/calls.ts'
 import { describeAsked, errorText, type Asked, type BackendIo } from '../decision/backend.ts'
 import type { StandingConstraint } from '../decision/constraints.ts'
 import { describeState } from '../decision/context.ts'
 import { EFFORTS, isEffort, probsOf, readEffort, readingText, type Effort } from '../decision/effort.ts'
-import { outcomeOf } from '../decision/escalation.ts'
+import { blockedByHookText, outcomeOf } from '../decision/escalation.ts'
 import {
   CONFIRM_STEPS,
   decideMidrun,
@@ -57,7 +60,7 @@ import {
   type MidrunInput,
   type MidrunPosition,
 } from '../decision/midrun.ts'
-import { atStep, factsOf, newRecord, noteCall, stepsDue, withResponse, type CallEnd, type MidrunEvent, type MidrunRecord } from '../decision/midrun-track.ts'
+import { atStep, factsOf, newRecord, noteCall, stepsDue, withResponse, withScript, workSince, type CallEnd, type MidrunEvent, type MidrunRecord } from '../decision/midrun-track.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { wasBlocked } from '../core/outcomes.ts'
@@ -80,6 +83,8 @@ export const MIDRUN_SWITCH = 'midrun-effort'
 export const MIDRUN_DOWN_SWITCH = 'midrun-down'
 /** The switch for looking by step count as well (`/dp midrun-steps on|off`), off until the person turns it on. */
 export const MIDRUN_STEPS_SWITCH = 'midrun-steps'
+/** The switch for giving the decision model what a script returned (`/dp script-results on|off`): a Code Mode session's only. */
+export const SCRIPT_RESULTS_SWITCH = 'script-results'
 
 /** A step's text is kept this long at most as the record holds it (the state cuts it again). */
 const TEXT_CHARS = 1200
@@ -128,9 +133,10 @@ function isReportIntoTurn(e: { text: string; origin?: PromptOrigin; turnId?: str
 export function registerMidrunEffort(on: On, ctx: Ctx): void {
   defineSwitch({ name: MIDRUN_SWITCH, info: '一轮进行中，遇到这几类事件时重新判断主 agent 的 effort：改了又失败的命令、agent 交回的结果、新加载的 skill、送进来的报告。关掉后，派出的 agent 失败时也升不了 effort。' })
   defineSwitch({ name: MIDRUN_DOWN_SWITCH, info: '一轮进行中，剩下的工作只是照做时，把 effort 降到比发消息时低一档。关掉后中途只升档和回到原档。' })
+  defineSwitch({ name: SCRIPT_RESULTS_SWITCH, info: 'Code Mode 会话里，一轮中途重新判断 effort 时，把主 agent 的脚本返回给它的内容（截短，不脱敏）也交给决策模型。', default: true })
   defineSwitch({ name: MIDRUN_STEPS_SWITCH, info: '一轮进行中一直没有事件时，也每隔几步重新判断一次主 agent 的 effort；隔几步由「每隔几步重看一次」定。', default: false })
 
-  on('tool.call', { tool: /(?:)/ }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'midrun.call' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: RegExp }>>>(started, async (e, next) => {
     // The main agent's own calls only: not a dispatched agent's, nor another plugin's `$.tool.call`.
     if (e.agentId !== undefined || next.origin.plugin !== 'engine' || !isOn(MIDRUN_SWITCH)) return next(e)
     const startedAt = await $.clock.now()
@@ -142,6 +148,47 @@ export function registerMidrunEffort(on: On, ctx: Ctx): void {
       $.ui.log(`midrun: ${errorText(error)}`, { to: 'debug' })
     }
     return result
+  }) }))
+
+  // Without dispatch-pilot-extras (a Code Mode session) the hook above does not run: the main agent's calls are read as their
+  // results are stored (core/calls.ts), and the run's record, its events and the row that moves the level go on from there
+  // as they do from a call's end. A hook's block is told by Claude Code's words for it (no `classic.PreToolUse` hook runs).
+  on('session.append', { door: 'tool-result' }, async ($, e, next) => {
+    const stored = await next(e)
+    if (e.agentId !== undefined || !isOn(MIDRUN_SWITCH)) return stored
+    try {
+      if (await hasExtras(() => $.dispatchPilotExtras.present())) return stored
+      for (const call of callsEnded(e, await $.clock.now())) {
+        const ended = outcomeOf(call.tool, { isError: call.isError, text: call.text }, call.isError && blockedByHookText(call.text))
+        await afterCall($, ctx, { tool: call.tool, input: call.input, outcome: ended, ...(call.text === '' ? {} : { text: call.text }), durationMs: call.durationMs })
+      }
+    } catch (error) {
+      $.ui.log(`midrun: ${errorText(error)}`, { to: 'debug' })
+    }
+    return stored
+  })
+
+  // A Code Mode session: what a script returned to the main agent is kept on the step its calls are read into, and goes
+  // to the decision model with the run (the calls of a script that passed say nothing of what they found; the script's
+  // result is the part the assistant chose to read). Its row comes before the rows of the script's calls (2.1.325), so
+  // an event one of those calls makes is asked about with the result already there.
+  on('session.append', { door: 'queue' }, async ($, e, next) => {
+    const stored = await next(e)
+    if (e.agentId !== undefined || !isOn(MIDRUN_SWITCH) || !isOn(SCRIPT_RESULTS_SWITCH)) return stored
+    try {
+      const script = scriptEnded(e)
+      const cell = recordCell($)
+      const { value: have } = await cell.get()
+      // No step of the turn seen yet (a hot reload in the middle of one): no step to keep it on.
+      if (script !== undefined && have !== undefined) {
+        const noted = writes.then(() => update(cell, (r) => withScript(r ?? have, script)))
+        writes = noted.catch(() => undefined)
+        await noted
+      }
+    } catch (error) {
+      $.ui.log(`midrun: ${errorText(error)}`, { to: 'debug' })
+    }
+    return stored
   })
 
   on('turn.step', { turnId: /(?:)/ }, async function* ($, e, next) {
@@ -156,7 +203,7 @@ export function registerMidrunEffort(on: On, ctx: Ctx): void {
     const result = await stream.result
     try {
       const text = result.answer.trim().slice(-TEXT_CHARS)
-      await update(recordCell($), (r) => (r === undefined || r.turnId !== e.turnId ? (r ?? newRecord(e.turnId)) : withResponse(r, e.index, text, result.toolUses.length)))
+      await update(recordCell($), (r) => (r === undefined || r.turnId !== e.turnId ? (r ?? newRecord(e.turnId)) : withResponse(r, e.index, text, result.toolUses.length, onlyWaits(result.toolUses))))
     } catch (error) {
       $.ui.log(`midrun: ${errorText(error)}`, { to: 'debug' })
     }
@@ -303,7 +350,7 @@ async function judge($: EngineInterface, ctx: Ctx, record: MidrunRecord, event: 
   const tick = event.kind === 'steps'
   if (tick ? (record.ticks ?? 0) >= MAX_STEP_LOOKS : record.judged >= MAX_JUDGMENTS) return
   const cameBack = event.kind === 'failure' && event.why !== 'regression'
-  if (!tick && !cameBack && record.judgedAt !== null && record.step - record.judgedAt < JUDGE_GAP_STEPS) return
+  if (!tick && !cameBack && record.judgedAt !== null && workSince(record, record.judgedAt) < JUDGE_GAP_STEPS) return
   if (!free && record.switches >= MAX_SWITCHES) return
   // Taken before anything is awaited: the calls of a step end together.
   busy.add(record.turnId)
@@ -325,7 +372,9 @@ async function judge($: EngineInterface, ctx: Ctx, record: MidrunRecord, event: 
     const cell = recordCell($)
     await update(cell, (r) => {
       const kept = r ?? record
-      return tick ? { ...kept, ticks: (kept.ticks ?? 0) + 1, tickedAt: kept.step } : { ...kept, judged: kept.judged + 1, judgedAt: kept.step }
+      // A look starts the count of steps anew, and with it the steps that only waited.
+      const looked = kept.idle === undefined ? kept : { ...kept, idle: 0 }
+      return tick ? { ...looked, ticks: (kept.ticks ?? 0) + 1, tickedAt: kept.step } : { ...looked, judged: kept.judged + 1, judgedAt: kept.step }
     })
     const sentAt = await $.clock.now()
     const asked: Asked = await ctx.backend.ask(backendIo($), request, ctx.config.timeoutMs)
@@ -353,7 +402,7 @@ async function judge($: EngineInterface, ctx: Ctx, record: MidrunRecord, event: 
       stuckBefore: now.stuck,
       downAllowed: isOn(MIDRUN_DOWN_SWITCH),
       free,
-      sinceSwitch: now.switchedAt === null ? null : now.step - now.switchedAt,
+      sinceSwitch: now.switchedAt === null ? null : workSince(now, now.switchedAt),
       switches: now.switches,
       // What the look before this one wanted counts only for a look by step count, and only while no other look came between.
       awaited: event.kind === 'steps' && now.wanted != null && now.wanted.step !== record.step ? now.wanted.way : null,
@@ -411,7 +460,7 @@ async function settleResolved($: EngineInterface, seen: MidrunRecord, free: bool
       await update(cell, (r) => ({ ...(r ?? record), raisedFor: null, raisedAt: null, resolved: false }))
       return
     }
-    const since = record.raisedAt === null ? HOLD_STEPS : record.step - record.raisedAt
+    const since = record.raisedAt === null ? HOLD_STEPS : workSince(record, record.raisedAt)
     // With a row: not before the gap, and not with the turn's last row, which is a raise's (on max there is none to keep it for).
     if (since < (free ? HOLD_STEPS : MIN_GAP_STEPS) || (!free && record.switches >= rowsFor('return', stood.current))) return
     const decision = resolvedDecision(stood, record.raisedFor, since, floor)

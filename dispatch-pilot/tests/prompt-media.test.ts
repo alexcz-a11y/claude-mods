@@ -3,7 +3,8 @@
 // throws "no implementation for prompt.media"), so the world's image tests go the way an engine before 2.1.316 does (the row,
 // then the turn's start); the read itself is tested here with the engine as a closure.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { PromptMedia, PromptMediaArgs } from 'claude-code'
 import { attachedImages } from '../hooks/features/image-routing.ts'
 import { ballotWaitMs, type Contribution } from '../hooks/core/ballot.ts'

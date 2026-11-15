@@ -5,7 +5,8 @@
 // Chinese and tested where they are drawn; these pins are the other side of that line. Seam 1: the tool call in,
 // what the main agent is told out; seam 2: the pure words the notes are made of.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { failureText, type Failure } from '../hooks/decision/backend.ts'
 import { dispatchNote, type DispatchDecision } from '../hooks/decision/dispatched-agent.ts'
 import { leftText, whyOf } from '../hooks/decision/workflow.ts'

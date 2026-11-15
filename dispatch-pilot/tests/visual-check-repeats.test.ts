@@ -1,7 +1,8 @@
 // visual_check (#57): a check that fails twice in a row, for the same agent in the same loop, brings a reminder to look at the
 // image before going on (the agent may be changing the wrong thing, led by a wrong verdict). Seam 1: the calls in, the answer out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { jev, world } from './support/world.ts'
 
 const JEV = { typesafeApiKey: 'ts-test-key' }

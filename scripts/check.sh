@@ -97,7 +97,13 @@ strict_validate() {
 
 step "marketplace manifest" command claude plugin validate .
 for mod in $mods; do
-  step "$mod: tests" command claude plugin test "./$mod"
+  # A mod with no test file of its own (dispatch-pilot-extras: dispatch-pilot's tests load a copy of its hooks) has nothing to run.
+  tests=($mod/tests/*.test.ts(N) $mod/tests/*.test.tsx(N))
+  if (( $#tests > 0 )); then
+    step "$mod: tests" command claude plugin test "./$mod"
+  else
+    print -r -- "skip  $mod: tests (it has none)"
+  fi
   strict_validate "$mod"
   if [[ -f $mod/tsconfig.json ]]; then
     # The generated types are gitignored, so a fresh worktree has none: take the main checkout's.

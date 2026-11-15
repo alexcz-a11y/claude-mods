@@ -3,7 +3,8 @@
 // message's other questions (the skills') still go together in one request; the
 // two requests go out at once and each fails on its own.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { SessionMessage } from 'claude-code'
 import { estimateTokens, turnStartState } from '../hooks/decision/context.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'

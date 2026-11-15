@@ -2,7 +2,8 @@
 // on the zoomed re-check; a request of the re-check that fails is a note on the board like the first one, never a toast. Seam 1:
 // engine events in; the board data (`w.board()`) and the toasts out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { zoomBackend } from './support/zoom.ts'
 import { KEY, world } from './support/world.ts'
 

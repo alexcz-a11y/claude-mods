@@ -2,7 +2,8 @@
 // decision in the log with the recording's path as the subject, and a failure (no ffmpeg, a failed request) is a note on the board
 // and never a toast. Seam 1: the engine's tool call in; the board data, the toasts and the debug log out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { ffmpeg, type FakeVideo } from './support/images.ts'
 import { jev, KEY, world } from './support/world.ts'
 

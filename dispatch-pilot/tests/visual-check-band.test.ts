@@ -1,7 +1,8 @@
 // visual_check on the band (#58): each agent's row says how many checks it made and how they came out; a failure is a line in the
 // band's events. Seam 1: engine events in, the band mounted through the mod out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { type Drawn, shown } from './support/drawn.ts'
 import { jev, KEY, world } from './support/world.ts'
 

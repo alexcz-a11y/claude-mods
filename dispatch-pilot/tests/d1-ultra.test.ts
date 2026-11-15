@@ -3,7 +3,8 @@
 // agent's model is one Choice of a tier (`route`), the strongest model allowed when its confidence is below 0.5. The images
 // stay with Jev whatever decides the rest; without a Liquid key nothing is sent. Pure modules first, then seam 1.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { BACKEND_DEFAULTS, readConfig, setup } from '../hooks/core/setup.ts'
 import { failureLine } from '../hooks/decision/backend.ts'
 import { decideDispatch, dispatchPart, readRoute, type Dispatch } from '../hooks/decision/dispatched-agent.ts'

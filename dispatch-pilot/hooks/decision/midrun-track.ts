@@ -26,6 +26,7 @@ import { clipToTokens } from './context.ts'
 import { errorLine } from './escalation.ts'
 import { toolTarget, type CallOutcome, type MidrunStep, type MidrunTool } from './midrun.ts'
 import { redactSecrets } from './redact.ts'
+import { isFindSkill } from './skills.ts'
 
 /** Steps kept for the state (it shows the latest eight), and the tool calls kept of one step (the latest; the state shows fewer). */
 const MAX_RECENT = 10
@@ -102,6 +103,19 @@ export type MidrunRecord = {
   ticks?: number
   tickedAt?: number | null
   wanted?: { way: 'raise' | 'lower'; step: number } | null
+  /**
+   * Steps since the level was last looked at in which the model only waited (Code Mode's `Poll`, core/calls.ts `onlyWaits`):
+   * a look by step count does not count them. Absent in a record kept from before 0.15.0, and until one comes.
+   */
+  idle?: number
+  /**
+   * The steps of this turn in which the model only waited (the latest `MAX_WAITED`): the gaps the code keeps between two
+   * switches, between two questions and before a raise is taken back are counted in steps of work (`workSince`). Absent
+   * until one comes.
+   */
+  waited?: number[]
+  /** The scripts whose end was read this turn, by the number each was dispatched under (the latest `MAX_EVALS`): the row that tells it may come twice. Absent until one comes. */
+  evals?: number[]
 }
 
 export function newRecord(turnId: string): MidrunRecord {
@@ -225,15 +239,49 @@ export function withText(record: MidrunRecord, step: number, text: string): Midr
   return { ...record, recent: recent.sort((a, b) => a.step - b.step).slice(-MAX_RECENT) }
 }
 
+/** A script's result is kept this long at most as the record holds it, half from each end (the state cuts it again). */
+const SCRIPT_CHARS = 4000
+const MAX_EVALS = 16
+
+/**
+ * The record with what a script came to (Code Mode, core/calls.ts `scriptEnded`), on the step the loop is at: the step its
+ * calls are read into, since the rows of a script's calls follow the row of its result. A script already read is not read
+ * again; a step's second script is added to its first.
+ */
+export function withScript(record: MidrunRecord, script: { eval: number; text: string; failed: boolean }): MidrunRecord {
+  if (script.text === '' || (record.evals ?? []).includes(script.eval)) return record
+  const text = script.text.length > SCRIPT_CHARS ? `${script.text.slice(0, SCRIPT_CHARS / 2)} … ${script.text.slice(-SCRIPT_CHARS / 2)}` : script.text
+  const field = script.failed ? 'script_error' : 'script_result'
+  const at = record.recent.findIndex((one) => one.step === record.step)
+  const recent = [...record.recent]
+  const one: MidrunStep = at >= 0 ? (recent[at] as MidrunStep) : { step: record.step, assistant_text: '', tools: [] }
+  const next = { ...one, [field]: one[field] === undefined ? text : `${one[field]}\n${text}`.slice(-SCRIPT_CHARS) }
+  if (at >= 0) recent[at] = next
+  else recent.push(next)
+  return { ...record, recent: recent.sort((a, b) => a.step - b.step).slice(-MAX_RECENT), evals: [...(record.evals ?? []), script.eval].slice(-MAX_EVALS) }
+}
+
 /** The record as a step of the loop starts: where it is, the engine's own effort, no call ended in it yet and its response not in. */
 export function atStep(record: MidrunRecord, step: number, engine: MidrunRecord['engine']): MidrunRecord {
   return { ...record, step, engine, toolsInStep: 0, uses: null }
 }
 
-/** The record with a step's response, once it has streamed whole: what the assistant wrote, and how many tool calls it asked for. */
-export function withResponse(record: MidrunRecord, step: number, text: string, uses: number): MidrunRecord {
+/** The record with a step's response, once it has streamed whole: what the assistant wrote, how many tool calls it asked for, and whether they were only a wait (`waits`). */
+export function withResponse(record: MidrunRecord, step: number, text: string, uses: number, waits = false): MidrunRecord {
   const written = text.trim() === '' ? record : withText(record, step, text)
-  return written.step === step ? { ...written, uses } : written
+  if (written.step !== step) return written
+  return waits ? { ...written, uses, idle: (written.idle ?? 0) + 1, waited: [...(written.waited ?? []).filter((one) => one !== step), step].slice(-MAX_WAITED) } : { ...written, uses }
+}
+
+/** Steps in which the model only waited are remembered at most this many. */
+const MAX_WAITED = 64
+
+/**
+ * The steps of work since step `from`: the loop's steps after it, less those in which the model only waited for a
+ * script's events (Code Mode's `Poll`; a session without Code Mode has none, and this is `record.step - from`).
+ */
+export function workSince(record: MidrunRecord, from: number): number {
+  return record.step - from - (record.waited ?? []).filter((step) => step > from && step <= record.step).length
 }
 
 /** The commands with one more, the one seen longest ago dropped past `MAX_CLASSES`. */
@@ -290,7 +338,8 @@ export function noteCall(record: MidrunRecord, call: CallEnd): { record: MidrunR
 
   if (call.tool === 'Skill') {
     const name = typeof call.input.skill === 'string' ? call.input.skill.trim() : ''
-    return { record: next, event: ok && name !== '' ? { kind: 'skill', name: clipToTokens(redactSecrets(name), 24) } : null }
+    // find_skill is a skill only in how it is called (features/find-skill.ts): what it loads is a list of skills, no work ahead.
+    return { record: next, event: ok && name !== '' && !isFindSkill(name) ? { kind: 'skill', name: clipToTokens(redactSecrets(name), 24) } : null }
   }
   if (DISPATCH_TOOLS.has(call.tool)) {
     const handedBack = ok && call.durationMs >= FOREGROUND_MS && !LAUNCHED.test((call.text ?? '').trim())
@@ -338,11 +387,12 @@ export function noteCall(record: MidrunRecord, call: CallEnd): { record: MidrunR
 }
 
 /**
- * Whether a look by step count is due: `every` steps since the level was last looked at (by any event, or since the turn
- * began), or `again` steps since a look that wanted the level moved and waits to be confirmed. The event it makes, or null.
+ * Whether a look by step count is due: `every` steps of work since the level was last looked at (by any event, or since the
+ * turn began; a step that only waited is not counted), or `again` steps since a look that wanted the level moved and waits to be confirmed. The event it makes, or null.
  */
 export function stepsDue(record: MidrunRecord, every: number, again: number): MidrunEvent | null {
-  const since = record.step - Math.max(record.judgedAt ?? 0, record.tickedAt ?? 0)
+  // The steps in which the model only waited for a script's events are not steps of work.
+  const since = record.step - Math.max(record.judgedAt ?? 0, record.tickedAt ?? 0) - (record.idle ?? 0)
   const waits = record.wanted != null && record.wanted.step === record.tickedAt && (record.judgedAt ?? -1) < record.wanted.step
   return since >= (waits ? again : every) ? { kind: 'steps', since } : null
 }

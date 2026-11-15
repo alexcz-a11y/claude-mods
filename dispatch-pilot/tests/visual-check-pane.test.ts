@@ -1,7 +1,8 @@
 // visual_check in the rationale pane (#58): the switch is listed at the top with its state, each call is an entry of the log that
 // can be gone over check by check, and the agent's card says its count. Seam 1: engine events in, the pane mounted through the mod out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { type Drawn, shown } from './support/drawn.ts'
 import { jev, KEY, world } from './support/world.ts'
 

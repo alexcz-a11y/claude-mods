@@ -2,7 +2,8 @@
 // summary's fixed structure within 500 tokens, how the summary is worded for the decision model, and how the
 // effort part of a message's decision request carries it (the eval builds the same part).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens, turnStartState, type ContextMessage } from '../hooks/decision/context.ts'
 import { markLast, readSummary, renderSummary, summaryPrompt, summaryState, SUMMARY_FIELD, SUMMARY_SYSTEM, SUMMARY_TOKENS, turnTools, type Summary } from '../hooks/decision/summary.ts'
 import { messageRequest, turnStartPart } from '../hooks/decision/turn-start.ts'

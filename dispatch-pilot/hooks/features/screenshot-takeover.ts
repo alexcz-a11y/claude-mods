@@ -13,6 +13,7 @@
 // visual-check switch is on and an image backend exists. Every image taken is an entry in the log and a count on the agent's row.
 
 import type { EngineInterface, On } from 'claude-code'
+import { bridgeStart, type HookGiven } from '../core/bridge.ts'
 import { errorText } from '../decision/backend.ts'
 import { extensionOf, formatOf, type Kept, noteAsReadResult, sizeOfImage, swapImages, takeoverNote } from '../decision/screenshot-takeover.ts'
 import { isFromLoop } from '../core/loop-start.ts'
@@ -58,7 +59,7 @@ export function registerScreenshotTakeover(on: On, ctx: Ctx): void {
   const acts = (): boolean => isOn(SWITCH) && isOn(VISUAL_CHECK_SWITCH) && ctx.images !== null
 
   // Read: an image file the loop made. Only the model's own calls (`origin`), not another plugin's `$.tool.call`.
-  on('tool.call', { tool: 'Read' }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'takeover.read' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: 'Read' }>>>(started, async (e, next) => {
     const result = await next(e)
     if (!acts() || next.origin.plugin !== 'engine' || result.deny !== undefined) return result
     const given = result.result as { type?: unknown } | string | null | undefined
@@ -82,10 +83,10 @@ export function registerScreenshotTakeover(on: On, ctx: Ctx): void {
       $.ui.log(`screenshot takeover of ${e.file_path} failed, the image goes to the agent: ${errorText(error)}`, { to: 'debug' })
       return result
     }
-  })
+  }) }))
 
   // An MCP tool's result with image blocks: each one saved as a file, and swapped for the note. One that cannot be saved stays.
-  on('tool.call', { tool: /^mcp__/ }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'takeover.mcp' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: RegExp }>>>(started, async (e, next) => {
     const result = await next(e)
     if (!acts() || next.origin.plugin !== 'engine' || result.deny !== undefined || ('isError' in result && result.isError === true) || e.tool.startsWith(OWN_TOOLS)) return result
     const agent = e.agentId ?? MAIN
@@ -116,5 +117,5 @@ export function registerScreenshotTakeover(on: On, ctx: Ctx): void {
       $.ui.log(`screenshot takeover of ${e.tool} failed, the images go to the agent: ${errorText(error)}`, { to: 'debug' })
       return result
     }
-  })
+  }) }))
 }

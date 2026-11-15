@@ -1,7 +1,8 @@
 // The long-context dataset's conversations (seam 2): what `conversationOf` builds for an item in each version, so that the
 // three versions of one question differ in where the decisive rounds are and nothing else (#44).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens, recentLines, type ContextMessage } from '../hooks/decision/context.ts'
 import { conversationOf, conversationTokens, NEAR_TAIL, unresolvedCount, type LongItem } from '../eval/lib/long-conversation.ts'
 

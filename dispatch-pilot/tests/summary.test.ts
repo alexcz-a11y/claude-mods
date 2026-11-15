@@ -5,7 +5,8 @@
 // `summary`, on by default.
 
 import type { ModelCompleteRequest, SessionMessage } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { renderSummary, summaryState, SUMMARY_TOKENS } from '../hooks/decision/summary.ts'
 import { jev, KEY, rates, type Completion, UNRESOLVED_ON, world } from './support/world.ts'

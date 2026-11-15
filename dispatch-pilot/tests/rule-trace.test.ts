@@ -1,7 +1,8 @@
 // Seam 2: the rules that turn a message's answers into an effort (ADR 0014), with the steps they walked. Tables: one row
 // per rule branch, the expected levels written out by hand from the rules (decision/message-effort.ts's header), not computed.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { traceEffort, type EffortReading } from '../hooks/decision/effort.ts'
 import { decideMessage, messageSignals, namesUltrathink, ultrathinkOffBy, type MessageSignals } from '../hooks/decision/message-effort.ts'
 import { verdictOf } from '../hooks/decision/nouls.ts'

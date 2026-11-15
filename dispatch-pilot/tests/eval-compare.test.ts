@@ -2,7 +2,8 @@
 // out the same, and how each variant's numbers moved. What tells a prompt
 // change from run-to-run noise.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { compareRuns } from '../eval/lib/compare.ts'
 
 /** A saved run, as much of it as a comparison reads. */

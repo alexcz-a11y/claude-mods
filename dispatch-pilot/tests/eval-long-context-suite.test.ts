@@ -2,7 +2,8 @@
 // count of a real flow, and how it scores the answers. Its requests are the mod's: the parts, the state and its budget
 // come from the same functions, and the budget and the number of messages the state may hold are what the run sets (#44).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import { summaryState, type Summary } from '../hooks/decision/summary.ts'

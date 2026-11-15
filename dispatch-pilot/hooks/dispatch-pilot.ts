@@ -9,6 +9,8 @@
 
 import type { Register } from 'claude-code'
 import { registerScreens, registerStatus } from './board/screens.tsx'
+import { bridgeResume, type BridgeStep } from './core/bridge.ts'
+import { registerCalls } from './core/calls.ts'
 import { registerCore } from './core/core.ts'
 import { registerLoopStart } from './core/loop-start.ts'
 import { registerReport } from './core/report.ts'
@@ -34,12 +36,26 @@ export const register: Register = (on, options) => {
   // The switches are options of the configuration (ADR 0027): taken before any feature registers its own.
   loadSwitches(options)
 
+  // The noun the second plugin (dispatch-pilot-extras) runs the bridged hooks through (core/bridge.ts, ADR 0028): the hooks
+  // of `tool.call`, `agent.spawn` and `classic.PreToolUse` are registered there, a few lines each, and run here. The noun's
+  // own methods answer `pass` (no hook of that name here); a call is taken by the hook a feature registers on
+  // `dispatchPilot.start` under its hook's name, and by the one on `dispatchPilot.resume` below.
+  on('engine.create', async (_$, e, next) => {
+    const built = await next(e)
+    const pass = async (): Promise<BridgeStep> => ({ kind: 'pass' })
+    return { ...built, dispatchPilot: { start: pass, resume: pass } }
+  })
+  on('dispatchPilot.resume', async (_$, answer) => ({ value: await bridgeResume(answer) }))
+
   // The status line where the band is not drawn: outermost of all, so a turn's end reads the board the report wrote.
   registerStatus(on)
   // The decision report keeps the board's turn count: outermost but the status line, so a turn is counted before anything beneath reads the board.
   registerReport(on)
   // The screens draw the report's data (the band, the footer); no feature touches them.
   registerScreens(on)
+
+  // The tool calls a session's rows name, for the features that read them where no `tool.call` hook of theirs runs (a Code Mode session).
+  registerCalls(on)
 
   // When each loop began (the screenshot takeover and the routing's reference images read it): no switch, no decision.
   registerLoopStart(on)

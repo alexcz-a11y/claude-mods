@@ -3,7 +3,8 @@
 // words the model reads stay English (tests/model-facing.test.ts). Seam 2 (the pure words) and seam 1 (what the
 // screens and commands say after a real turn).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { failureLine, failureMeaning, failureWords, type Failure } from '../hooks/decision/backend.ts'
 import { jev, KEY, world } from './support/world.ts'
 

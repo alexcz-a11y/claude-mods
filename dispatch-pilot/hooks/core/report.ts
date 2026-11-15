@@ -55,6 +55,7 @@
 // throws: a report that cannot be kept must not stop the decision or the step.
 
 import type { EngineInterface, On } from 'claude-code'
+import { bridgeStart, type HookGiven } from './bridge.ts'
 import { errorText, failureLine, failureWords, type Failure } from '../decision/backend.ts'
 import { modelFamily, type AgentModel } from '../decision/dispatched-agent.ts'
 import { isEffort, type Effort } from '../decision/effort.ts'
@@ -1000,7 +1001,7 @@ export function registerReport(on: On): void {
     return next(e)
   })
 
-  on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'report.spawn' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'agent.spawn', { tool_use_id: RegExp }>>>(started, async (e, next) => {
     const result = await next(e)
     if (result.deny !== undefined || result.agentId === undefined) return result
     // A Workflow's agent is on the board, in its call's place, while Dispatch Pilot is on.
@@ -1013,7 +1014,7 @@ export function registerReport(on: On): void {
       ...(e.workflow === undefined ? {} : { workflow: e.tool_use_id }),
     })
     return result
-  })
+  }) }))
 
   on('turn.complete', { turnId: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)

@@ -3,7 +3,8 @@
 // conversation before it is `recent_context`, and the parts, the state and its budget come from the mod's own functions;
 // the flow variants carry the count and the summary the flow file (eval-v2-flow.ts) holds at the last message.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import { summaryState, type Summary } from '../hooks/decision/summary.ts'
 import type { V2Record, V2Turn } from '../eval/lib/eval-v2.ts'

@@ -2,7 +2,8 @@
 // (the reading of the images, then the effort question) and the effort the first step goes out at. The files and sips are the
 // world's (tests/support/images.ts), the pasted message's row is appended by the world's engine (tests/support/pasted.ts).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { absolute, type Disk, ok, readFake } from './support/images.ts'
 import { attachmentsOf, type PastedImage } from './support/pasted.ts'

@@ -1,7 +1,8 @@
 // visual_check (#57): `look: true` judges nothing and only hands the images back, scaled down to a size the agent can read (the
 // way it gets a screenshot back that it was not shown, and looks at the final result before it hands work over). Seam 1.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { readFake } from './support/images.ts'
 import { jev, world } from './support/world.ts'
 

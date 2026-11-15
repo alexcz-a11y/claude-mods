@@ -3,7 +3,8 @@
 // and the board's log out. The rules and the run's record are also read on their own (decision/midrun.ts,
 // decision/midrun-track.ts): pure, as the eval reads them.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { LIQUID_GUIDE, TYPESAFE_GUIDE } from '../hooks/decision/guides.ts'
 import { CONFIRM_STEPS, decideMidrun, MAX_SWITCHES, midrunPart, midrunState, resolvedDecision, rowsFor, switchNote, type MidrunPosition, type MidrunSignals } from '../hooks/decision/midrun.ts'
 import { commandClass, errorKey, factsOf, newRecord, noteCall, stepsDue, type CallEnd, type MidrunRecord } from '../hooks/decision/midrun-track.ts'

@@ -4,7 +4,8 @@
 // model's bars (TypeSafe's for Jev, Liquid's for d1-ultra). Pure modules first, then seam 1 (engine events in; requests and
 // the effort each step goes out at, out).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { askQuestions, CONFIRM, ESCALATE } from '../hooks/decision/asks.ts'
 import type { EffortReading } from '../hooks/decision/effort.ts'
 import { LIQUID_GUIDE, TYPESAFE_GUIDE } from '../hooks/decision/guides.ts'

@@ -4,7 +4,8 @@
 // images, does the whole of it from the Box questions to the verdicts. Seam 1 for the tool, and the function itself for comparePair
 // (it takes closures, as the eval's suite does).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { type ImageFilesIo, loadImage } from '../hooks/core/image-files.ts'
 import { comparePair, type ZoomDeps } from '../hooks/core/zoom-review.ts'
 import { JEV_IMAGE_LIMITS } from '../hooks/decision/image-fit.ts'

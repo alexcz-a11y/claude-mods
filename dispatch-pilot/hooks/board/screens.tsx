@@ -23,6 +23,7 @@
 // story 38); the pane is Dispatch Pilot's own.
 
 import type { EngineInterface, On, RenderInput, Timer } from 'claude-code'
+import { bridgeStart, type HookGiven } from '../core/bridge.ts'
 import { errorText } from '../decision/backend.ts'
 import { report, type NoticeIo, type SwitchIo } from '../core/report.ts'
 import { isOn, isShown, listSwitches, masterOn, setMaster, setSwitch, writeSwitch } from '../core/switches.ts'
@@ -172,11 +173,11 @@ export function registerStatus(on: On): void {
     await refreshQuietly($)
     return result
   })
-  on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'screens.spawn' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'agent.spawn', { tool_use_id: RegExp }>>>(started, async (e, next) => {
     const result = await next(e)
     await refreshQuietly($)
     return result
-  })
+  }) }))
   on('turn.complete', { turnId: /(?:)/ }, async ($, e, next) => {
     const result = await next(e)
     await refreshQuietly($)

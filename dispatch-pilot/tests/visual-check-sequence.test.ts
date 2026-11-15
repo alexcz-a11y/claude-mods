@@ -3,7 +3,8 @@
 // higher ones no longer look different. "No difference" needs every part to pass. Seam 1, as visual-check.test.ts: the tool call in,
 // the answer out, the decision model a fake that answers by pair (tests/support/series.ts).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { level, levels, seriesBackend } from './support/series.ts'
 import { world } from './support/world.ts'
 

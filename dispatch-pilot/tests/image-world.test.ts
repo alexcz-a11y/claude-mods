@@ -6,7 +6,8 @@
 // functions from a request to a reply, are used here the way the world uses them, behind an `io.fetch` of the test's own; the
 // rate limit has its own clock below.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { setup } from '../hooks/core/setup.ts'
 import type { Asked, BackendIo, StateCell } from '../hooks/decision/backend.ts'
 import { imageRef } from '../hooks/decision/images.ts'

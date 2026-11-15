@@ -6,7 +6,8 @@
 // what a probe of the real API sent on 2026-10-07).
 
 import type { HttpResponse } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { PPLX_MODEL, PPLX_URL, pplxBackend } from '../hooks/decision/pplx.ts'
 import { answersFor, type DecisionRequest, type Part } from '../hooks/decision/system-one.ts'

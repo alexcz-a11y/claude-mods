@@ -4,7 +4,8 @@
 // the effort lock at the bottom, changed where they are shown. The terminal's pane is as it was. Seam 1: the person's
 // prompts, steps, presses and picks in; the pane drawn, the switches and the lock out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { inventory, shown } from './support/drawn.ts'
 import { runWorld } from './support/workflow-run.ts'
 import { jev, KEY } from './support/world.ts'

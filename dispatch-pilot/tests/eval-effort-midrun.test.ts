@@ -2,7 +2,8 @@
 // against), what the suite sends for an item (the mod's own functions over the item's input, nothing else), how the answers
 // become the level that is graded (decision/midrun.ts `decideMidrun`, as the mod decides), and what the report adds.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { EFFORTS, type Effort } from '../hooks/decision/effort.ts'
 import { JEV_MODEL, jevBackend } from '../hooks/decision/jev.ts'
 import { decideMidrun, midrunPart, midrunSignals, midrunState } from '../hooks/decision/midrun.ts'

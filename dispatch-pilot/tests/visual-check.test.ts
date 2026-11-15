@@ -3,7 +3,8 @@
 // disk and its sips), the requests that reach the decision model and the tool's answer out. The pure parts (the questions, the
 // verdicts, the sizes) are only tested through here.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { readFake } from './support/images.ts'
 import { jev, world } from './support/world.ts'

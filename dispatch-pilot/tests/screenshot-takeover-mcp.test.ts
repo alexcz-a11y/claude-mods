@@ -4,7 +4,8 @@
 // on the world's disk. How the engine hands an MCP image block to a tool.call hook was never measured (no more probes, by the
 // person's decision), so both shapes it may have are tried: MCP's (`data`, `mimeType`) and the Messages API's (`source`).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { base64, readFake, screenshotContent } from './support/images.ts'
 import { jev, KEY, world } from './support/world.ts'
 

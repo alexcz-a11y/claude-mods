@@ -18,6 +18,7 @@
 // Its switch is `workflow-labels` (`/dp workflow-labels off`).
 
 import type { AgentSpawnInput, EngineInterface, HttpInit, On, ToolCallResult } from 'claude-code'
+import { bridgeStart, hasExtras, type HookGiven } from '../core/bridge.ts'
 import { errorText, failureLine, failureText, timedOut, within, type Failure } from '../decision/backend.ts'
 import { clipToTokens, conversationUpTo, type ContextMessage } from '../decision/context.ts'
 import { dispatchEvidence, modelFamily, termsOf, type AgentModel, type DispatchSettings, type Terms } from '../decision/dispatched-agent.ts'
@@ -114,11 +115,12 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
   // and keeps it, so the words never change and the prompt cache holds.
   on('tool.describe', { tool: 'Workflow' }, async ($, e, next) => {
     const described = await next(e)
-    if (!isOn(SWITCH) || ctx.backend.configured === false) return described
+    // Without dispatch-pilot-extras (a Code Mode session) no Workflow agent is routed, by label or otherwise: the hint would promise what does not happen.
+    if (!isOn(SWITCH) || ctx.backend.configured === false || !(await hasExtras(() => $.dispatchPilotExtras.present()))) return described
     return { ...described, description: `${described.description}\n\n${LABEL_HINT}` }
   })
 
-  on('tool.call', { tool: 'Workflow' }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'workflow-labels.call' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: 'Workflow' }>>>(started, async (e, next) => {
     if (!isOn(SWITCH) || ctx.backend.configured === false) return next(e)
     const log = (line: string) => $.ui.log(line, { to: 'debug' })
     const reporting = reportingOf($)
@@ -206,9 +208,9 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       launching.delete(e.tool_use_id)
       settled(recorded)
     }
-  })
+  }) }))
 
-  on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'workflow-labels.spawn' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'agent.spawn', { tool_use_id: RegExp }>>>(started, async (e, next) => {
     // A resumed agent goes on as it was decided: the engine keeps its model, and its plan is the one written at its spawn.
     if (e.workflow === undefined || e.resume !== undefined || !isOn(SWITCH) || ctx.backend.configured === false) return next(e)
     const reporting = reportingOf($)
@@ -231,7 +233,7 @@ export function registerWorkflowLabels(on: On, ctx: Ctx): void {
       await report(reporting, { decision: { feature: SWITCH, agent: agentId, why: '出错了，详见 debug log', subject: agentId, node: { kind: 'wf', name: e.description === '' ? agentId : e.description, type: 'workflow', state: 'queued' } } })
     }
     return result
-  })
+  }) }))
 }
 
 /**

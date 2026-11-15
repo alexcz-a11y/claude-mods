@@ -4,7 +4,8 @@
 // API in pplx.test.ts (seam 2).
 
 import type { SessionMessage } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import type { SkillsWorld } from './support/world.ts'
 import { jev, KEY, pplx, rates, world, type Sent } from './support/world.ts'

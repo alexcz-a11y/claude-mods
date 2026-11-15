@@ -5,7 +5,8 @@
 // and what each put on the wire is compared. The UUID every request names its images by is new each time, so it is made alike;
 // everything else, the bytes of the images included, is compared as it is.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import { frameTimes, WHOLE_RECORDING } from '../hooks/decision/visual-check-frames.ts'

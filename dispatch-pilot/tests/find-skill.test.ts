@@ -3,7 +3,8 @@
 // in; what reaches the decision backend, the tool's answer, the board data and
 // the logs out; a failed call is a note on the board.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { isSecondSkillsRequest, jev, KEY, OWN_EFFORT, pplx, rates, type SkillsWorld, UNRESOLVED_ON, world } from './support/world.ts'
 
@@ -43,31 +44,16 @@ function reread(n: number): string[] {
 /** A message's stage one over SKILLS: the Choice over the three the main agent can load (grill-me alone has no Choice) and the gate. */
 const MESSAGE_FIRST = ['skills.which', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices', 'skills.named']
 
-// ---- Registration -------------------------------------------------------------
+// ---- How it is asked ------------------------------------------------------------
 
-test('at session start find_skill is registered: it takes a query, and its description names no skill and stays the same however the skills and switches change', { options: KEY }, async ($, on) => {
-  const skills = { commands: [...SKILLS.commands], listed: [...SKILLS.listed] }
-  const w = world($, on, { skills, disk: PERSON_FILES, session: true })
+test('find_skill is a skill of the plugin, not a tool the mod registers: nothing is registered at session start, with a decision model or without', { options: KEY }, async ($, on) => {
+  const w = world($, on, { skills: SKILLS, disk: PERSON_FILES, session: true })
   await w.start()
-  // Reloaded later in a session whose skills and switches have changed since.
-  skills.commands.push({ name: 'wrangler', description: 'Deploy Cloudflare Workers with Wrangler.', source: 'user' })
-  skills.listed.push({ name: 'wrangler', source: 'userSettings', tokens: 40 })
-  await w.command('dp', 'find-skill off')
-  await w.start()
-
-  // The other tools the mod registers (visual_check, #57) are not this test's.
-  const registered = w.tools.filter((tool) => tool.name === 'find_skill')
-  expect(registered).toHaveLength(2)
-  const [first, again] = registered
-  expect(first?.name).toBe('find_skill')
-  // In the prompt's tool list, not behind ToolSearch: the main agent's listing is cut short, and this is its way to the rest.
-  expect(first?.isDeferred).toBe(false)
-  expect(first?.inputSchema).toMatchObject({ type: 'object', properties: { query: { type: 'string' } }, required: ['query'] })
-  for (const name of ['tdd', 'code-review', 'pdf', 'grill-me', 'wrangler']) expect(first?.description).not.toContain(name)
-  expect(again).toEqual(first)
+  // visual_check (#57) is the mod's one tool, and not this test's: no image backend is set here.
+  expect(w.tools.filter((tool) => tool.name === 'find_skill')).toEqual([])
 })
 
-test('without a decision model find_skill is not registered: nothing could rate the skills, and the main agent keeps its full listing', async ($, on) => {
+test('without a decision model find_skill says it has none when loaded, asks nothing, and the main agent keeps its full listing', async ($, on) => {
   const listing = [
     'The following skills are available for use with the Skill tool:',
     '',
@@ -79,6 +65,16 @@ test('without a decision model find_skill is not registered: nothing could rate 
   await w.start()
   expect(w.tools).toEqual([])
   expect(await w.listing(listing)).toEqual({ text: listing })
+  expect((await w.findSkill('write the tests first')).result).toBe(`find_skill has no decision model to rate the skills with, so it rated none. ${SKILL_TOOL_LINE}`)
+  expect(w.requests).toHaveLength(0)
+})
+
+test("another plugin's skill of the same bare name is not find_skill: its prompt goes on as the engine expanded it", { options: KEY }, async ($, on) => {
+  on('skill.prompt', (_$, e) => ({ text: e.text }))
+  const w = world($, on, { backend: rates({ tdd: 1 }), skills: SKILLS, disk: PERSON_FILES })
+  const theirs = await $.skill.prompt({ skill: 'other:find-skill', text: 'Query: write the tests first\n', frontmatter: {}, source: 'plugin', pluginName: 'other' })
+  expect(theirs.text).toBe('Query: write the tests first\n')
+  expect(w.requests).toHaveLength(0)
 })
 
 // ---- What it asks and what it answers -------------------------------------------
@@ -136,7 +132,7 @@ test('find_skill asks the very Choice a message asks about the skills the main a
   expect(w.requests[2]?.body.questions).toEqual({ 'skills.which': beside })
 })
 
-test('find_skill speaks only when called: the steps around the call ask nothing about skills, and its answer is the tool result alone', { options: KEY }, async ($, on) => {
+test('find_skill speaks only when called: the steps around the call ask nothing about skills, and its answer is the skill\'s prompt alone', { options: KEY }, async ($, on) => {
   const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({ tdd: 0.8, '(none)': 0.2 }, { tdd: 0.9 }), skills: SKILLS, disk: PERSON_FILES })
   await w.submit('先写一个失败的测试')
   await w.step({ index: 0 })
@@ -146,7 +142,6 @@ test('find_skill speaks only when called: the steps around the call ask nothing 
 
   // The message's three requests (effort, skills, the skills' second stage: its three and grill-me), then the call's two: none for the steps.
   expect(w.requests.map((request) => Object.keys(request.body.questions))).toEqual([OWN_EFFORT, MESSAGE_FIRST, reread(4), ['skills.which'], reread(3)])
-  expect(answer.context).toBeUndefined()
 })
 
 // ---- How many come back -------------------------------------------------------
@@ -386,16 +381,6 @@ test('each call goes to the debug log (its requests, what it returned and why) a
 })
 
 // ---- Calls it does not rate -------------------------------------------------------
-
-test("a dispatched agent's call is pointed at its own skill listing, which the mod leaves whole; nothing is asked", { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 1 }), skills: SKILLS, disk: PERSON_FILES })
-  const answer = await w.findSkill('write the tests first', { agentId: 'a1' })
-
-  expect(answer.result).toBe(
-    "find_skill rates skills for the main agent, whose skill listing is cut short. Yours lists this session's skills: pick from it and load one with the Skill tool by its exact name.",
-  )
-  expect(w.requests).toHaveLength(0)
-})
 
 test('a call without a query asks for one, and nothing is asked of the decision model', { options: KEY }, async ($, on) => {
   const w = world($, on, { backend: rates({ tdd: 1 }), skills: SKILLS, disk: PERSON_FILES })

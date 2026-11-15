@@ -4,7 +4,8 @@
 // screen; the confidence of a named part's box says only how well the model knows the part, and decides nothing. Seam 1, as
 // visual-check.test.ts.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { readFake } from './support/images.ts'
 import { box, zoomBackend } from './support/zoom.ts'
 import { world } from './support/world.ts'

@@ -1,7 +1,8 @@
 // A message's ballot (core/ballot.ts) and the requests it goes out in (core/ask-group.ts). Pure of `$`: the ballot is module state, the
 // requests take their engine as closures, so both are called directly.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { askGroups, type AskIo } from '../hooks/core/ask-group.ts'
 import { collect, contribute } from '../hooks/core/ballot.ts'
 import { setup } from '../hooks/core/setup.ts'

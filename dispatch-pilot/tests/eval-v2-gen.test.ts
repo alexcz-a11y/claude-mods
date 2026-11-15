@@ -1,7 +1,8 @@
 // The eval v2 generator (seam 2, #45): how `buildEvalV2` assembles each item's conversation from the pool, and that the
 // depth bins are what the mod's own state builder reads at the budgets the test groups use (24000, 48000, 135000).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens, messageText, recentLines, said, turnStartState } from '../hooks/decision/context.ts'
 import { BINS, buildEvalV2, evalV2Jsonl, generatedFile, type Segment, type V2Item, type V2Record } from '../eval/lib/eval-v2.ts'
 

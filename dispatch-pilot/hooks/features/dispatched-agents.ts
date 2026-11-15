@@ -20,12 +20,24 @@
 // inside the Agent tool call, under its id, so the spawn leaves the note for the
 // call to append.
 //
+// Without dispatch-pilot-extras (a Code Mode session, ADR 0028) no `agent.spawn` hook of this plugin runs. The agent is then
+// decided as its own turn starts (`turn.start` with its `agentId`, which the engine waits on before the agent's first
+// request; measured on 2.1.325): its task is the turn's text, its description and type are the roster's
+// (`$.agent.list()`), and what the main agent asked for is read from the Agent call that names the same task, when a row
+// has named it by then (core/calls.ts). The model cannot be set on a spawn there, so it goes into the plan with the
+// effort, and the core's step writer names it on every step (which also holds it against the engine's overload
+// fallback, the cost the spawn's way avoids). The main agent is told nothing beside the Agent tool's result.
+//
 // Its switch is `dispatched-agents` (`/dp dispatched-agents off`).
 
-import type { EngineInterface, HttpInit, On } from 'claude-code'
+import type { AgentInfo, EngineInterface, HttpInit, On } from 'claude-code'
+import { bridgeStart, hasExtras, type HookGiven } from '../core/bridge.ts'
+import { takeAgentCall } from '../core/calls.ts'
 import { timedOut, within, type Failure } from '../decision/backend.ts'
 import { conversationUpTo, messageText, type ContextMessage } from '../decision/context.ts'
-import { dispatchEvidence, dispatchNote, dispatchReason, modelFamily, termsOf, type DispatchNote } from '../decision/dispatched-agent.ts'
+import { dispatchEvidence, dispatchNote, dispatchReason, modelFamily, termsOf, type DispatchNote, type DispatchSettings } from '../decision/dispatched-agent.ts'
+import { errorText } from '../decision/backend.ts'
+import { modelId } from '../decision/model-ids.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { problemBackground, readingBackground } from '../decision/workflow.ts'
 import { agentCallsBeside, askAgent, type AgentAnswer, type AgentInput, type LaneIo } from '../core/agent-lane.ts'
@@ -58,6 +70,13 @@ const pendingNotes = new Map<string, string>()
 const MAX_NOTES = 32
 /** At most this many of the person's messages are kept for one turn. */
 const MAX_SAID = 8
+/**
+ * The agents decided as their turn started (no spawn of theirs was seen): a run woken again (a message sent to an agent
+ * that had ended) starts another turn, and goes on as it was decided. A module variable (CLAUDE.md): after a hot reload an
+ * agent woken again whose plan holds nothing is asked about once more.
+ */
+const startedHere = new Set<string>()
+const MAX_STARTED = 256
 
 export function registerDispatchedAgents(on: On, ctx: Ctx): void {
   defineSwitch({ name: SWITCH, info: '主 agent 派出 agent 时，由决策模型为它选模型和 effort。' })
@@ -79,15 +98,15 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
 
   // The note the spawn left for its Agent tool call goes beside the tool's result; a call whose spawn left none (a fork,
   // a teammate, a refused spawn) is answered as it is.
-  on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'agents.call' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: 'Agent' }>>>(started, async (e, next) => {
     const result = await next(e)
     const note = pendingNotes.get(e.tool_use_id)
     pendingNotes.delete(e.tool_use_id)
     if (note === undefined || result.deny !== undefined) return result
     return { ...result, context: [...(result.context ?? []), note] }
-  })
+  }) }))
 
-  on('agent.spawn', { tool_use_id: /(?:)/ }, async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'agents.spawn' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'agent.spawn', { tool_use_id: RegExp }>>>(started, async (e, next) => {
     // A Workflow's agent is the Workflow features': workflow-agents wrote its call into the script, or workflow-labels
     // routes it at this same spawn.
     if (e.workflow !== undefined) return next(e)
@@ -208,6 +227,104 @@ export function registerDispatchedAgents(on: On, ctx: Ctx): void {
       $.ui.log(`agent ${about} started (${result.agentId ?? 'no id'}), but its plan was not recorded: ${String(error)}`, { to: 'debug' })
     }
     return result
+  }) }))
+
+  // Without dispatch-pilot-extras: the agent is decided as its own turn starts (see the head of this file).
+  on('turn.start', { turnId: /(?:)/ }, async ($, e, next) => {
+    if (e.agentId === undefined) return next(e)
+    try {
+      if (!(await hasExtras(() => $.dispatchPilotExtras.present()))) await routeAtStart($, ctx, settings, e.agentId, e.text)
+    } catch (error) {
+      $.ui.log(`agent ${e.agentId} is not routed as its turn starts: ${errorText(error)}`, { to: 'debug' })
+    }
+    return next(e)
+  })
+}
+
+/**
+ * Decides an agent whose spawn no hook of this plugin saw, as its turn starts: its model and effort into its plan, and
+ * the decision on the board. An agent the roster does not list (a Workflow's, the engine's own forks) is none of this
+ * feature's; a fork and a teammate are left as they are; a run woken again goes on as it was decided.
+ */
+async function routeAtStart($: EngineInterface, ctx: Ctx, settings: DispatchSettings, agentId: string, text: string): Promise<void> {
+  if (startedHere.has(agentId)) return
+  const { value: planned } = await $.state.get({ ...AGENTS, id: agentId })
+  if (planned !== undefined && planned !== null) return
+  const roster: AgentInfo[] = await $.agent.list().catch(() => [])
+  const info = roster.find((one) => one.id === agentId)
+  if (info === undefined) return
+  startedHere.add(agentId)
+  while (startedHere.size > MAX_STARTED) startedHere.delete(startedHere.values().next().value as string)
+  const reporting: ReportIo = {
+    board: { get: () => $.state.get(BOARD), set: (value, options) => $.state.set(BOARD, value, options) },
+    decisions: { get: () => $.state.get(DECISIONS), set: (value, options) => $.state.set(DECISIONS, value, options) },
+    debug: (line) => $.ui.log(line, { to: 'debug' }),
+    now: () => $.clock.now(),
+    toast: (text) => $.ui.toast(text),
+  }
+  const about = `${quoteStart(info.description)}（${info.type}）`
+  const reportOf = { feature: SWITCH, agent: agentId, subject: about, node: { kind: 'agent' as const, name: info.name ?? (info.description === '' ? info.type : info.description), type: info.type } }
+  const left = leftAsItIs({ fork: info.type === 'fork', ...(info.teammateId === undefined ? {} : { isTeammate: true as const }), ...(info.parentId === undefined ? {} : { parentAgentId: info.parentId }) })
+  if (left !== null) {
+    if (isOn(SWITCH)) await report(reporting, { decision: { ...reportOf, why: left } })
+    return
+  }
+  if (!isOn(SWITCH)) return
+  // What the main agent asked for, when a row has named its Agent call by now.
+  const asked = takeAgentCall(text)
+  const requested = typeof asked?.input.model === 'string' ? asked.input.model : null
+  const { value: said = [] } = await $.state.get(SAID)
+  const { value: held } = await $.state.get(COUNT)
+  const recent = await conversationOf($, info.parentId)
+  const reference = await sessionReading({ get: () => $.state.get(READINGS) }, (line) => $.ui.log(line, { to: 'debug' }))
+  const lines = !ctx.config.agents.background || recent.length === 0 ? [] : (conversationUpTo(recent, ctx.config.context.messages) ?? [])
+  const input: AgentInput = {
+    dispatch: { user_message: '', agent_type: info.type, description: info.description, prompt: text, requested_model: requested },
+    shared: {
+      words: said.join('\n'),
+      background: {
+        ...problemBackground(held, isOn(SUMMARY_SWITCH)),
+        ...readingBackground(reference),
+        ...(lines.length === 0 ? {} : { recent: lines }),
+      },
+    },
+  }
+  const io: LaneIo = {
+    backend: {
+      fetch: (url: string, init: HttpInit) => $.http.fetch(url, init),
+      sleep: (ms: number, signal: AbortSignal) => $.clock.sleep(ms, { signal }),
+      pace: { now: () => $.clock.now(), sentAt: { get: () => $.state.get(PPLX_RATE), set: (value, options) => $.state.set(PPLX_RATE, value, options) } },
+    },
+    now: () => $.clock.now(),
+    debug: (line) => $.ui.log(line, { to: 'debug' }),
+  }
+  const waitMs = ctx.config.agents.waitMs
+  const deadline = (await $.clock.now()) + waitMs
+  const late: AgentAnswer = { ok: false, failure: timedOut(waitMs) }
+  const answered = await within(io.backend.sleep, askAgent(ctx, settings, { key: `agent:${info.parentId ?? 'main'}`, kind: 'agent', input, deadline, about: `agent ${about}`, io }), waitMs, late)
+  if (!answered.ok) {
+    await report(reporting, { decision: { ...reportOf, routed: false, failure: { backend: ctx.backend.name, ...answered.failure } } })
+    return
+  }
+  const decision = answered.decision
+  const terms = termsOf(decision)
+  // The model the agent goes on as, when it is not the one the main agent asked for: the plan names it by its full id.
+  const moved = decision.model !== null && decision.model !== modelFamily(requested)
+  if (moved || decision.effort !== null || terms !== null) {
+    await $.state.set({ ...AGENTS, id: agentId }, { effort: decision.effort, floor: null, model: moved && decision.model !== null ? modelId(decision.model) : null, terms })
+  }
+  const family = decision.model ?? modelFamily(requested)
+  const model = family ?? (await $.session.model().catch(() => ''))
+  await report(reporting, {
+    decision: {
+      ...reportOf,
+      routed: true,
+      outcome: decision.effort === null ? model : `${model} ${decision.effort}`,
+      reason: dispatchReason(decision, modelFamily(requested), '主 agent 指定的'),
+      ...dispatchEvidence(decision),
+      ...(family === null ? {} : { model: family }),
+      ...(decision.effort === null ? {} : { effort: decision.effort }),
+    },
   })
 }
 

@@ -4,7 +4,8 @@
 // Seam 1: engine events in, `w.board()` out. None of it routes anything: these tests run without a decision
 // backend, so every step goes out as the engine made it and the board shows what that was.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { runWorld } from './support/workflow-run.ts'
 
 /** A Workflow with one agent() call, as the main agent hands it to the tool. */

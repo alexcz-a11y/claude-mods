@@ -2,7 +2,8 @@
 // where the mod would go on (the zoomed re-check failing for a check) the suite goes on the same way and keeps the reason with the answer. And
 // what a run plans to send, for `--estimate` and `--max-usd`: the requests of the whole flow, with their images, not only the first.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { settingsFrom } from '../eval/lib/suite.ts'
 import { type VisualCheckItem, visualCheckSuite } from '../eval/lib/visual-check.ts'

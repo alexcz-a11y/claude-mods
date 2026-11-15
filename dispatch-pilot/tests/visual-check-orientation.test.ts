@@ -2,7 +2,8 @@
 // its side would be judged on its side. The mod turns the pixels upright with sips (which cannot tell the orientation, so the mod
 // reads the tag out of the JPEG itself). Seam 1: the world's disk holds the photo, its sips turns it, a test reads the request.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { readFake } from './support/images.ts'
 import { jev, world } from './support/world.ts'
 

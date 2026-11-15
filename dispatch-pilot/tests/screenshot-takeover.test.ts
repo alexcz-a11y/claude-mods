@@ -3,7 +3,8 @@
 // image is and how to have it checked. Seam 1: the world plays the engine under the mod (`w.read`, `w.callTool` call
 // `$.tool.call`, which runs the mod's hooks and ends at the world's tools); what a test reads is the result the agent gets.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { jev, KEY, world } from './support/world.ts'
 
 const OPTIONS = KEY

@@ -1,0 +1,4 @@
+{
+  "description": "Dispatch Pilot Extras: the hooks of tool.call, agent.spawn and classic.PreToolUse, each run in Dispatch Pilot",
+  "modules": ["./dispatch-pilot-extras.mjs"]
+}

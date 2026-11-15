@@ -19,8 +19,8 @@ const MODEL_IDS: Readonly<Record<AgentModel, string>> = {
   haiku: 'claude-haiku-5-5',
   sonnet: 'claude-sonnet-5-5',
   opus: 'claude-opus-5-5',
-  // Seen as the advisor model's id in 2.1.289's debug log; no workflow agent ran on it yet.
-  fable: 'claude-fable-5-1',
+  // Fable 5.2, the family's current model (2026-11-15, the user's word; 0.14.0 and earlier named claude-fable-5-1). No agent has been run on it by the mod yet.
+  fable: 'claude-fable-5-2',
 }
 
 /** The id a step names to run on `family`. */

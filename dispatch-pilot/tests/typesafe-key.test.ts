@@ -3,7 +3,8 @@
 // comes first; the environment's is read at the session start. Seam 1 (engine events in; the requests, the board, the debug
 // log and every write to `$.state` out), with `setup()` for the choice it makes (the same ctx the features read).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { On } from 'claude-code'
 import { keySource, readConfig, setup, typesafeKey } from '../hooks/core/setup.ts'
 import { jev, world, type Reply } from './support/world.ts'

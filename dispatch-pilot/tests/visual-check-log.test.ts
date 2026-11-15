@@ -1,7 +1,8 @@
 // visual_check (#57): what the debug log says of a call. The images are heavy and private: it records how many there were, their
 // sizes and what they cost, and never their content (nor a key). Seam 1: the log lines the world collects.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { JEV_MODEL } from '../hooks/decision/jev.ts'
 import { jev, world } from './support/world.ts'
 

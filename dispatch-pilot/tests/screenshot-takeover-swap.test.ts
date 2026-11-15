@@ -2,7 +2,8 @@
 // loop's is seen at the tool (screenshot-takeover.test.ts), not here.
 // Seam 2: the pure functions, against the shapes a result may have.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { extensionOf, formatOf, imageOf, noteAsReadResult, swapImages, takeoverNote } from '../hooks/decision/screenshot-takeover.ts'
 
 const MCP = { type: 'image', data: 'QUJD', mimeType: 'image/jpeg' }

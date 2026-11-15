@@ -6,7 +6,8 @@
 // and steps in; what each step reaches the engine with, the requests, the
 // decision log out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { agentJev, siteJev, type SiteAnswer } from './support/workflow.ts'
 import { runWorld } from './support/workflow-run.ts'
 import { KEY, type Reply, type Sent, type ToolRun, world } from './support/world.ts'

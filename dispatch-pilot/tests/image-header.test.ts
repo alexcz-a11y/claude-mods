@@ -1,7 +1,8 @@
 // What the first bytes of an image say (decision/image-header.ts, #57): the size of a PNG or a JPEG and the EXIF orientation of a
 // JPEG, read from base64 text. Seam 2: the pure function against real files (made with Pillow, 12 by 8 pixels).
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { readImageHeader } from '../hooks/decision/image-header.ts'
 
 /** A JPEG with an EXIF block (big-endian) whose orientation is 6. */

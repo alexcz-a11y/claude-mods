@@ -21,6 +21,7 @@
 // asks nothing and turn.step sends every step as the engine made it.
 
 import type { HttpInit, On } from 'claude-code'
+import { bridgeStart, type HookGiven } from './bridge.ts'
 import { messageText } from '../decision/context.ts'
 import { EFFORT_PART } from '../decision/effort.ts'
 import { askGroups, type AskIo } from './ask-group.ts'
@@ -110,11 +111,11 @@ export function registerCore(on: On, ctx: Ctx): void {
 
   // Beneath every feature's tool.call: which calls a PreToolUse settings hook refused (the call itself then only
   // sees an error), for the features that count failures and read a loop's steps (core/outcomes.ts).
-  on('classic.PreToolUse', async ($, e, next) => {
+  on('dispatchPilot.start', { name: 'core.pretooluse' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'classic.PreToolUse'>>>(started, async (e, next) => {
     const decided = await next(e)
     if (decided.deny !== undefined && e.tool_use_id) noteBlocked(e.tool_use_id)
     return decided
-  })
+  }) }))
 
   on('turn.step', async function* ($, e, next) {
     // Switched off (/dp off): every step goes out as the engine made it, lock or no lock.

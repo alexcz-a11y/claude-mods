@@ -6,7 +6,8 @@
 // own (one yes/no `fits` per skill). Seam 1: engine events in; what reaches the
 // decision model, the main agent and the board out.
 
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { skillsPart, type SkillOption } from '../hooks/decision/skills.ts'
 import { isSecondSkillsRequest, KEY, rates, type SkillsWorld, world } from './support/world.ts'

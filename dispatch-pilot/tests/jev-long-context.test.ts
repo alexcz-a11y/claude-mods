@@ -6,7 +6,8 @@
 // as image-request.test.ts has it.
 
 import type { HttpResponse } from 'claude-code'
-import { expect, test } from 'claude-code/testing'
+import { expect } from 'claude-code/testing'
+import { test } from './support/test.ts'
 import type { BackendIo } from '../hooks/decision/backend.ts'
 import { estimateTokens } from '../hooks/decision/context.ts'
 import { imageRef } from '../hooks/decision/images.ts'
