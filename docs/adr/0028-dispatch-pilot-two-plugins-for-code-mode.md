@@ -26,4 +26,4 @@
 - **每个工具调用多几次 plugin 之间的往返**（两个都装时，`tool.call` 上两个不带条件的 hook 各一来一回，实测每次不到 1 毫秒）。
 - **本体挂了 `engine.create`**：任何一个 mod 重载时所有模块都重载（引擎的规则），`/dp` 翻转开关时也是。
 - **没试过的：** auto 以外的权限模式（`REPL` 同步返回时的行）、同时派出多个 agent、Code Mode 下的 fork 和 teammate、Desktop 和 VS Code。extras 自己没有测试文件：它的 hook 在本体的测试里有一份等价的内联 plugin，两份清单由 `eval/validate.ts` 核对。
-- **其他 mod。** `image-pane`（`tool.call`）和 `prefer-search-tools`（`agent.spawn`）也挡 Code Mode，这次没有动。
+- **其他 mod。** `image-pane` 原来挂 `tool.call`，0.2.0 改成从 `session.append` 的行里收图，不再挡 Code Mode（2.1.325 的 Code Mode 会话里和本体一起加载，脚本返回的图收进了图片栏）。`prefer-search-tools`（挂 `agent.spawn`）连同全局的 Bash 拦截 hook 一起删了：用户决定搜索工具只作为全局提示词里的偏好，不再强制。

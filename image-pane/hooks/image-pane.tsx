@@ -62,6 +62,21 @@ async function pngOf($: EngineInterface, one: ImageEntry): Promise<string | null
   }
 }
 
+// 每个调用的工具名和参数（回复行里的 tool_use），等它的结果行到了用：分来源，Read 的图找原文件。
+// 热重载后清空，代价是空档里那几张图没有工具名、Read 的图用引擎缩小过的那份。
+const uses = new Map<string, { tool: string; input: Record<string, unknown> }>()
+
+type UseBlock = { type: string; id?: unknown; name?: unknown; input?: unknown }
+type ResultBlock = { type: string; tool_use_id?: unknown; content?: unknown; is_error?: unknown }
+
+function noteUses(blocks: readonly unknown[]) {
+  for (const block of blocks as readonly UseBlock[]) {
+    if (block.type !== 'tool_use' || typeof block.id !== 'string' || typeof block.name !== 'string') continue
+    uses.set(block.id, { tool: block.name, input: typeof block.input === 'object' && block.input !== null ? (block.input as Record<string, unknown>) : {} })
+    while (uses.size > KEEP) uses.delete(uses.keys().next().value as string)
+  }
+}
+
 // 只在终端里工作：session.start 时没有终端（Claude Desktop、-p、SDK）就整个 mod 不动。
 // 热重载会重跑 session.start，所以放模块变量即可，丢了会在下一次 session.start 补回。
 let isTerminal = false
@@ -108,28 +123,39 @@ export const register: Register = (on, options) => {
     return r
   })
 
-  // agent 的图：任何工具结果里带的图片，主循环和子 agent 都算。
-  on('tool.call', async ($, e, next) => {
+  // agent 的图：任何工具结果里带的图片，主循环和子 agent 都算。从对话的行里收（`session.append`），不挂 `tool.call`：
+  // Claude Code 的 Code Mode 不和挂 `tool.call` 的 mod 一起开（2.1.325）。回复行里的 tool_use 给出工具名和参数，
+  // 随后的 tool-result 行给出结果。
+  on('session.append', { door: 'response' }, async ($, e, next) => {
+    if (isTerminal) noteUses(e.message.content)
+    return next(e)
+  })
+
+  on('session.append', { door: 'tool-result' }, async ($, e, next) => {
     const r = await next(e)
-    if (!isTerminal || r.deny !== undefined || r.isError) return r
-    const id = (e as unknown as { tool_use_id?: unknown }).tool_use_id
-    if (typeof id === 'string') await update($, calls, list => [...list, id].slice(-KEEP))
-    const found = findImages(r.result)
-    if (found.length === 0) return r
-    const input = e as unknown as { file_path?: unknown }
-    await collect($, found, {
-      origin: classify(e.tool),
-      tool: e.tool,
-      agentId: e.agentId,
-      sourcePath: e.tool === 'Read' && typeof input.file_path === 'string' ? input.file_path : undefined,
-    }).catch(() => {})
+    if (!isTerminal) return r
+    for (const block of e.message.content as readonly ResultBlock[]) {
+      if (block.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue
+      const id = block.tool_use_id
+      await update($, calls, list => [...list, id].slice(-KEEP))
+      if (block.is_error === true) continue
+      const found = findImages(block.content)
+      if (found.length === 0) continue
+      const use = uses.get(id)
+      const tool = use?.tool ?? ''
+      await collect($, found, {
+        origin: classify(tool),
+        tool: tool || undefined,
+        agentId: e.agentId,
+        sourcePath: tool === 'Read' && typeof use?.input.file_path === 'string' ? use.input.file_path : undefined,
+      }).catch(() => {})
+    }
 
     return r
   })
 
-  // 上面那个 tool.call 看不到的工具结果：先加载的 mod 在 tool.call 里直接答掉、不往下传的调用
-  // （dispatch-pilot 的 visual_check），classic.PostToolUse 也不为它们触发。它们的结果仍会进对话，
-  // 所以每一步发请求前，看最后一条用户消息里的 tool_result，收 tool.call 没经手的那些。
+  // 兜底：行没经过上面那个 hook 的工具结果（mod 在一轮中途才加载、热重载的空档），每一步发请求前
+  // 看最后一条用户消息里的 tool_result，按 tool_use_id 收还没收过的那些。
   on('turn.step', async function* ($, e, next) {
     if (isTerminal) await collectUnseen($, e.agentId).catch(() => {})
     return yield* next(e)

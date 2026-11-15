@@ -60,13 +60,35 @@ function engine(on: On, surfaces: RenderSurface[], opened?: string[][], saved?: 
     return { value: { exitCode: 0, stdout: '1 1', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('tool.call', () => ({ result: { content: [{ type: 'image', data: PNG, mimeType: 'image/png' }] } }))
+}
+
+type Appends = { session: { append: (row: never) => Promise<unknown> } }
+let rows = 0
+
+// 引擎为一次工具调用追加的两行：回复里的 tool_use，然后带图的 tool_result。
+async function called($: Appends, tool: string, input: Record<string, unknown> = {}, id = `toolu_${++rows}`, data = PNG) {
+  await $.session.append({
+    message: { type: 'assistant', role: 'assistant', content: [{ type: 'tool_use', id, name: tool, input }] },
+    door: 'response',
+    origin: { kind: 'model', model: 'opus' },
+    uuid: `row-${++rows}`,
+  } as never)
+  await $.session.append({
+    message: {
+      type: 'user',
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: id, content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }] }],
+    },
+    door: 'tool-result',
+    origin: { kind: 'tool', tool },
+    uuid: `row-${++rows}`,
+  } as never)
 }
 
 test('终端里，截图工具的结果出现在图片栏', async ($, on) => {
   engine(on, ['terminal'])
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await $.tool.call({ tool: 'mcp__computer-use__app_screenshot' } as never)
+  await called($, 'mcp__computer-use__app_screenshot')
 
   const ui = await $.ui.mount(PANE)
   expect((await ui.find({ type: 'Text', text: /1\/1 · 截图/ }))?.text).toMatch(/app_screenshot/)
@@ -76,8 +98,8 @@ test('终端里，截图工具的结果出现在图片栏', async ($, on) => {
 test('同一张图只收一次', async ($, on) => {
   engine(on, ['terminal'])
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await $.tool.call({ tool: 'mcp__computer-use__app_screenshot' } as never)
-  await $.tool.call({ tool: 'mcp__computer-use__app_screenshot' } as never)
+  await called($, 'mcp__computer-use__app_screenshot')
+  await called($, 'mcp__computer-use__app_screenshot')
 
   const ui = await $.ui.mount(PANE)
   expect(await ui.find({ type: 'Text', text: /^1\/1/ })).toBeTruthy()
@@ -87,7 +109,7 @@ test('同一张图只收一次', async ($, on) => {
 test('Claude Desktop 里什么都不收', async ($, on) => {
   engine(on, ['desktop'])
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await $.tool.call({ tool: 'mcp__computer-use__app_screenshot' } as never)
+  await called($, 'mcp__computer-use__app_screenshot')
 
   const ui = await $.ui.mount(PANE)
   expect(await ui.find({ type: 'Text', text: /还没有图片/ })).toBeTruthy()
@@ -98,7 +120,7 @@ test('按「打开原图」用 open 打开原件', async ($, on) => {
   const opened: string[][] = []
   engine(on, ['terminal'], opened)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await $.tool.call({ tool: 'mcp__computer-use__app_screenshot' } as never)
+  await called($, 'mcp__computer-use__app_screenshot')
 
   const ui = await $.ui.mount(PANE)
   await ui.press({ key: 'open' })
@@ -117,7 +139,7 @@ test('Read 的图从原文件做显示用的 PNG，读不到时脚本回退到�
   const saved: string[][] = []
   engine(on, ['terminal'], undefined, saved)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await $.tool.call({ tool: 'Read', file_path: '/Users/a/logo.png' } as never)
+  await called($, 'Read', { file_path: '/Users/a/logo.png' })
 
   // argv：sh -c SAVE sh <dir> <n> <mediaType> <source>
   expect(saved[0]?.slice(4)).toEqual(['/tmp/image-pane/s1', '1', 'image/png', '/Users/a/logo.png'])
@@ -127,12 +149,12 @@ test('没有原文件路径时不传来源', async ($, on) => {
   const saved: string[][] = []
   engine(on, ['terminal'], undefined, saved)
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await $.tool.call({ tool: 'mcp__computer-use__app_screenshot' } as never)
+  await called($, 'mcp__computer-use__app_screenshot')
 
   expect(saved[0]?.at(-1)).toBe('')
 })
 
-// visual_check 这类工具由先加载的 mod 在 tool.call 里直接答掉，image-pane 的 tool.call 看不到，只能从对话里收。
+// 兜底：结果行没经过 session.append 的 hook（mod 中途才加载）的调用，下一步从对话里收。
 function conversation(on: On, toolUseId: string, data = PNG) {
   on('session.messages', () => ({
     value: [
@@ -154,7 +176,7 @@ async function step($: { turn: { step: (e: never) => AsyncIterable<unknown> } })
   }
 }
 
-test('tool.call 没经手的工具结果里的图，下一步从对话里收', async ($, on) => {
+test('行没经手的工具结果里的图，下一步从对话里收', async ($, on) => {
   engine(on, ['terminal'])
   conversation(on, 'toolu_vc')
   on('turn.step', async function* (_, e) {
@@ -168,15 +190,15 @@ test('tool.call 没经手的工具结果里的图，下一步从对话里收', a
   await ui.unmount()
 })
 
-test('tool.call 已经手的调用不从对话里再收一次', async ($, on) => {
+test('行已经手的调用不从对话里再收一次', async ($, on) => {
   engine(on, ['terminal'])
-  // 对话里那份和 tool.call 拿到的字节不同（引擎可能重编码），指纹去重拦不住，要靠 tool_use_id。
+  // 对话里那份和行里拿到的字节可能不同（引擎可能重编码），指纹去重拦不住，要靠 tool_use_id。
   conversation(on, 'toolu_seen', `${PNG}AAAA`)
   on('turn.step', async function* (_, e) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [] } as never
   })
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
-  await $.tool.call({ tool: 'Bash', tool_use_id: 'toolu_seen' } as never)
+  await called($, 'Bash', {}, 'toolu_seen')
   await step($)
 
   const ui = await $.ui.mount(PANE)
