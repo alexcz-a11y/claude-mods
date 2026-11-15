@@ -34,7 +34,7 @@
 
 import type { EngineInterface, HttpInit, On, PromptOrigin, TurnStepInput } from 'claude-code'
 import { bridgeStart, hasExtras, type HookGiven } from '../core/bridge.ts'
-import { callsEnded, onlyWaits } from '../core/calls.ts'
+import { callsEnded, onlyWaits, scriptEnded } from '../core/calls.ts'
 import { describeAsked, errorText, type Asked, type BackendIo } from '../decision/backend.ts'
 import type { StandingConstraint } from '../decision/constraints.ts'
 import { describeState } from '../decision/context.ts'
@@ -60,7 +60,7 @@ import {
   type MidrunInput,
   type MidrunPosition,
 } from '../decision/midrun.ts'
-import { atStep, factsOf, newRecord, noteCall, stepsDue, withResponse, type CallEnd, type MidrunEvent, type MidrunRecord } from '../decision/midrun-track.ts'
+import { atStep, factsOf, newRecord, noteCall, stepsDue, withResponse, withScript, type CallEnd, type MidrunEvent, type MidrunRecord } from '../decision/midrun-track.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { wasBlocked } from '../core/outcomes.ts'
@@ -83,6 +83,8 @@ export const MIDRUN_SWITCH = 'midrun-effort'
 export const MIDRUN_DOWN_SWITCH = 'midrun-down'
 /** The switch for looking by step count as well (`/dp midrun-steps on|off`), off until the person turns it on. */
 export const MIDRUN_STEPS_SWITCH = 'midrun-steps'
+/** The switch for giving the decision model what a script returned (`/dp script-results on|off`): a Code Mode session's only. */
+export const SCRIPT_RESULTS_SWITCH = 'script-results'
 
 /** A step's text is kept this long at most as the record holds it (the state cuts it again). */
 const TEXT_CHARS = 1200
@@ -131,6 +133,7 @@ function isReportIntoTurn(e: { text: string; origin?: PromptOrigin; turnId?: str
 export function registerMidrunEffort(on: On, ctx: Ctx): void {
   defineSwitch({ name: MIDRUN_SWITCH, info: '一轮进行中，遇到这几类事件时重新判断主 agent 的 effort：改了又失败的命令、agent 交回的结果、新加载的 skill、送进来的报告。关掉后，派出的 agent 失败时也升不了 effort。' })
   defineSwitch({ name: MIDRUN_DOWN_SWITCH, info: '一轮进行中，剩下的工作只是照做时，把 effort 降到比发消息时低一档。关掉后中途只升档和回到原档。' })
+  defineSwitch({ name: SCRIPT_RESULTS_SWITCH, info: 'Code Mode 会话里，一轮中途重新判断 effort 时，把主 agent 的脚本返回给它的内容（截短，不脱敏）也交给决策模型。', default: true })
   defineSwitch({ name: MIDRUN_STEPS_SWITCH, info: '一轮进行中一直没有事件时，也每隔几步重新判断一次主 agent 的 effort；隔几步由「每隔几步重看一次」定。', default: false })
 
   on('dispatchPilot.start', { name: 'midrun.call' }, async ($, started) => ({ value: await bridgeStart<HookGiven<typeof on<'tool.call', { tool: RegExp }>>>(started, async (e, next) => {
@@ -158,6 +161,29 @@ export function registerMidrunEffort(on: On, ctx: Ctx): void {
       for (const call of callsEnded(e, await $.clock.now())) {
         const ended = outcomeOf(call.tool, { isError: call.isError, text: call.text }, call.isError && blockedByHookText(call.text))
         await afterCall($, ctx, { tool: call.tool, input: call.input, outcome: ended, ...(call.text === '' ? {} : { text: call.text }), durationMs: call.durationMs })
+      }
+    } catch (error) {
+      $.ui.log(`midrun: ${errorText(error)}`, { to: 'debug' })
+    }
+    return stored
+  })
+
+  // A Code Mode session: what a script returned to the main agent is kept on the step its calls are read into, and goes
+  // to the decision model with the run (the calls of a script that passed say nothing of what they found; the script's
+  // result is the part the assistant chose to read). Its row comes before the rows of the script's calls (2.1.325), so
+  // an event one of those calls makes is asked about with the result already there.
+  on('session.append', { door: 'queue' }, async ($, e, next) => {
+    const stored = await next(e)
+    if (e.agentId !== undefined || !isOn(MIDRUN_SWITCH) || !isOn(SCRIPT_RESULTS_SWITCH)) return stored
+    try {
+      const script = scriptEnded(e)
+      const cell = recordCell($)
+      const { value: have } = await cell.get()
+      // No step of the turn seen yet (a hot reload in the middle of one): no step to keep it on.
+      if (script !== undefined && have !== undefined) {
+        const noted = writes.then(() => update(cell, (r) => withScript(r ?? have, script)))
+        writes = noted.catch(() => undefined)
+        await noted
       }
     } catch (error) {
       $.ui.log(`midrun: ${errorText(error)}`, { to: 'debug' })

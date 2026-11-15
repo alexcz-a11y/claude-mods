@@ -287,6 +287,10 @@ export type StepOptions = {
    * that failed. No `tool.call` is raised for a mod there; the world still records the call.
    */
   script?: boolean
+  /** What a Code Mode step's script returns to the model, as the engine writes it; `throws`: the error it stops with instead. The row that tells it comes before the rows of the script's calls, `twice` when the engine sends it again (measured on 2.1.325). */
+  returns?: string
+  throws?: string
+  twice?: boolean
   /** A Code Mode step in which the model only waits for a script's events: its response makes one `Poll` call. */
   poll?: boolean
   /** An agent's step 0: the text its turn starts with (its task), '' when not given. */
@@ -420,7 +424,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const commandTurns = new Map<string, string>()
   const tools: RegisteredToolSpec[] = []
   /** What the step being sent streams and runs (set by `step()`, read by the engine's turn.step below). */
-  let streaming: Pick<StepOptions, 'answer' | 'tools' | 'parallel' | 'script' | 'poll'> = {}
+  let streaming: Pick<StepOptions, 'answer' | 'tools' | 'parallel' | 'script' | 'poll' | 'returns' | 'throws' | 'twice'> = {}
   /** Scripts dispatched so far (a Code Mode step's `(dispatched #n)`). */
   let scripts = 0
   /** How the tool call running now ends (set around each `$.tool.call` below). */
@@ -704,7 +708,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   // response still streams, as Claude Code does.
   on('turn.step', async function* (_$, e) {
     steps.push({ turnId: e.turnId, index: e.index, model: e.model, effort: e.effort, agentId: e.agentId })
-    const { answer = '', tools = [], parallel = false, script = false, poll = false } = streaming
+    const { answer = '', tools = [], parallel = false, script = false, poll = false, returns, throws, twice = false } = streaming
     streaming = {}
     if (answer) yield { kind: 'text' as const, index: 0, text: answer }
     const loop = e.agentId !== undefined ? { agentId: e.agentId } : {}
@@ -735,6 +739,12 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
       yield { kind: 'tool' as const, index: 1, id, name: 'REPL' }
       await named(id, 'REPL', { code }, e.model)
       await ended(id, 'REPL', `(dispatched #${++scripts})`, false)
+      if (returns !== undefined || throws !== undefined) {
+        const escaped = (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        const body = throws === undefined ? `<result>${escaped(returns ?? '')}</result>` : `<error>${escaped(throws)}</error>`
+        const event = `<event nonce="n${scripts}" kind="repl-eval" at="2026-11-15T08:25:29.173Z" eval="${scripts}" ms="390" status="settled">\n${body}\n</event>`
+        for (let i = 0; i < (twice ? 2 : 1); i++) await $.session.append({ message: { type: 'user', role: 'user', content: [{ type: 'text', text: event }] }, door: 'queue', origin: { kind: 'engine' }, uuid: `row-${++rowCount}`, ...loop } as never)
+      }
       for (const [i, run] of tools.entries()) {
         ending = run.ends
         await call(run, `repl_${e.turnId}_${e.index}_${i}`, true)
@@ -1073,7 +1083,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** Sends one model request through the mod, drained to its end (its text streamed, its tools run). */
     step: async (step: StepOptions) => {
       await booted()
-      streaming = { answer: step.answer, tools: step.tools, parallel: step.parallel, script: step.script, poll: step.poll }
+      streaming = { answer: step.answer, tools: step.tools, parallel: step.parallel, script: step.script, poll: step.poll, returns: step.returns, throws: step.throws, twice: step.twice }
       const effort = step.effort === undefined ? 'xhigh' : step.effort
       const input = {
         turnId: step.turnId ?? turnIds.at(-1) ?? 't0',

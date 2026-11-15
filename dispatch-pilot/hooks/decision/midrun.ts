@@ -72,7 +72,18 @@ export type CallOutcome = 'ok' | 'failed' | 'blocked' | 'denied'
 /** One tool call of a step: the tool, what it worked on (never what it wrote or returned), how it ended, and a failure's first line. */
 export type MidrunTool = { tool: string; target: string; outcome: CallOutcome; error?: string }
 /** One step of the run: its index, the end of what the assistant wrote in it, its tool calls (the latest of them, with the count of those before when a step made more than are kept). */
-export type MidrunStep = { step: number; assistant_text: string; earlier_calls_not_shown?: number; tools: readonly MidrunTool[] }
+export type MidrunStep = {
+  step: number
+  assistant_text: string
+  earlier_calls_not_shown?: number
+  tools: readonly MidrunTool[]
+  /**
+   * In a Code Mode session, what the scripts whose calls are this step's returned to the assistant: the part of their
+   * calls' output it chose to read (the calls themselves give no output there). And the error a script stopped with.
+   */
+  script_result?: string
+  script_error?: string
+}
 
 /**
  * What made the code ask (the run's events, decision/midrun-track.ts): a failure that came back, a report delivered into the
@@ -124,9 +135,19 @@ export const STEP_TOOLS = 12
 const REPORT_TOKENS = 600
 const ITEM_TOKENS = 120
 
+/** What a script returned keeps this many tokens, half from each end (a summary is as often at the end); the error it stopped with this many. */
+const SCRIPT_TOKENS = 300
+const SCRIPT_ERROR_TOKENS = 120
+/** What a script field's name and quotes take in the state, about. */
+const SCRIPT_FIELD_TOKENS = 8
+
 /** How the state is to be read: a field of its own, as both vendors' agent-trace examples have one (`note`, `context`). */
 const PROGRESS_NOTE =
   'The assistant is in the middle of its work on `task` and has not stopped to wait for the person. `recent_steps` are its latest steps, oldest first: each has the end of what the assistant wrote and its tool calls. A tool call gives what it worked on (`target`), how it ended (`outcome`) and, for a failure, its first error line (`error`); nothing a tool returned is shown. `facts` are counted by the program that runs the assistant.'
+
+/** The same, for a state with a step that ran a script (Code Mode): there the assistant reads what its script returned, and so does the decision model. */
+const PROGRESS_NOTE_SCRIPTS =
+  'The assistant is in the middle of its work on `task` and has not stopped to wait for the person. `recent_steps` are its latest steps, oldest first: each has the end of what the assistant wrote and its tool calls. The assistant makes its tool calls from scripts it writes. A tool call gives what it worked on (`target`), how it ended (`outcome`) and, for a failure, its first error line (`error`). `script_result` is what the step\'s script returned to the assistant, the part of its tool calls\' output the assistant chose to read, cut short; `script_error` is the error a script stopped with. `facts` are counted by the program that runs the assistant.'
 
 /** The arguments that say what a call worked on without carrying content, in the order they are taken. */
 const TARGET_KEYS = ['description', 'skill', 'subagent_type', 'name', 'file_path', 'notebook_path', 'pattern', 'query', 'url', 'command'] as const
@@ -152,7 +173,14 @@ function cleanText(text: string, tokens: number, tail = 0): string {
   return clipToTokens(redactSecrets(text.replace(/\s+/g, ' ').trim()), tokens, tail)
 }
 
+/** What a script returned, as the state carries it: on one line, cut to `tokens`; not masked (the person's decision, 0.15.0: it is what the assistant reads). */
+function scriptText(text: string | undefined, tokens: number): string {
+  return text === undefined ? '' : clipToTokens(text.replace(/\s+/g, ' ').trim(), tokens, 0.5)
+}
+
 function cleanStep(step: MidrunStep): MidrunStep {
+  const result = scriptText(step.script_result, SCRIPT_TOKENS)
+  const error = scriptText(step.script_error, SCRIPT_ERROR_TOKENS)
   const shown = step.tools.slice(-STEP_TOOLS)
   const earlier = (step.earlier_calls_not_shown ?? 0) + step.tools.length - shown.length
   return {
@@ -165,6 +193,8 @@ function cleanStep(step: MidrunStep): MidrunStep {
       outcome: tool.outcome,
       ...(tool.error === undefined || tool.error === '' ? {} : { error: cleanText(tool.error, ERROR_TOKENS) }),
     })),
+    ...(result === '' ? {} : { script_result: result }),
+    ...(error === '' ? {} : { script_error: error }),
   }
 }
 
@@ -172,8 +202,9 @@ function cleanStep(step: MidrunStep): MidrunStep {
  * The state of a mid-run request: `{ task, standing_constraints?, progress_note, report?, next_item?, recent_steps, facts? }`,
  * within `limits.tokens` as it is sent. The task takes at most a third, the person's lasting rules a quarter (the latest of
  * them first); the latest steps fill what is left, newest first, an older step dropped whole rather than squeezed; the newest
- * always goes, its text cut to fit and then its earliest calls. A field with nothing in it is left out (an empty list reads
- * as a signal). Secrets are masked everywhere.
+ * always goes, its text cut to fit and then its earliest calls, what its script returned cut to what is left before its text
+ * is. A field with nothing in it is left out (an empty list reads as a signal). Secrets are masked everywhere but in what a
+ * script returned.
  */
 export function midrunState(input: MidrunInput, limits: MidrunLimits = MIDRUN_LIMITS): State {
   return withinTokens((tokens) => midrunFields(input, { ...limits, tokens }), limits.tokens)
@@ -203,14 +234,25 @@ function midrunFields(input: MidrunInput, limits: MidrunLimits): State {
     if (kept.length === 0) {
       // The newest step always goes: without its text if need be, then without its earliest calls.
       let last = step
+      const { script_result: result, script_error: error, ...plain } = last
+      last = plain
       const bareOf = (one: MidrunStep): number => estimateTokens(JSON.stringify({ ...one, assistant_text: '' })) + 1
       while (bareOf(last) > room && last.tools.length > 1) last = { ...last, earlier_calls_not_shown: (last.earlier_calls_not_shown ?? 0) + 1, tools: last.tools.slice(1) }
-      const left = room - bareOf(last)
-      kept.unshift({ ...last, assistant_text: left > 0 ? clipToTokens(last.assistant_text, left, STEP_TAIL) : '' })
+      let left = room - bareOf(last)
+      // What is left goes to the script's error, then to what it returned, then to the assistant's text.
+      const fitted = (field: 'script_result' | 'script_error', text: string | undefined): Partial<MidrunStep> => {
+        const cut = text === undefined || left <= SCRIPT_FIELD_TOKENS ? '' : clipToTokens(text, left - SCRIPT_FIELD_TOKENS, 0.5)
+        if (cut === '') return {}
+        left -= estimateTokens(cut) + SCRIPT_FIELD_TOKENS
+        return { [field]: cut }
+      }
+      const scripts = { ...fitted('script_error', error), ...fitted('script_result', result) }
+      kept.unshift({ ...last, assistant_text: left > 0 ? clipToTokens(last.assistant_text, left, STEP_TAIL) : '', ...scripts })
     }
     break
   }
-  return { ...head, recent_steps: kept, ...facts }
+  const scripted = kept.some((step) => step.script_result !== undefined || step.script_error !== undefined)
+  return { ...head, ...(scripted ? { progress_note: PROGRESS_NOTE_SCRIPTS } : {}), recent_steps: kept, ...facts }
 }
 
 /** The latest of the person's lasting rules that fit in `tokens`, in the order they were given. */

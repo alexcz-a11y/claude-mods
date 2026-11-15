@@ -449,7 +449,7 @@ declare module 'claude-code' {
         calls: number
         failed: number
         /** The latest steps, oldest first (at most 10): the end of what the assistant wrote, and each tool call's target, outcome and first error line, masked and clipped. */
-        recent: { step: number; assistant_text: string; earlier_calls_not_shown?: number; tools: readonly { tool: string; target: string; outcome: 'ok' | 'failed' | 'blocked' | 'denied'; error?: string }[] }[]
+        recent: { step: number; assistant_text: string; earlier_calls_not_shown?: number; tools: readonly { tool: string; target: string; outcome: 'ok' | 'failed' | 'blocked' | 'denied'; error?: string }[]; script_result?: string; script_error?: string }[]
         /** The shell commands seen, by class (at most 16): how often each passed and failed, how it last ended, the count of file edits then, its failures in a row after an edit, its latest error line, the step it was last seen in. */
         commands: Record<string, { ok: number; failed: number; last: 'ok' | 'failed'; editsAtLast: number; refails: number; error: string; seenAt: number }>
         /** File edits that went through. */
@@ -478,6 +478,8 @@ declare module 'claude-code' {
         wanted?: { way: 'raise' | 'lower'; step: number } | null
         /** Steps since the last look in which the model only waited (Code Mode's `Poll`): a look by step count leaves them out. */
         idle?: number
+        /** The scripts (Code Mode) whose end was read this turn, by the number each was dispatched under. */
+        evals?: number[]
       }>
       /**
        * The person's own words this turn, masked and clipped (core/setup.ts

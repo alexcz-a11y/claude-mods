@@ -108,6 +108,8 @@ export type MidrunRecord = {
    * a look by step count does not count them. Absent in a record kept from before 0.15.0, and until one comes.
    */
   idle?: number
+  /** The scripts whose end was read this turn, by the number each was dispatched under (the latest `MAX_EVALS`): the row that tells it may come twice. Absent until one comes. */
+  evals?: number[]
 }
 
 export function newRecord(turnId: string): MidrunRecord {
@@ -229,6 +231,28 @@ export function withText(record: MidrunRecord, step: number, text: string): Midr
   if (at >= 0) recent[at] = { ...(recent[at] as MidrunStep), assistant_text: text }
   else if (text.trim() !== '') recent.push({ step, assistant_text: text, tools: [] })
   return { ...record, recent: recent.sort((a, b) => a.step - b.step).slice(-MAX_RECENT) }
+}
+
+/** A script's result is kept this long at most as the record holds it, half from each end (the state cuts it again). */
+const SCRIPT_CHARS = 4000
+const MAX_EVALS = 16
+
+/**
+ * The record with what a script came to (Code Mode, core/calls.ts `scriptEnded`), on the step the loop is at: the step its
+ * calls are read into, since the rows of a script's calls follow the row of its result. A script already read is not read
+ * again; a step's second script is added to its first.
+ */
+export function withScript(record: MidrunRecord, script: { eval: number; text: string; failed: boolean }): MidrunRecord {
+  if (script.text === '' || (record.evals ?? []).includes(script.eval)) return record
+  const text = script.text.length > SCRIPT_CHARS ? `${script.text.slice(0, SCRIPT_CHARS / 2)} … ${script.text.slice(-SCRIPT_CHARS / 2)}` : script.text
+  const field = script.failed ? 'script_error' : 'script_result'
+  const at = record.recent.findIndex((one) => one.step === record.step)
+  const recent = [...record.recent]
+  const one: MidrunStep = at >= 0 ? (recent[at] as MidrunStep) : { step: record.step, assistant_text: '', tools: [] }
+  const next = { ...one, [field]: one[field] === undefined ? text : `${one[field]}\n${text}`.slice(-SCRIPT_CHARS) }
+  if (at >= 0) recent[at] = next
+  else recent.push(next)
+  return { ...record, recent: recent.sort((a, b) => a.step - b.step).slice(-MAX_RECENT), evals: [...(record.evals ?? []), script.eval].slice(-MAX_EVALS) }
 }
 
 /** The record as a step of the loop starts: where it is, the engine's own effort, no call ended in it yet and its response not in. */

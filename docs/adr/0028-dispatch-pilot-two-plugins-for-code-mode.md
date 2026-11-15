@@ -11,6 +11,7 @@
   - 工具调用从对话的行里读（`hooks/core/calls.ts`）：`session.append` 的 response 行给出调用的 id、工具和参数，tool-result 行给出 `is_error` 和报错文字。Code Mode 下模型自己的调用只有 `REPL` 和 `Poll`，脚本里的每个调用各有一对行，所以读到的是脚本里的调用，`REPL` 和 `Poll` 不算。一轮中途的 effort（事件、按步数再看、追加一行换档）和失败计数都从这里接着走。「被 settings hook 拦下」靠 Claude Code 的报错文字认。
   - 派出的 agent 在它自己那一轮开始时判断（带 `agentId` 的 `turn.start`，引擎等它返回才发第 0 步）：任务是这一轮的文字，description 和类型来自 `$.agent.list()`。模型和 effort 一起写进计划表，由核心的 `turn.step` 每一步写出。fork、teammate、名单里没有的 agent（Workflow 的）不判断；被消息唤醒的 agent 沿用原来的决定。
   - 按步数再看时，只有 `Poll` 的步不计（`MidrunRecord.idle`）。
+- **Code Mode 下，脚本的返回值进一轮中途的请求**（用户的决定，开关 `script-results`，默认开）。那里通过的调用不带输出，主 agent 读的是脚本返回的那一部分；它从 `door: 'queue'` 的行里读出，记在这一步上，截短后作为 `script_result` / `script_error` 发给决策模型，不脱敏，state 的预算不变。按步数再看仍然按模型请求的次数算，不按脚本里的调用数（用户的决定：一次请求里做很多调用正是 Code Mode 的用处）。
 - **`find_skill` 改成 skill，两种会话都一样。** plugin 自带 `skills/find-skill/SKILL.md`（正文 `Query: $ARGUMENTS`），主 agent 用 Skill 工具加载 `dispatch-pilot:find-skill`、工作写在参数里，mod 在 `skill.prompt` 上把正文换成查询结果。不再注册工具。列表位置上的提示改成写这个 skill 的名字。它自己不在返回的 skill 里，加载它不算「加载了一个 skill」这个中途事件。
 - **`visual_check` 工具只在 extras 在时注册**（它在 `tool.call` 里回答）；Workflow 工具说明里的 label 提示也只在那时加。
 

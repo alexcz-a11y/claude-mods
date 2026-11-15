@@ -10,6 +10,10 @@
 // failed one its error). So the calls read here are the script's, and `REPL` and `Poll` themselves are left out: what
 // a script did is in the calls it made.
 //
+// What a script returned (or the error it stopped with) is a row of its own, `door: 'queue'`: the event the model then
+// reads, as a `Poll`'s result or beside its next request. It comes before the rows of the script's calls (measured on
+// 2.1.325), and may come twice; `scriptEnded` reads it.
+//
 // The calls named and not yet ended are kept in the module, the latest only: a hot reload loses them, and the calls
 // then ending are not read (as a call whose `tool.call` hook was lost with its module is not).
 
@@ -77,6 +81,24 @@ export function callsEnded(row: { message: { content: readonly ApiContentBlock[]
     })
   }
   return ended
+}
+
+/** What a script came to, as the model reads it: the value it returned, or the error it stopped with. */
+export type ScriptEnd = { eval: number; text: string; failed: boolean }
+
+const SCRIPT_EVENT = /<event\b([^>]*)\bkind="repl-eval"([^>]*)>\s*<(result|error)>([\s\S]*)<\/\3>\s*<\/event>/
+const ENTITIES: Readonly<Record<string, string>> = { '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&amp;': '&' }
+
+/**
+ * The script a `queue` row reports the end of (Code Mode): the number it was dispatched under (`(dispatched #n)`), what
+ * it returned or the error it threw, as written for the model. Undefined for any other row.
+ */
+export function scriptEnded(row: { message: { content: unknown } }): ScriptEnd | undefined {
+  const text = textOf(row.message.content)
+  const found = SCRIPT_EVENT.exec(text)
+  if (found === null) return undefined
+  const number = /\beval="(\d+)"/.exec(`${found[1]} ${found[2]}`)
+  return { eval: number === null ? -1 : Number(number[1]), text: (found[4] ?? '').replace(/&(?:lt|gt|quot|apos|amp);/g, (entity) => ENTITIES[entity] ?? entity).trim(), failed: found[3] === 'error' }
 }
 
 /** The Agent calls already matched to the agent they started. */

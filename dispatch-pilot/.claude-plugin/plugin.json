@@ -114,6 +114,12 @@
       "description": "一轮进行中一直没有事件时，也每隔几步重新判断一次主 agent 的 effort；隔几步由「每隔几步重看一次」定。",
       "default": false
     },
+    "scriptResults": {
+      "type": "boolean",
+      "title": "中途把脚本返回值交给决策模型",
+      "description": "Code Mode 会话里，一轮中途重新判断 effort 时，把主 agent 的脚本返回给它的内容（截短，不脱敏）也交给决策模型。",
+      "default": true
+    },
     "midrunEverySteps": {
       "type": "number",
       "title": "每隔几步重看一次",

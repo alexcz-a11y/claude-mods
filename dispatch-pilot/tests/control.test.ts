@@ -175,7 +175,7 @@ test('with the options left as the manifest gives them, every switch is at its d
 
   expect(status).toContain('Dispatch Pilot 开着')
   expect([...status.matchAll(/^ {2}关 {2}(\S+)/gm)].map((match) => match[1]).sort()).toEqual(['hook-block-failures', 'image-routing', 'midrun-steps', 'screenshot-takeover'])
-  expect([...status.matchAll(/^ {2}开 {2}(\S+)/gm)]).toHaveLength(13)
+  expect([...status.matchAll(/^ {2}开 {2}(\S+)/gm)]).toHaveLength(14)
 })
 
 test('in a session without a /config panel the flip holds for the session, and the command says it was not written', { options: KEY }, async ($, on) => {

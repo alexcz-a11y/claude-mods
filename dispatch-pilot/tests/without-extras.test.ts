@@ -10,7 +10,9 @@
 import type { AgentInfo } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import { blockedByHookText } from '../hooks/decision/escalation.ts'
-import { newRecord, stepsDue, withResponse } from '../hooks/decision/midrun-track.ts'
+import { scriptEnded } from '../hooks/core/calls.ts'
+import { midrunState, type MidrunStep } from '../hooks/decision/midrun.ts'
+import { newRecord, stepsDue, withResponse, withScript } from '../hooks/decision/midrun-track.ts'
 import { agentJev } from './support/workflow.ts'
 import { jev, KEY, kind, type Reply, type Sent, type StepOptions, type World, world } from './support/world.ts'
 
@@ -79,6 +81,72 @@ test('a look by step count leaves out the steps in which the model only waited f
   expect(withResponse(at(2), 2, '', 1, true).idle).toBe(1)
   expect(withResponse(at(2, 1), 2, '', 1, true).idle).toBe(2)
   expect(withResponse(at(2), 2, '', 1).idle).toBeUndefined()
+})
+
+// ---- What a script returned ---------------------------------------------------------------
+
+type SentStep = { step: number; tools?: unknown[]; script_result?: string; script_error?: string }
+const sentSteps = (request: Sent | undefined): SentStep[] => (request?.body.state as { recent_steps?: SentStep[] }).recent_steps ?? []
+const RETURNED = "{ edited: 'src/auth/login.ts', tests: 'FAIL src/auth/login.test.ts > reads <token> & refreshes\n1 failed, 11 passed' }"
+
+/** A Code Mode turn whose test fails, is fixed and fails again; each script returns `returned(index)` (undefined: nothing told). */
+async function scriptedTurn(w: World, more: (index: number) => Partial<StepOptions>) {
+  await w.submit('把登录的 token 读取修好，测试要过')
+  await w.step({ ...run(0, FAILS), script: true, ...more(0) })
+  await w.step({ ...fix(1), script: true, ...more(1) })
+  await w.step({ ...run(2, FAILS), script: true, ...more(2) })
+}
+
+test("in a Code Mode session what each script returned to the main agent goes to the decision model on the step its calls are read into, not masked; the note on how to read the state says so", { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: backend(MEDIUM, { levels: MEDIUM, nouls: { 'midrun.cause_unknown': 0.9 } }) })
+  await scriptedTurn(w, (index) => (index === 1 ? { returns: 'undefined' } : { returns: index === 0 ? `${RETURNED} sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789` : RETURNED, twice: index === 2 }))
+
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midrun.level'])
+  const steps = sentSteps(w.requests[1])
+  // The event is the third script's failed call: its result came before that call's row, and is there; sent once though its row came twice.
+  expect(steps.map((step) => step.script_result)).toEqual([`${RETURNED.replace('\n', ' ')} sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789`, 'undefined', RETURNED.replace('\n', ' ')])
+  expect(String((w.requests[1]?.body.state as { progress_note: string }).progress_note).includes('`script_result` is what the step\'s script returned')).toBe(true)
+  expect(w.appended).toHaveLength(1)
+})
+
+test('a script that stopped with an error is told as `script_error`; with `script-results` off, and in a turn whose scripts told nothing, the state is as it was', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: backend(MEDIUM, { levels: MEDIUM, nouls: { 'midrun.cause_unknown': 0.9 } }) })
+  await scriptedTurn(w, (index) => (index === 2 ? { throws: 'Error: tests failed\nThrown at: throw new Error("tests failed");' } : {}))
+  const steps = sentSteps(w.requests[1])
+  expect(steps.map((step) => step.script_error)).toEqual([undefined, undefined, 'Error: tests failed Thrown at: throw new Error("tests failed");'])
+  expect(steps.every((step) => step.script_result === undefined)).toBe(true)
+})
+
+test('`script-results` off: nothing a script returned is sent', { options: { ...KEY, scriptResults: false } }, async ($, on) => {
+  const w = world($, on, { backend: backend(MEDIUM, { levels: MEDIUM, nouls: { 'midrun.cause_unknown': 0.9 } }) })
+  await scriptedTurn(w, () => ({ returns: RETURNED }))
+  expect(sentSteps(w.requests[1]).every((step) => step.script_result === undefined)).toBe(true)
+  expect(String((w.requests[1]?.body.state as { progress_note: string }).progress_note).includes('script_result')).toBe(false)
+})
+
+test('the row of a script\'s end is read by its event; a result is kept on the step the loop is at, a long one cut from the middle, and the state cuts it to its share and the newest step\'s to what is left', () => {
+  const row = (text: string) => ({ message: { content: [{ type: 'text', text }] } })
+  expect(scriptEnded(row('<event nonce="a" kind="repl-eval" at="t" eval="7" ms="20" status="settled">\n<result>{ a: 1 &lt; 2 &amp;&amp; true }</result>\n</event>'))).toEqual({ eval: 7, text: '{ a: 1 < 2 && true }', failed: false })
+  expect(scriptEnded(row('<event nonce="a" kind="repl-eval" at="t" eval="8" ms="20" status="settled">\n<error>Error: boom</error>\n</event>'))).toEqual({ eval: 8, text: 'Error: boom', failed: true })
+  expect(scriptEnded(row('<event nonce="a" kind="task-notification" at="t">\n<result>done</result>\n</event>'))).toBeUndefined()
+  expect(scriptEnded(row('the person typed <result>x</result>'))).toBeUndefined()
+
+  const at = { ...newRecord('t1'), step: 3 }
+  const once = withScript(at, { eval: 1, text: 'first', failed: false })
+  expect(once.recent).toEqual([{ step: 3, assistant_text: '', tools: [], script_result: 'first' }])
+  expect(withScript(once, { eval: 1, text: 'first', failed: false })).toBe(once)
+  expect(withScript(once, { eval: 2, text: 'second', failed: false }).recent[0]?.script_result).toBe('first\nsecond')
+  const long = withScript(at, { eval: 3, text: `HEAD${'x'.repeat(9000)}TAIL`, failed: false }).recent[0]?.script_result ?? ''
+  expect(long.length < 4100 && long.startsWith('HEAD') && long.endsWith('TAIL')).toBe(true)
+
+  const words = (n: number, word: string) => Array.from({ length: n }, (_, i) => `${word}${i}`).join(' ')
+  const step = (index: number): MidrunStep => ({ step: index, assistant_text: '', tools: [{ tool: 'Bash', target: 'pnpm test', outcome: 'ok' }], script_result: `START ${words(2000, 'out')} END` })
+  const roomy = midrunState({ task: '修好登录', recent_steps: [step(0), step(1)], facts: [] }).recent_steps as MidrunStep[]
+  expect(roomy).toHaveLength(2)
+  expect(roomy.every((one) => (one.script_result ?? '').startsWith('START') && (one.script_result ?? '').endsWith('END') && (one.script_result ?? '').length < 2400)).toBe(true)
+  const tight = midrunState({ task: '修好登录', recent_steps: [step(0), step(1)], facts: [] }, { steps: 8, tokens: 420 }).recent_steps as MidrunStep[]
+  expect(tight.map((one) => one.step)).toEqual([1])
+  expect((tight[0]?.script_result ?? '').length > 0 && (tight[0]?.script_result ?? '').length < 1200).toBe(true)
 })
 
 // ---- Failures counted ------------------------------------------------------------------
