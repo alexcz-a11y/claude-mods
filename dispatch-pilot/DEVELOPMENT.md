@@ -171,6 +171,10 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 
 0.6.2 到 0.8.x：次数到 `unresolvedMaxAfter` 时另问一道带提示的 effort 题（`effort.level_unsolved`），这条消息自己的三选一判仍未解决时取它的回答，max 门槛用 `hintThetaMax`（ADR 0010）。官方指南要求判断交给 Jev、决定写在代码里，0.9.0 把它换成规则 R5（`still_failing` 为是、次数到 `unresolvedMaxAfter` 就 max），次数只作为 state 里的事实发出（ADR 0014）。当时的量法和结果留在 ADR 0010 和 `eval/results/*/2026-10-16-jev-hint-*.json`。
 
+### 两个 plugin 和 Code Mode（0.15.0，ADR 0028）
+
+`tool.call`、`agent.spawn`、`classic.PreToolUse` 的 hook 不在本体里注册：Claude Code 的 Code Mode 不和挂这些事件的 mod 一起开。上面各节写到的这几个事件上的 hook，主体都还在本体里（`on('dispatchPilot.start', { name })` 的主体，`core/bridge.ts`），由 `dispatch-pilot-extras` 在事件上的一行调过来；两个 plugin 都装时行为和以前一样。只有本体的会话（Code Mode）里这些主体不跑，本体改从对话的行里读工具调用（`core/calls.ts`），在 agent 自己那一轮开始时判断它（`features/dispatched-agents.ts` 的 `routeAtStart`）；Workflow 的两个功能、看图核对和截图接管在那里不工作。加一个这类事件上的 hook：主体写在本体里，名字加进 `dispatch-pilot-extras/hooks/dispatch-pilot-extras.mjs` 和 `tests/support/extras.ts`（`eval/validate.ts` 核对三处）。
+
 ### 失败时放行
 
 如果决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配置 key，消息照常进入，不会额外等待，这一轮使用会话自己的 effort。看板上主 agent 那一行写「未路由」和几个字的原因（「决策模型超时」「决策模型拒绝了密钥」），同时弹一个 toast 写明细节，例如 `jev：1500 毫秒内没有回答`、`jev：密钥被拒绝（状态码 401）`。账号的额度用完时（状态码 402；TypeSafe 和 Perplexity 在账号没有额度时都这样回，额度不是按天重置的）写 `jev：额度用完了（状态码 402）`，band 上写「决策模型额度用完」，卡片写「决策模型账号的额度用完了（状态码 402）」，给模型的英文是 `jev: out of credits (HTTP 402)`，和一时繁忙的 `jev：繁忙（状态码 503）`、请求太密被限速的 `pplx：被限速（状态码 429）` 区分开。
@@ -219,15 +223,15 @@ Claude Code 在会话开始时把所有 skill 的名字和描述作为一条附�
 
 ### find_skill：主 agent 中途查询 skill
 
-推荐只在你发消息时做一次。一轮进行中，主 agent 发现手头的工作可能有合适的 skill（例如要处理某种文件格式、用某个服务的工具，或者按某种流程审查、规划、发布），可以调用 `find_skill` 工具，用几个词说明要做的工作：
+推荐只在你发消息时做一次。一轮进行中，主 agent 发现手头的工作可能有合适的 skill（例如要处理某种文件格式、用某个服务的工具，或者按某种流程审查、规划、发布），可以查 skill：用 Skill 工具加载 `dispatch-pilot:find-skill`，参数里用几个词说明要做的工作。0.15.0 起它是这个 plugin 自带的一个 skill（`skills/find-skill/SKILL.md`，正文只有 `Query: $ARGUMENTS`），mod 在 `skill.prompt` 上把它的正文换成查询结果（ADR 0028）；0.14.0 及以前是 mod 注册的一个工具，在 `tool.call` 里回答，那个事件 Code Mode 不让 mod 挂。下面各条里的「工具」「调用」指的是这个 skill 和加载它：
 
 - **同一套排序。** 请求和发消息时推荐用的是同一个排序入口（`modRanker`）、同样的两段，第一段的选择题和发消息时那一题主 agent 能加载的 skill 一字不差（只能由你触发的 skill 不问），最近的对话也按同样的规则截取（`contextMessages`、`contextTokens`，不含文件内容和工具输出，先脱敏）；只是 `user_message` 换成主 agent 写的查询，不问 effort，也不问那四道「要不要 skill」（三道门控题和点名题）：主 agent 已经在要 skill 了。两个请求共用一次等待：第二个只能用第一个剩下的时间。
 - **等多久。** 两个请求合计等 `findSkillWaitMs`（Jev 和 d1.1 是 `timeoutMs`，和发消息时一样；pplx 和 d1-ultra 6000 毫秒）。这个值写在 `core/setup.ts` 的 `BACKEND_DEFAULTS`，按延迟定，没有校准，不是配置项。hook 自己的时间上限是 10 秒，只算它自己的代码和 `$.clock.sleep`，不算 `next` 和别的 `$` 调用（mods reference 的 Limits 一节；生成的类型里是 `HookBudget`），后端的超时正是用 `$.clock.sleep` 计的。
 - **返回什么。** 第一段排在前面的 `findSkillMax` 个都在第二段逐个判断，相关度过了决策模型的门槛（Jev、pplx ≥ 0.30，d1-ultra、d1.1 > 0.5）的都返回，按相关度从高到低（一样高时选择题给得多的在前），每个写名字（Skill 工具接受的写法，同步来的 skill 带 `anthropic-skills:` 前缀）、相关度和描述。主 agent 再用 Skill 工具按名字加载。都不够相关时，回答没有合适的 skill，并提示主 agent 不用 skill 继续，或者按名字加载它已知的 skill。
 - **只在被调用时回答。** 一轮中途不会主动推送 skill；结果只作为这次工具调用的回答交给主 agent。
-- **不返回的 skill。** 只能由你本人触发的 skill 和 `skillsNeverSuggested` 里的 skill 既不问也不返回。派出 agent 调用时，工具让它从自己的 skill 列表里挑（派出 agent 的列表没有隐藏），不发请求。
-- **不影响缓存。** 工具在会话开始时注册（只在配置了决策模型时），描述固定不变，不含任何会话内容。注册时带 `isDeferred: false`（2.1.293 起生效）：它和它的描述直接在主 agent 的工具列表里，不在 ToolSearch 后面（2.1.300 用 event-probe 实测：它的 `tool.describe` 里没有 `isDeferred`，即在列表里；同一会话里 haiku 被问到时却自称它是延迟加载的，模型的自述不可信）。0.4.4 及以前没带，实测是延迟加载的工具（主 agent 的工具列表里先只有它的名字，用 ToolSearch 加载之后才调用），2.1.293 之前的引擎也仍是这样，所以 skill 列表换成的那句提示写出了它的全名，并说明延迟加载时要先用 ToolSearch 加载（见上一节）。
-- **开关。** `/dp find-skill off`（以及 `/dp off`）之后，工具仍然注册着，调用时只回答它已关闭、可以用 `/dp find-skill on` 打开，不发请求；列表位置上的提示也不再提它，从下一段对话起生效（见上一节）。它和 skill 推荐的开关 `skills` 互相独立：推荐关掉时 `find_skill` 仍然回答（会话开始没有读 skill 目录的话，第一次调用时再读）。
+- **不返回的 skill。** 只能由你本人触发的 skill 和 `skillsNeverSuggested` 里的 skill 既不问也不返回。`skill.prompt` 不带是哪个 loop 加载的，所以派出 agent 加载它时和主 agent 一样回答（0.14.0 及以前的工具让它从自己的列表里挑，不发请求）；`find_skill` 自己不在返回的 skill 里，加载它也不算「加载了一个 skill」这个中途事件。
+- **不影响缓存。** skill 是 plugin 自带的文件，描述固定不变，不含任何会话内容；没有东西在会话开始时注册。没配决策模型时加载它，回答没有决策模型（那时主 agent 的 skill 列表也是完整的）。列表位置上的那句提示写的是 `dispatch-pilot:find-skill` 和 Skill 工具（见上一节）。
+- **开关。** `/dp find-skill off`（以及 `/dp off`）之后，skill 还在，加载时只回答它已关闭、可以用 `/dp find-skill on` 打开，不发请求；列表位置上的提示也不再提它，从下一段对话起生效（见上一节）。它和 skill 推荐的开关 `skills` 互相独立：推荐关掉时 `find_skill` 仍然回答（会话开始没有读 skill 目录的话，第一次调用时再读）。
 - **失败时放行。** 决策模型超时、出错、回答里没有 skill 问题（两个请求中任何一个），读不到本会话的 skill，或者 mod 自己出错时，工具都立即回答失败的原因，并提示主 agent 不用 skill 继续，或者按名字加载已知的 skill。看板的事件流记一条失败和原因，例如 `jev：1500 毫秒内没有回答`。两个请求共用一次等待，第二个的保底（Jev 800 毫秒）和发消息时一样（见上面「两个请求共用一次等待」）。
 - **看板和日志。** 每次查询是事件流里的一条：查了什么、返回了哪些 skill（带相关度），没有合适的写「没有合适的 skill」。每次查询的两个请求都写进 debug log，结果记进决策日志（`/dp log`）和 debug log，例如 `查到 anthropic-skills:pdf、code-review · "fill in a form in a PDF"：第一段 anthropic-skills:pdf 0.76、code-review 0.22、tdd 0.02；第二段相关度 anthropic-skills:pdf 0.93、code-review 0.61、tdd 0.00（≥ 0.30 才返回）；最多返回 5 个`。
 
@@ -899,7 +903,7 @@ hooks/
 │   ├── control.ts          /dp 命令：开关、锁定 effort、最近的决策；记录 session.measure 的读数（#13）
 │   ├── dispatched-agents.ts  派出 agent 时判断它的模型和 effort（#6）
 │   ├── escalation.ts       失败计数（#7，ADR 0013）：派出 agent 的失败到 `escalateAfter` 时从下一步起升一档模型（写进它的计划，同一步一起失败的几个调用只升一次）；主 agent 这一轮结束时把事实写进它的一轮记录（`facts`），也存进 `$.state` 的 `lastTurn`（下一条消息的 `last_turn` 和规则 R4 读它）；Workflow agent 的任务按它的 `agent-<id>.jsonl` 找，只用来在日志里写是哪个 agent
-│   ├── find-skill.ts       主 agent 的 find_skill 工具：会话开始时注册，被调用时按查询给 skill 排序（#12）
+│   ├── find-skill.ts       find_skill（#12，ADR 0028）：plugin 自带的 skill `dispatch-pilot:find-skill`，`skill.prompt` 上按查询给 skill 排序、把结果当作 skill 的正文
 │   ├── image-routing.ts    带图路由（#63、#64，ADR 0008、0013、0019）：开关 `image-routing`（默认关）；`prompt.submit` 用 `$.prompt.media` 读图（`attachedImages`，2.1.316 起），带读数的 effort part 进投票箱；读不到时 `session.append`（door 为 prompt）记下用户贴的图，`turn.start` 读出复杂度读数、再发 effort 题、写成待用的决定由核心认领，一轮进行中输入的按文字定；导出 `IMAGE_ROUTING_SWITCH`、`hasImage`、`attachedImages`
 │   ├── midrun-effort.ts    一轮中途的 effort（ADR 0020、ADR 0025）：开关 `midrun-effort`、`midrun-down`、`midrun-steps`（按步数再看，默认关）；`tool.call` 结束时记这一轮的记录、认事件、问决策模型、追加一行并改这一轮的计划；`turn.step` 记步和助手文字，带输入的步上收回欠着的档；`prompt.submit` 认送进这一轮的报告
 │   ├── main-effort.ts      发消息时判断主 agent 的 effort（#2，ADR 0014）：effort part（effort 题加是非题）放进投票箱，回答动未解决次数、按 decision/message-effort.ts 的规则定档、记下长期约束
@@ -1001,6 +1005,8 @@ hooks/
 scripts/decide.ts           用 Node 发一次真实的判断（Jev），请求内容与 mod 发出的相同：设置取 manifest 的默认值（`optionsFrom` + `readConfig`，和评测一样），凭证和 Node 的 io 用 `eval/node.ts` 的
 scripts/decide-agent.ts     同上，判断一个派出 agent（输入是评测集 subagent.jsonl 的一题）
 eval/                       评测（接缝 2）：评测集、Node 脚本、结果，见下文「评测」
+tests/support/extras.ts     dispatch-pilot-extras 在测试里的样子：一个内联 plugin，hook 和那个 plugin 的一一对应（`eval/validate.ts` 核对两份清单）
+tests/support/test.ts       套件的 `test` 加上那个内联 plugin；除 `without-extras.test.ts` 外每个测试文件都从这里取 `test`
 tests/support/world.ts      接缝 1 的测试脚手架；导出 `KEY`、`UNRESOLVED_ON` 两个常用的选项常量，假 Jev 的回答带 `JEV_MODEL`
 tests/support/pasted.ts     用户贴在消息里的图（#63）：`prompt.submit` 的 attachments（只有元数据）和引擎随后追加的那一行（`session.append`，door 为 prompt：image 块加 `[Image: source: <路径>]` 文字）；`w.submit(text, { images })` 用它
 tests/support/images.ts     world 的二进制文件和程序（#57）：`FakeFile`（按格式、尺寸描述的图，`fileBase64` 给出真的 PNG/JPEG 文件头）、`readFake`（从请求里的 base64 读回尺寸和来历）、假的 `sips` 和 `mkdir`（`Program`）；假的 `ffmpeg(videos)`（#60：`videos` 是按绝对路径给的 `FakeVideo`（长度、宽高、帧率），不在 `files` 里；`-i` 单独一次回 `Duration:` 并以 1 结束，`-ss` 超出最后一帧回 234，否则把一帧写成带来历标签的 JPEG；用 `process: { programs: { ffmpeg: ffmpeg(videos) } }`，`ffmpeg: null` 是没装）
@@ -2434,7 +2440,18 @@ Jev 出新版本时重跑一次，就知道看图核对准不准、能不能换�
 
 **文件**：`results/eval-v2/2026-10-08-{pplx-A,pplx-A-plus,pplx-B,pplx-B-prime,jev-J,jev-J-prime}.json`（六组）、`compare.json`（两套门槛 x 两种题集的离线重算）、`thresholds-jev.json`、`thresholds-pplx.json`（三选一门槛扫描）；`results/eval-v2-flow/{jev-24000,pplx-48000,pplx-135000}.json`（真实流程）；`results/effort-submit/2026-10-08-{pplx,jev}-regress.json`（回归）。
 
-### 已实测的引擎行为（2.1.289；看板部分 2.1.291；一轮中途改 effort 和模型 2.1.312；追加一行换 effort 2.1.322）
+### 已实测的引擎行为（2.1.289；看板部分 2.1.291；一轮中途改 effort 和模型 2.1.312；追加一行换 effort 2.1.322；Code Mode 2.1.325）
+
+**2.1.325：Code Mode 和 mod**（2026-11-14，0.15.0 的依据，ADR 0028）。临时探针 mod（不在仓库里）在终端的交互会话里测（`claude -p` 不支持 Code Mode；`CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude --model haiku --plugin-dir <探针> --debug-file <日志>`，auto 模式），读 debug log 和会话记录。
+
+- **哪些 mod 挡住 Code Mode。** 启动时引擎扫描每个已启用、非内置的 mod 的 hooks 模块（和 `plugin validate` 列出的 hook 是同一份扫描），只要有一个 hook 的事件是这十五个之一就不开 Code Mode：`tool.call`、`tool.check`、`agent.offer`、`agent.spawn`、`session.send`、`classic.PreToolUse`、`classic.PermissionRequest`、`classic.PermissionDenied`、`classic.PostToolUse`、`classic.PostToolUseFailure`、`classic.TaskCreated`、`classic.TaskCompleted`、`classic.Elicitation`、`classic.ElicitationResult`、`classic.WorktreeCreate`（从 2.1.325 的二进制里读的；matcher 多窄都算，扫描出错也算）。只挂 `turn.start`、`turn.step`、`turn.complete`、`session.append`、`skill.prompt`、`prompt.submit`、`session.start`、`engine.create` 的探针不挡。
+- **一步是什么。** 模型自己的调用只有 `REPL`（一段脚本）和 `Poll`（等脚本的事件）；直接调 `Bash` 得到 `No such tool available: Bash. Bash is only available inside REPL`。auto 模式下 `REPL` 立刻回 `(dispatched #N)`，结果之后作为 `Poll` 的工具结果送回。`turn.step` 每次模型请求一次，照常能改 `effort`。
+- **脚本里的调用看得见。** 每个调用触发一对 `session.append`：`door: 'response'`、`origin.model` 是 `<synthetic>` 的一行带 `tool_use`（工具名、参数），然后 `door: 'tool-result'`、`origin: { kind: 'tool', tool }` 的一行，`tool_use_id` 是 `repl_…`；通过的调用 `content` 是空串，失败的带报错文字、`is_error: true`。这两行在会话记录里是 `isVirtual`。脚本的返回值另作为 `door: 'queue'` 的事件行送来。
+- **换档仍要追加一行。** 不追加、每步交替写 `low` 和 `high`：第 1 到 6 步都停在 `low`（新输入只有 `Poll` 的工具结果），直到 skill 的正文进来之后那一步才换。从 `session.append`（`door: 'tool-result'`）的 hook 里、`next(e)` 之后调 `$.session.append` 追加一行用户行：下一步起每一步都是新档。
+- **派出 agent。** 脚本里的 `tools.Agent(...)` 派出的 agent 有自己的 `turn.start`（带 `agentId`，`text` 是任务），那时 `$.agent.list()` 已经有它（`description`、`type`）；引擎等 `turn.start` 的 hook 返回才发它的第 0 步（hook 里睡 1500 毫秒，第 0 步在其后 2 毫秒发出）。`turn.step` 把它的 `model` 从 `claude-haiku-5-5` 改成 `claude-sonnet-5-5`、`effort` 改成 `low`，它的会话记录里两条回复都是这个模型和这个档。它的任务完成后以 `prompt.submit`（`origin.kind: 'task-notification'`，带主轮的 `turnId`）送回。派出它的那次 Agent 调用的 `<synthetic>` 行在它的 `turn.start` 之后才出现（脚本的事件送达时），所以那时读不到主 agent 给它指定的模型。
+- **skill。** 脚本里的 `tools.Skill({ skill, args })` 触发 `skill.prompt`，`text` 是 `Base directory for this skill: <目录>\n\n<正文，$ARGUMENTS 已换成参数>`；hook 等了 2.5 秒返回的 `{ text }` 作为 `door: 'tool-message'` 的用户行进对话，模型照着做（返回一个 skill 名时它接着加载了那个 skill）。
+- **plugin 之间。** `user` 层的 plugin 可以在 `engine.create` 里给 `$` 加名词，另一个 plugin 的 hook 调得到，逻辑跑在加名词的那个 plugin 里（日志里是 `$.x.y (a -> b) answered in 0.8ms`）。`plugin validate` 只允许把 `$` 交给文件顶层声明的函数，也不允许把 `engine.create` 里 `next(e)` 的结果当参数传出去：所以名词的方法只回 `pass`，真正接调用的是本体挂在 `dispatchPilot.start` 上的 hook，主体写在那个 hook 里面。测试里 `$`（`Engine`）上没有 plugin 加的名词，测试自己的 hook 拿到的 `$` 又拒绝扫描里没列的调用，所以另一个 plugin 在测试里是内联 plugin（`tests/support/extras.ts`）。
+- Dispatch Pilot 自己（只加载本体，决策模型 Drex）：见 README「要求」里 0.15.0 那一条。
 
 详细记录见 `docs/research/mods-testing-seam.md` 的第 10 节。0.3.0 的看板取代了状态行：下面 0.2.x 时代的条目里写到的状态行（`dp effort ...`、`failed 2, blocked 1`）是当时的实测，保留原样；现在同样的信息在看板和依据面板上。
 
