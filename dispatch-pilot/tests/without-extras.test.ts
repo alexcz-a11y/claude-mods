@@ -12,7 +12,7 @@ import { expect, test } from 'claude-code/testing'
 import { blockedByHookText } from '../hooks/decision/escalation.ts'
 import { scriptEnded } from '../hooks/core/calls.ts'
 import { midrunState, type MidrunStep } from '../hooks/decision/midrun.ts'
-import { newRecord, stepsDue, withResponse, withScript } from '../hooks/decision/midrun-track.ts'
+import { newRecord, stepsDue, withResponse, withScript, workSince } from '../hooks/decision/midrun-track.ts'
 import { agentJev } from './support/workflow.ts'
 import { jev, KEY, kind, type Reply, type Sent, type StepOptions, type World, world } from './support/world.ts'
 
@@ -81,6 +81,35 @@ test('a look by step count leaves out the steps in which the model only waited f
   expect(withResponse(at(2), 2, '', 1, true).idle).toBe(1)
   expect(withResponse(at(2, 1), 2, '', 1, true).idle).toBe(2)
   expect(withResponse(at(2), 2, '', 1).idle).toBeUndefined()
+})
+
+test('the gaps between two switches, between two questions and before a raise is taken back are counted in steps of work: a step that only waited is left out, and a session with none counts as before', () => {
+  const waitedAt = (step: number, waited: number[]) => ({ ...newRecord('t1'), step, waited })
+  expect(workSince({ ...newRecord('t1'), step: 9 }, 5)).toBe(4)
+  // Script at 5, wait at 6, script at 7, wait at 8, script at 9: two steps of work since the one at 5.
+  expect(workSince(waitedAt(9, [2, 4, 6, 8]), 5)).toBe(2)
+  // The step the loop is at is a wait: the calls read in it belong to the script before.
+  expect(workSince(waitedAt(8, [6, 8]), 5)).toBe(1)
+  const twice = withResponse(withResponse({ ...newRecord('t1'), step: 3 }, 3, '', 1, true), 3, '', 1, true)
+  expect(twice.waited).toEqual([3])
+})
+
+test('in a Code Mode session a question is not asked again until four steps of work after the last: the waits between the scripts do not bring it nearer', { options: KEY }, async ($, on) => {
+  const w = world($, on, { backend: backend(MEDIUM, { levels: MEDIUM }) })
+  await w.submit('把登录的 token 读取修好，测试要过')
+  // A skill loaded at step 0 is asked about; one loaded at step 6 is three steps of work on (2, 4, 6), and is not; the one at step 8 is.
+  const skill = (index: number): StepOptions => ({ index, script: true, tools: [{ tool: 'Skill', input: { skill: `s${index}` } }] })
+  await w.step(skill(0))
+  for (const index of [2, 4]) {
+    await w.step({ index: index - 1, poll: true })
+    await w.step({ ...quiet(index), script: true })
+  }
+  await w.step({ index: 5, poll: true })
+  await w.step(skill(6))
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midrun.level'])
+  await w.step({ index: 7, poll: true })
+  await w.step(skill(8))
+  expect(w.requests.map(kind)).toEqual(['effort.level', 'midrun.level', 'midrun.level'])
 })
 
 // ---- What a script returned ---------------------------------------------------------------

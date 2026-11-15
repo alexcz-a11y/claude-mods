@@ -108,6 +108,12 @@ export type MidrunRecord = {
    * a look by step count does not count them. Absent in a record kept from before 0.15.0, and until one comes.
    */
   idle?: number
+  /**
+   * The steps of this turn in which the model only waited (the latest `MAX_WAITED`): the gaps the code keeps between two
+   * switches, between two questions and before a raise is taken back are counted in steps of work (`workSince`). Absent
+   * until one comes.
+   */
+  waited?: number[]
   /** The scripts whose end was read this turn, by the number each was dispatched under (the latest `MAX_EVALS`): the row that tells it may come twice. Absent until one comes. */
   evals?: number[]
 }
@@ -264,7 +270,18 @@ export function atStep(record: MidrunRecord, step: number, engine: MidrunRecord[
 export function withResponse(record: MidrunRecord, step: number, text: string, uses: number, waits = false): MidrunRecord {
   const written = text.trim() === '' ? record : withText(record, step, text)
   if (written.step !== step) return written
-  return waits ? { ...written, uses, idle: (written.idle ?? 0) + 1 } : { ...written, uses }
+  return waits ? { ...written, uses, idle: (written.idle ?? 0) + 1, waited: [...(written.waited ?? []).filter((one) => one !== step), step].slice(-MAX_WAITED) } : { ...written, uses }
+}
+
+/** Steps in which the model only waited are remembered at most this many. */
+const MAX_WAITED = 64
+
+/**
+ * The steps of work since step `from`: the loop's steps after it, less those in which the model only waited for a
+ * script's events (Code Mode's `Poll`; a session without Code Mode has none, and this is `record.step - from`).
+ */
+export function workSince(record: MidrunRecord, from: number): number {
+  return record.step - from - (record.waited ?? []).filter((step) => step > from && step <= record.step).length
 }
 
 /** The commands with one more, the one seen longest ago dropped past `MAX_CLASSES`. */

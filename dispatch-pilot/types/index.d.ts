@@ -478,6 +478,8 @@ declare module 'claude-code' {
         wanted?: { way: 'raise' | 'lower'; step: number } | null
         /** Steps since the last look in which the model only waited (Code Mode's `Poll`): a look by step count leaves them out. */
         idle?: number
+        /** The steps of this turn in which the model only waited (the latest 64): the code's gaps are counted in steps of work. */
+        waited?: number[]
         /** The scripts (Code Mode) whose end was read this turn, by the number each was dispatched under. */
         evals?: number[]
       }>

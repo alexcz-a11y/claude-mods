@@ -60,7 +60,7 @@ import {
   type MidrunInput,
   type MidrunPosition,
 } from '../decision/midrun.ts'
-import { atStep, factsOf, newRecord, noteCall, stepsDue, withResponse, withScript, type CallEnd, type MidrunEvent, type MidrunRecord } from '../decision/midrun-track.ts'
+import { atStep, factsOf, newRecord, noteCall, stepsDue, withResponse, withScript, workSince, type CallEnd, type MidrunEvent, type MidrunRecord } from '../decision/midrun-track.ts'
 import { quoteStart } from '../decision/redact.ts'
 import { answersFor, mergeParts } from '../decision/system-one.ts'
 import { wasBlocked } from '../core/outcomes.ts'
@@ -350,7 +350,7 @@ async function judge($: EngineInterface, ctx: Ctx, record: MidrunRecord, event: 
   const tick = event.kind === 'steps'
   if (tick ? (record.ticks ?? 0) >= MAX_STEP_LOOKS : record.judged >= MAX_JUDGMENTS) return
   const cameBack = event.kind === 'failure' && event.why !== 'regression'
-  if (!tick && !cameBack && record.judgedAt !== null && record.step - record.judgedAt < JUDGE_GAP_STEPS) return
+  if (!tick && !cameBack && record.judgedAt !== null && workSince(record, record.judgedAt) < JUDGE_GAP_STEPS) return
   if (!free && record.switches >= MAX_SWITCHES) return
   // Taken before anything is awaited: the calls of a step end together.
   busy.add(record.turnId)
@@ -402,7 +402,7 @@ async function judge($: EngineInterface, ctx: Ctx, record: MidrunRecord, event: 
       stuckBefore: now.stuck,
       downAllowed: isOn(MIDRUN_DOWN_SWITCH),
       free,
-      sinceSwitch: now.switchedAt === null ? null : now.step - now.switchedAt,
+      sinceSwitch: now.switchedAt === null ? null : workSince(now, now.switchedAt),
       switches: now.switches,
       // What the look before this one wanted counts only for a look by step count, and only while no other look came between.
       awaited: event.kind === 'steps' && now.wanted != null && now.wanted.step !== record.step ? now.wanted.way : null,
@@ -460,7 +460,7 @@ async function settleResolved($: EngineInterface, seen: MidrunRecord, free: bool
       await update(cell, (r) => ({ ...(r ?? record), raisedFor: null, raisedAt: null, resolved: false }))
       return
     }
-    const since = record.raisedAt === null ? HOLD_STEPS : record.step - record.raisedAt
+    const since = record.raisedAt === null ? HOLD_STEPS : workSince(record, record.raisedAt)
     // With a row: not before the gap, and not with the turn's last row, which is a raise's (on max there is none to keep it for).
     if (since < (free ? HOLD_STEPS : MIN_GAP_STEPS) || (!free && record.switches >= rowsFor('return', stood.current))) return
     const decision = resolvedDecision(stood, record.raisedFor, since, floor)

@@ -177,6 +177,8 @@ Dispatch Pilot 在 Claude 之外调用一个决策模型（TypeSafe 的 Jev）�
 
 **脚本的返回值进中途的 state（0.15.0，开关 `script-results`，默认开）。** Code Mode 下通过的调用的结果行是空的，助手文字也少，决策模型只剩每个调用的对象和成败；官方文档说脚本「return the part of the output that Claude needs to read」，那一部分只在返回值里。`core/calls.ts` 的 `scriptEnded` 从 `door: 'queue'` 的行里读出它，`withScript` 记在循环当前所在的那一步上（这段脚本的调用随后也记在这一步；同一个 `eval` 只记一次，一步里的第二段脚本接在第一段后面，记录里最多留 4000 个字符、头尾各半），`midrunState` 把它作为这一步的 `script_result`（约 300 token，头尾各半）或 `script_error`（约 120 token）发出，state 的 4000 token 预算不变，放不下时照旧整步丢掉较早的步，最新一步的返回值截到剩下的空间。有这两个字段时 `progress_note` 换成说明它们的那一版，没有时一字不变（普通会话的请求和评测过的一样）。**不脱敏**（用户的决定：那是主 agent 读到的原文）。没有评测：`effort-midrun` 的 122 题都是普通会话形态；0.11.0 时在普通会话上试过带工具输出的变体（`with-outputs`），和不带的差别在波动之内，但那里每个调用本来就有成败和首行报错、助手文字也在，和 Code Mode 的情形不同。auto 以外的权限模式下 `REPL` 若同步返回结果，那份结果不经 `queue` 行，这里读不到（没试过）。
 
+**间隔按干活的步数（0.15.0）。** Code Mode 下模型在只有 `Poll` 的步里没有做事（等脚本的事件），auto 模式下几乎每段脚本后面跟一个。`withResponse` 把这样的步记进 `waited`，`workSince(record, from)` 是 `from` 之后的步数减去其中只等待的；两次换档之间（`MIN_GAP_STEPS`）、两次提问之间（`JUDGE_GAP_STEPS`）、收回升档之前（`HOLD_STEPS`）都用它，按步数再看用 `idle`（同一件事，从上次看起算）。没有 `Poll` 的会话里它就是步号之差。
+
 ### 失败时放行
 
 如果决策模型超时（`timeoutMs`）、出错、回答无法解析，或者没有配置 key，消息照常进入，不会额外等待，这一轮使用会话自己的 effort。看板上主 agent 那一行写「未路由」和几个字的原因（「决策模型超时」「决策模型拒绝了密钥」），同时弹一个 toast 写明细节，例如 `jev：1500 毫秒内没有回答`、`jev：密钥被拒绝（状态码 401）`。账号的额度用完时（状态码 402；TypeSafe 和 Perplexity 在账号没有额度时都这样回，额度不是按天重置的）写 `jev：额度用完了（状态码 402）`，band 上写「决策模型额度用完」，卡片写「决策模型账号的额度用完了（状态码 402）」，给模型的英文是 `jev: out of credits (HTTP 402)`，和一时繁忙的 `jev：繁忙（状态码 503）`、请求太密被限速的 `pplx：被限速（状态码 429）` 区分开。

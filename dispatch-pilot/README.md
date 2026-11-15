@@ -212,7 +212,7 @@ CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude --settings '{"enabledPlugins":{"disp
 | | 普通会话（两个都装） | Code Mode 会话（只有本体） |
 | --- | --- | --- |
 | 发消息时定主 agent 的 effort | 有 | 有 |
-| 一轮中途重判 effort 并换档 | 有 | 有。调用从对话的行里读：Code Mode 下是脚本里的每个调用，脚本本身（`REPL`）和等结果（`Poll`）不算；按步数再看时只等结果的步不计 |
+| 一轮中途重判 effort 并换档 | 有 | 有。调用从对话的行里读：Code Mode 下是脚本里的每个调用，脚本本身（`REPL`）和等结果（`Poll`）不算；只等结果的步（`Poll`）不算一步：按步数再看、两次换档之间的 4 步、两次提问之间的 4 步、收回升档前的 3 步都按干活的步数 |
 | 派出 agent 的模型和 effort | 有，在派出时定，模型设在派出上 | 有，在 agent 自己那一轮开始时定，模型和 effort 一起写进计划表、每一步都写（引擎过载时自动换模型的兜底因此不起作用）；主 agent 在脚本里给 agent 指定的模型读不到 |
 | 失败计数和升级 | 有 | 有；「被你的 hook 拦下」靠 Claude Code 的报错文字认 |
 | skill 推荐、`find_skill` | 有 | 有 |
@@ -223,7 +223,7 @@ CLAUDE_CODE_EXPERIMENTAL_CODE_MODE=1 claude --settings '{"enabledPlugins":{"disp
 
 Code Mode 下脚本里通过的调用不带输出，主 agent 读到的是脚本的返回值（它自己挑出来要读的那部分）。所以一轮中途重新判断 effort 时，决策模型除了每个调用的对象和成败，也读到每一步脚本的返回值或它抛出的错误（开关 `script-results`，默认开；截短，不脱敏；见「发给决策模型的内容」）。返回值的那一行先于脚本里各调用的行到达，所以某个调用触发重判时返回值已经在了。它让判断准了多少没有评测：评测集里还没有 Code Mode 形态的题。
 
-Code Mode 下一步里可以跑很多个调用，所以同样的 `midrunEverySteps` 隔的工作量比普通会话大；这个值在 Code Mode 下该是多少没有评测。
+按步数再看仍然按模型请求的次数算，不按脚本里的调用数：一次请求里做很多调用正是 Code Mode 的用处。所以同样的 `midrunEverySteps` 隔的工作量比普通会话大；这个值在 Code Mode 下该是多少没有评测。
 
 ## 更新
 
