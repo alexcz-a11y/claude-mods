@@ -82,6 +82,30 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 - `jev-latest` 现在指向 `jev-1.14.0`，别名会随新版移动；回答的 `model` 字段给出实际版本；调过门槛就该固定版本。
 - skill cookbook：第一次请求问一道 Choice（选项是各 skill 的说明）、三道「是否要动手」的 Noul 和一道「是否点名了方法」的 Noul；三道的均值不低于 0.30 或点名题不低于 0.50 才算需要 skill。第二次请求对前三名重排，并逐个问「这个 skill 是否正好做用户要的事」，最高分低于 0.30 就不推荐。
 
+**TypeSafe 官方 skill（`typesafe:typesafe-ai` 0.6.2）对问法的要求**
+
+- 模型只给判断，决定写在代码里。让模型直接做决定的题（"该不该升级"）问错了层，要拆成它依赖的几个判断，决定用代码里的表来做，每种回答组合都要有结果，包括落在两个门槛之间的情况。
+- 问具体、能指出来的事，一题一个判断，"或""和"连接的条件拆成两题。
+- Score 的每一档写成一种情形，单独读也成立，不写"比上一档更…"。Noul 的 `false` 也写成具体情形。
+- state 用带名字的字段，题目用反引号里的路径指向字段；每个字段都要和题有关；代码已经知道的事实直接写出来。
+- Choice 总会选一个，所以另问一道 Noul"有没有任何一个合适"。
+- 请求失败要当作错误处理，不能当作"否"。所有题的措辞放在一个模块里。
+
+**两家对测试和校准的说法**
+
+- 用例要有代表性的、难的和答案是"否"或"都不合适"的（TypeSafe skill）；清楚的用例对谁都容易，要专门放边界用例（consistency cookbook）。
+- 用例来源首选自己的真实流量："set the thresholds in `POLICIES` from labeled examples of your own traffic."（llm_guardrails cookbook）。模型写的用例比真实请求容易（skill_suggestion cookbook）。
+- 参考答案可以由人标，也可以用强模型的回答，后者要写明（evals.typesafe.ai、verify_llm_outputs cookbook）。
+- 留出一部分用例不参与调整："pick the probability that best separates the two groups, and check it on pairs you didn't use to pick it."（basic_memory cookbook）；留出的那部分只在最后算一次分（autoresearch cookbook）。
+- "Start with conservative thresholds, test with your own data, and adjust as you observe results."、"Test thresholds by plotting confidence against accuracy on your data."、"Avoid fitting thresholds closely to a handful of test cases."（TypeSafe）。风险高的动作门槛更高，每种动作各有门槛。
+- Score："Choose examples with known expected levels, then test the revised descriptions on separate inputs before keeping them."（TypeSafe）；"try a score question on a few samples before you rely on it."（Nace）。
+- 比较措辞时把每种写法作为同一请求里的不同题来问；逐条看回答，不只看汇总；保存每个用例的原始请求以便重跑（TypeSafe skill）。
+- 警示信号：criteria 里点名测试用例或每个失败用例加一句、为解释模型怪癖加说明、门槛贴着个别用例调、测试断言精确概率、代码悄悄改写回答（TypeSafe skill）。
+- Choice 的选项顺序会影响 Jev，换顺序复查（model-jaggedness）。
+- "Log the raw `noul` value with each decision, so you can move the threshold later and replay past traffic against the new one."、"don't treat 0.5 as the answer"、调门槛时固定模型（Nace）。
+- Nace 文档对用例数量、类别比例、标注方法没有说法；TypeSafe 文档没有规定用例格式和数量。
+- 向真实接口发测试请求前，先征得用户同意，说明预算、会发送哪些数据、用谁的密钥（TypeSafe skill）。
+
 两家都没有 effort 或模型分级路由的官方配方。
 
 ## 4. 做法的选择
@@ -112,23 +136,26 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 
 不注册 3.1 列出的任何事件，不调用 `$.tool.register`。
 
-### 5.2 档位怎么问、怎么读（三项换挡共用）
+### 5.2 怎么问、怎么读（三项换挡共用）
 
-- effort 用一道 `score` 题，五档从低到高：`low`、`medium`、`high`、`xhigh`、`max`。每档的说明照 Anthropic 对 effort 的说法写（low：快速的机械工作；medium：常规开发；high：要验证、要考虑边界的工作和老代码里的 bug；xhigh、max：长时间自主处理的难题）。
-- 读法是一个函数 `decide(current, probabilities)`，三处共用：
+**模型只给判断，决定在代码里。** 没有任何一题问"该用哪一档"或"该用哪个模型"。题目问的是工作本身，档位和模型由代码里的表从回答算出来。所有题的措辞集中在一个模块里。
+
+- **工作有多费力**用一道 `score` 题，五档从低到高，每一档写成一种单独读也成立的情形（照 Anthropic 对 effort 的说法：快速的机械改动；常规开发；要验证、要考虑边界、或在老代码里查 bug；长时间自主处理的难题；其上的极难问题）。代码把第 0 到 4 档对应到 `low`、`medium`、`high`、`xhigh`、`max`。
+- 读这道题用函数 `decide(current, probabilities)`，三处共用：
   - 升：比当前高一档及以上的概率和不低于升档门槛，就升一档，再对新的一档重复。
   - 降：比当前低一档及以下的概率和不低于降档门槛，就降一档，再重复。
   - 两边都不到，保持当前档。这就是文档说的中间带。
-- 门槛按后端和模型版本各存一张表。初值：升档 0.7，降档 0.7（即文档的 0.7/0.3 起步），`xhigh` 和 `max` 的升档门槛更高（初值 0.8），因为高档多花的钱多。初值只是起点，发布前用评测集校准（第 8 节）。
-- 条件类的判断各用一道 `noul`，一题一个条件，高值表示「是」，带 `criteria.true/false`。同样用两个门槛，中间带按「不确定」处理。
+- **条件类的判断**各用一道 `noul`，一题一个条件，高值表示「是」，`criteria.true` 和 `criteria.false` 都写成具体情形。起步的两道：「这项工作是不是照已知做法重复的机械改动」（是，则上限 `medium`）、「这项工作是不是要先查明一个原因未知的问题」（是，则下限 `high`）。读法用两个门槛，落在中间带时这一条不起作用。每道题都必须在表里有用处，没有用处的不问。
+- 门槛按后端、模型版本和动作各存一张表。初值：升档 0.7，降档 0.7（即文档的 0.7/0.3 起步），升到 `xhigh` 和 `max` 的门槛更高（初值 0.8），`noul` 用 0.7 和 0.3。初值只是起点，发布前校准（第 8 节）。
 - 一次判断的所有题放进同一次请求。
-- state 只放和题目有关的内容，上限 4000 token，两家都不触发抽取或长上下文模式。
+- state 是带名字字段的对象（例如 `request`、`recent_steps`、`current_level`），题目用反引号里的路径指向字段；只放和题有关的字段，上限 4000 token，两家都不触发抽取或长上下文模式。
+- 请求失败记为失败并放行，不当作「否」。
 
 ### 5.3 发消息时定 effort
 
 - 只处理人发的消息（`origin.kind` 为 `composer`、`sdk`、`bridge`），其他来源直接放行。
 - state：用户这条消息，加上一段简短的近况（上一轮在做什么、上一轮的档位）。
-- 题：effort 的 `score` 题，加一道 `noul`「这条消息是否只是让助手继续它已经提出或正在做的工作」。
+- 题：5.2 节的 `score` 题和两道条件题，加一道 `noul`「这条消息是否只是让助手继续它已经提出或正在做的工作」。
 - `current` 的取值：续做题为「是」时取上一轮的档位，否则取会话设定的档位。结果写进状态，由这一轮的每个 `turn.step` 发出。
 - 用户用 `/dp lock` 锁了档位时不判断。
 
@@ -139,7 +166,7 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
   1. 这一轮中途进来了新输入（用户插话、后台任务通知、agent 交回报告）。这种步本来就带输入，换挡不用加说明。
   2. 代码数到失败成簇：同一处报错在一次修改之后再次出现，或连续两步报错。
   3. 距离上一个检查点满 N 个工作步（`midrunEverySteps`，默认 8，0 为关闭）。只等事件的 `Poll` 步不算工作步。
-- 在检查点：state 是用户这一轮的请求、当前档位和最近几步的摘要，题是 effort 的 `score` 题，用 `decide` 读。
+- 在检查点：state 是用户这一轮的请求、当前档位和最近几步的摘要，题是 5.2 节的 `score` 题和两道条件题，问的是「接下来的工作」，用 `decide` 读。
 - 要换挡时，在这条结果行存下之前给它加一个 text 块（E5），下一步起每个 `turn.step` 发新档。说明是一行英文事实，例如 `[dispatch-pilot] effort is now high: the same test failed again after a fix.`，不带命令语气。
 - 限制：一轮最多加 4 条说明（`midrunMaxNotes`）；两次换挡至少隔 3 个工作步；一轮中途最高升到 `xhigh`，不升到 `max`；新档和当前档相同时不加说明。
 - Code Mode 下说明只加在请求会带的结果行上（`REPL` 或 `Poll`），不加在脚本内部调用的行上。
@@ -148,15 +175,17 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 
 - agent 的 `turn.start` 带任务原文（E2）。在这里发起一次判断，它的第一个 `turn.step` 等这次判断，最多等到时限；之后每步写同一组值（E3）。超时就按继承值跑，这个 agent 之后也不再改。等的是 agent 自己的第一次请求，不是主循环脚本里的调用。
 - 派出时已经明写了模型或 effort 的（`$.agent.list()` 里它的 `model`、`effort` 有值），那一项不改。
-- 题：一道模型层级的 `score` 题和一道 effort 的 `score` 题。模型层级的顺序固定为 `haiku` < `sonnet` < `opus` < `fable`，候选取 `agentModels`（默认这四个）里不高于主 agent 的那些。写给引擎的是别名本身，由引擎解析成具体模型（实测 `haiku` 解析为 `claude-haiku-5-5`）。主 agent 的层级按它的模型 id 里的家族名认；认不出时不改 agent 的模型，只定 effort。
-- `current` 取继承值（主 agent 的模型和当前档位）。模型只在把握大时才换：换模型的门槛初值 0.8，升降同值。
+- 题：5.2 节的 `score` 题和两道条件题，再加一道 `noul`「这项任务是不是只需要查找或阅读信息，不用做任何改动」。effort 和模型层级都由代码里的表从这些回答算出，不问模型该用哪个模型。
+- 模型层级的顺序固定为 `haiku` < `sonnet` < `opus` < `fable`，候选取 `agentModels`（默认 `haiku`、`sonnet`、`opus`）里不高于主 agent 的那些。
+- **Fable 作为子 agent 有单独的开关 `fableAgents`，默认关。** 关着时 mod 不会让任何 agent 跑在 `fable` 上：主 agent 是 Fable 而 agent 没有明写模型时，它的上限是 `opus`，这条是配置规则，决策模型失败时也照样执行。打开后 `fable` 才进候选。派出时明写了 `fable` 的 agent 不受这个开关影响（见上一条）。写给引擎的是别名本身，由引擎解析成具体模型（实测 `haiku` 解析为 `claude-haiku-5-5`）。主 agent 的层级按它的模型 id 里的家族名认；认不出时不改 agent 的模型，只定 effort。
+- `current` 取继承值（主 agent 的当前档位；模型取继承值，受上面的上限约束）。模型只往下换，而且只在把握大时才换：门槛初值 0.8。
 - `e.text` 为空的 agent（续跑的，或引擎不让 hook 看到的）不处理。agent 中途不再判断。
 
 ### 5.6 skill
 
 - `prompt.attachment` 收到主循环的 `skill_listing` 时，解析出里面的 skill 名和说明，存进会话状态，作为候选集；这样候选只含引擎允许模型调用的 skill。然后把这条附件换成固定的一句：说明列表被收起，合适的 skill 会随消息推荐，其他的用 `dispatch-pilot:find-skill` 查。agent 的列表原样放行。
 - 发消息时的推荐照 TypeSafe cookbook 的结构和门槛（3.4 节）。第一次请求和 effort 题合并成同一次请求。需要第二次请求时才发。最多推荐一个 skill，放进 `prompt.submit` 的 `context`，内容是 skill 名、说明和「用 Skill 工具加载」的一句。不推荐时什么也不加。
-- Drex 没有 skill 配方，用同一结构；门槛初值同 cookbook，校准后各存各的。
+- Drex 没有 skill 配方，用同一结构；门槛初值同 cookbook，校准后各存各的。「都不合适」的处理各照各的文档：Jev 用陪伴的 Noul，不加 "other" 选项；Drex 在选项里加一个 `other`。
 - `find-skill`：plugin 自带的 skill（`skills/find-skill/SKILL.md`），`skill.prompt` 收到它时，用参数里的几个词对候选集做同样的两步判断，回答最多三个合适的 skill 名和说明。
 - 候选超过 255 个时（Drex 每题上限）按来源分批问。
 
@@ -184,7 +213,7 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 
 ### 5.10 配置（`userConfig`）
 
-`enabled`、`mode`（`apply` 或 `shadow`，后者只判断和记录、不改任何东西；默认 `apply`）、`backend`、`drexApiKey`、`jevApiKey`（sensitive）、`drexModel`、`jevModel`、`midrunEverySteps`、`midrunMaxNotes`、`agentModels`、三个时限，以及四个布尔开关 `submitShift`、`midrunShift`、`agentShift`、`skills`，分别开关发消息定档、中途换挡、agent 定档和 skill 一组功能，默认都开。没有密钥的后端视为不可用；两个都没有时 mod 什么也不做，并在 `/dp` 里说明。
+`enabled`、`mode`（`apply` 或 `shadow`，后者只判断和记录、不改任何东西；默认 `apply`）、`backend`、`drexApiKey`、`jevApiKey`（sensitive）、`drexModel`、`jevModel`、`midrunEverySteps`、`midrunMaxNotes`、`agentModels`、`fableAgents`（默认关）、三个时限，以及四个布尔开关 `submitShift`、`midrunShift`、`agentShift`、`skills`，分别开关发消息定档、中途换挡、agent 定档和 skill 一组功能，默认都开。没有密钥的后端视为不可用；两个都没有时 mod 什么也不做，并在 `/dp` 里说明。
 
 ### 5.11 放行规则
 
@@ -203,17 +232,43 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 - 一条静态检查：hooks 模块里出现的事件名都不在 3.1 的名单里，也没有 `$.tool.register`。接进 `scripts/check.sh`。
 - 实机：普通会话和 Code Mode 会话各跑一遍三项换挡和 skill 推荐，记进 DEVELOPMENT.md。
 
-## 8. 校准
+## 8. 校准（照 3.4 节两家的说法）
 
-官方文档要求门槛用自己的数据测。校准属于这个项目，是最后一个阶段；`1.0.0` 在校准之后发布。发布前：
+校准属于这个项目，是最后一个阶段；`1.0.0` 在校准之后发布。
 
-- 实施者新写一个评测集：发消息定档、中途换挡、agent 定档、skill 推荐四类，每类至少 60 例，带期望结果。不沿用旧评测集。用户抽查期望结果。
-- 两个后端各跑一遍，按「该升没升」和「该降没降」的代价调门槛表，记下所用的模型版本。Jev 用别名时，校准记录里写当时解析到的版本；决策记录里版本变了就重新校准。
-- 先用 `shadow` 模式在真实会话里跑，看记录再打开 `apply`。
+**用例**
+
+- 来源首选真实流量：本机 Claude Code 的会话记录，以及 mod 在 `shadow` 模式下记下的决策记录。手写或模型写的用例只用来补真实流量里缺的难例、边界例和反例，单独标记、单独报数，因为它们比真实请求容易。
+- 四类：发消息定档、中途换挡、agent 定档和模型、skill 推荐。每类都要有代表性的、难的、处在两档之间的，以及答案是「否」「保持不变」「不推荐任何 skill」的。文档没有规定数量，这里定每类至少 60 例，其中边界例和反例合计不少于三分之一。
+- 一个用例存：mod 实际会发的完整请求（state 和题）、期望结果（期望档位或可接受的范围、是或否、期望的 skill 或「无」）、来源、难度、属于调整集还是留出集。回答原样存下来，重算门槛时不用再发请求。
+
+**参考答案**
+
+- 由强模型在 high 档读完整上下文后给出（真实流量的用例包括这一轮后来实际怎么走的），写明是模型标的；用户抽查，抽查改动过的用例标为人工标注。
+
+**调整和验收**
+
+- 用例分调整集和留出集。措辞和门槛只在调整集上改，每次改动都在没用来调的用例上复查；留出集只在最后算一次分，报告里的数字来自它。
+- 比较措辞时，把几种写法作为同一请求里的不同题，对同一个 state 问。逐条看回答，不只看汇总。Score 的各档说明先在几个样例上试，改写后在另一批输入上验证再留下。
+- 门槛从保守的初值起步。在调整集上画出概率和正确率的关系，按每种动作出错的代价定（升档、降档、换模型、推荐 skill 各自一张表），再到留出集上核对。一段很宽的门槛范围结果相同时取保守的一端。
+- 不做的事：criteria 里点名用例或为每个失败用例加一句；为解释某次怪回答加说明；让门槛贴着个别用例；测试里断言精确概率（单元测试只用打桩的回答）；用代码悄悄改写回答。回答看着不对时按这个顺序查：实际发出的请求、state、选项、题的范围、措辞。
+- 稳定性：skill 的 Choice 把选项顺序打乱再问一遍，结果变了的用例单独列出；同一请求重复问，看决定会不会变。
+
+**版本**
+
+- 校准记录写明所用的模型版本。Drex 固定版本。Jev 按用户要求用别名 `jev-latest`，而 TypeSafe 文档建议调过门槛后固定版本：所以 mod 记下校准时的版本，回答里的 `model` 和它不一致时在 `/dp` 和状态行里提示需要重新校准。想照文档固定版本，把 `jevModel` 设成具体版本号即可。
+
+**发真实请求之前**
+
+- 先向用户说明并取得同意：预算、会发送哪些会话内容、用的是用户自己的 Drex 和 Jev 密钥。
+
+**上线**
+
+- 先用 `shadow` 模式在真实会话里跑，看记录再打开 `apply`。决策记录保留原始回答，以后调门槛可以拿旧记录重算。
 
 ## 9. 留给实施者
 
-- 各题的具体措辞和各档说明的文字，以评测结果为准。
+- 各题的具体措辞、各档情形的文字、条件题的最终清单和代码里那张表的具体内容，以校准结果为准；约束见 5.2 节和第 8 节。
 - 一步里有多个并行工具调用时说明加在哪一条结果行上（实测每个结果各有一行）。
 - Code Mode 下 `queue`、`delivery` 这两种行算不算带新输入，没测；没测清之前按不算处理。
 - 主循环上 E5 的旁证（E6）：比较加说明前后几步的思考量，或用引擎以后提供的读数。主 agent 的中途换挡是必须保留的功能：如果旁证显示它在主循环上不起作用，停下来告诉用户，不要自行降级成做法二。
@@ -224,14 +279,14 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 ## 10. 我替用户做的决定（请在读的时候核对）
 
 1. Drex 作默认，Jev 作另一个后端并在 Drex 失败时接手。核心版没有看图功能，所以没有「带图给 Jev」这条。
-2. `jev-latest` 按用户要求用别名；每条记录写实际版本，版本变了重新校准。
-3. 门槛初值取 0.7/0.3 的起步值，高档更严，发布前校准。
+2. `jev-latest` 按用户要求用别名；每条记录写实际版本，和校准时的版本不一致就提示重新校准。TypeSafe 文档的建议是固定版本，可以用 `jevModel` 改。
+3. 题目只问工作本身，档位和模型由代码里的表算出（照 TypeSafe 官方 skill）。门槛初值取 0.7/0.3 的起步值，高档更严，发布前校准。
 4. 中途检查点三种：新输入、失败成簇、每 8 个工作步；一轮最多 4 条说明；中途不升到 `max`。
-5. agent 的模型只在把握大时才换，层级 `haiku` < `sonnet` < `opus` < `fable`，不高于主 agent。派出时明写的值不改。agent 的第一步最多等 3 秒。
+5. agent 的模型只往下换、只在把握大时才换，层级 `haiku` < `sonnet` < `opus` < `fable`，不高于主 agent。`fableAgents` 关着时（默认），没有明写模型的 agent 最高到 `opus`；派出时明写的值不改，包括明写的 `fable`。agent 的第一步最多等 3 秒。
 6. 时限 4 秒、2 秒、3 秒，短于 Nace 建议的 60 秒，超时不重试。
 7. 只留状态行和 `/dp`，不做 band 和面板。配置从 40 项减到十几项，加了 `shadow` 模式。
 8. 版本号 `1.0.0`，删除 `dispatch-pilot-extras`。
 9. agent 的 skill 列表不动，只收起主循环的。
 10. 发给决策模型的内容不脱敏，只截断，沿用此前对脚本结果的决定。
-11. 校准算在这个项目里，评测集新写，不用旧的；默认 `apply`，校准后才发 `1.0.0`。
+11. 校准算在这个项目里，不用旧评测集；用例首选本机真实会话记录，参考答案由强模型标、用户抽查，每类至少 60 例（文档没有规定数量）；默认 `apply`，校准后才发 `1.0.0`。
 12. 主循环中途换挡若验证不通过，停下来问，不自行降级。
