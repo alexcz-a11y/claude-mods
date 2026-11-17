@@ -125,7 +125,7 @@ export type WorldOptions = {
    * base64 and ffmpeg when `programs` names them), each call is recorded in `w.ran`. `true` for the defaults.
    */
   process?: true | ProcessWorld
-  /** The engine refuses every row the mod appends (`$.session.append`), with this reason. */
+  /** The engine keeps no note the mod puts on a tool result's row (it stores the row as it made it); the text is only a reason for a test to read. */
   appendRefused?: string
   /** What `$.session.id()` answers (`s1` by default); `w.setSessionId` gives the process another, as a /clear does. */
   sessionId?: string
@@ -133,7 +133,7 @@ export type WorldOptions = {
    * The agents `$.agent.list()` names (dispatched agents, not a Workflow's): as the engine lists them, which a test
    * changes through `w.agents` as agents come and go. `{ deny }`: the roster cannot be read.
    */
-  agents?: AgentInfo[] | { deny: string }
+  agents?: ListedAgent[] | { deny: string }
   /**
    * The mod's `$.store`, seeded with these values; what the mod writes is read back with `w.stored(key)`.
    * Without it every `$.store` call rejects, as when the store file cannot be read or written.
@@ -364,6 +364,13 @@ function spawnInput(id: string, spawn: SpawnOptions & { workflow?: { runId: stri
 
 export type World = ReturnType<typeof world>
 
+/**
+ * An agent as a test lists it: who it is, and where a test needs it the model it runs on. The engine's own AgentInfo
+ * says more from Claude Code 2.1.326 on (its task, its tokens, its cost), none of which the mod reads; the world hands
+ * the mod these as the engine's.
+ */
+export type ListedAgent = Pick<AgentInfo, 'id' | 'description' | 'type' | 'status'> & { name?: string; teammateId?: string; parentId?: string; spawnedBy?: string; model?: string }
+
 export function world($: Engine, on: On, options: WorldOptions = {}) {
   const clock: MockClock = mock.clock(on)
   const requests: Sent[] = []
@@ -374,8 +381,10 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const paneActs: { act: 'open' | 'close'; id: string; focus: boolean }[] = []
   const logs: { text: string; to: string | undefined }[] = []
   const steps: Step[] = []
-  /** The rows the mod appended to a conversation (`$.session.append`): the row's type and text, the agent whose conversation it joined, and how many model requests had gone out by then. */
+  /** The notes the mod put on the rows of tool results (core/notes.ts, ADR 0029): the row's type and the note's text, the agent whose conversation the row is of, and how many model requests had gone out by then. */
   const appended: { type: string; text: string; agentId: string | undefined; afterStep: number }[] = []
+  /** What each command run through `w.command` answered, besides its text: whether the text is for the person alone (`isTextDisplayOnly`). */
+  const commandAnswers: { command: string; args: string; isTextDisplayOnly: boolean }[] = []
   const prompts: { text: string; context: readonly string[] | undefined; origin: unknown }[] = []
   const turnIds: string[] = []
   const toolCalls: { tool: string; id: string; input: Record<string, unknown>; isError: boolean; text: string | undefined }[] = []
@@ -396,7 +405,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
   const binary: Disk = { files: new Map(Object.entries(options.files ?? {}).map(([path, file]) => [absolute(path), file])), dirs: new Set(BASE_DIRS) }
   /** The argument vectors of every `$.process.run`, in order. */
   const ran: string[][] = []
-  const agents: AgentInfo[] = Array.isArray(options.agents) ? [...options.agents] : []
+  const agents: ListedAgent[] = Array.isArray(options.agents) ? [...options.agents] : []
   const store = new Map(Object.entries(options.store ?? {}).map(([key, value]) => [key, JSON.stringify(value)]))
   /** The plugin's rows in `/config`, by key (`dispatch-pilot.<option>`), and every write the mod made, in order. */
   const configRows = new Map(Object.entries(options.config === false ? {} : (options.config ?? {})).map(([option, value]) => [`dispatch-pilot.${option}`, value]))
@@ -669,22 +678,22 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     return { text, context: e.context }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
-  // Beneath the mod's `session.append` hooks: a row the mod appends itself (`$.session.append({ message, agentId? })`: a user
-  // row the model reads, door `note`; ADR 0020) is recorded in `w.appended`, or refused when the test says so; every row then
-  // goes on to the kit's own bottom, which keeps it.
+  // Beneath the mod's `session.append` hooks: a note the mod put on the row of a tool's result (a text block after the
+  // result, which the model reads as new input; ADR 0029) is recorded in `w.appended`, or left out of the stored row when
+  // the test says the engine keeps none; every row then goes on to the kit's own bottom, which keeps it.
   on('session.append', async (_$, e, next) => {
     const row = e as { message: { type: string; content?: unknown }; door?: string; agentId?: string }
-    if (row.door === 'note') {
-      if (options.appendRefused !== undefined) return { deny: options.appendRefused }
-      const blocks = Array.isArray(row.message.content) ? (row.message.content as { type?: string; text?: string }[]) : []
-      appended.push({ type: row.message.type, text: blocks.map((block) => (block.type === 'text' ? (block.text ?? '') : '')).join(''), agentId: row.agentId, afterStep: steps.length })
-    }
+    const blocks = Array.isArray(row.message.content) ? (row.message.content as { type?: string; text?: string }[]) : []
+    const notes = row.door === 'tool-result' ? blocks.filter((block) => block.type === 'text') : []
+    if (notes.length === 0) return next(e)
+    if (options.appendRefused !== undefined) return next({ ...e, message: { ...e.message, content: blocks.filter((block) => block.type !== 'text') } } as never)
+    appended.push({ type: row.message.type, text: notes.map((block) => block.text ?? '').join(''), agentId: row.agentId, afterStep: steps.length })
     return next(e)
   })
   // The engine's roster of the agents it spawned (a Workflow's agents are not in it), and where a loop's turn ends.
   on('agent.list', () => {
     looked.roster += 1
-    return options.agents !== undefined && !Array.isArray(options.agents) ? { deny: options.agents.deny } : { value: agents }
+    return options.agents !== undefined && !Array.isArray(options.agents) ? { deny: options.agents.deny } : { value: agents as unknown as AgentInfo[] }
   })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   // The engine's own command beneath `command.run`: a prompt command (a skill, a markdown command) prints nothing.
@@ -830,6 +839,7 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     logs,
     steps,
     appended,
+    commandAnswers,
     prompts,
     turnIds,
     spawned,
@@ -997,7 +1007,9 @@ export function world($: Engine, on: On, options: WorldOptions = {}) {
     /** Runs a slash command as the person types it (`/dp lock max` is `command('dp', 'lock max')`); resolves to the text it printed. */
     command: async (name: string, args = '') => {
       await booted()
-      const text = (await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })).text ?? ''
+      const answer = await $.command.run({ command: name, args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 80 } })
+      commandAnswers.push({ command: name, args, isTextDisplayOnly: answer.isTextDisplayOnly === true })
+      const text = answer.text ?? ''
       // The engine puts the plugin's name before a command's answer (2.1.296, DEVELOPMENT.md 「已实测的引擎行为」): the mod's own text must not.
       if (text.startsWith('dispatch-pilot: ')) throw new Error(`the command's text carries the plugin's name, which the engine adds: ${text}`)
       return text

@@ -65,9 +65,16 @@ export function clipToTokens(text: string, budget: number, tailShare = 0): strin
   return end ? `${start} … ${end}` : `${start}…`
 }
 
-/** Leaves out what the engine wraps in <system-reminder> (not something anyone said). */
+/**
+ * The mod's own note for a change of effort in the middle of a turn, as decision/midrun.ts `switchNote` words it. It sits
+ * on the row of a tool's result with no wrapping (ADR 0029: the person reads it in the conversation), so what reads the
+ * conversation back tells it by its words (tests/midrun-effort.test.ts holds the two together).
+ */
+const OWN_NOTE = /Dispatch Pilot \(the user's routing plugin\) (?:raised|lowered) your reasoning effort from [a-z]+ to [a-z]+[^\n]*? No reply to this note is needed; carry on with the work\./g
+
+/** Leaves out what the engine wraps in <system-reminder>, and the mod's own note (not something anyone said). */
 export function withoutReminders(text: string): string {
-  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ')
+  return text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ').replace(OWN_NOTE, ' ')
 }
 
 /** What was said in `text`: without the reminders, whitespace collapsed. */

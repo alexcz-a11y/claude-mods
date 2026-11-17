@@ -7,14 +7,13 @@
 // from the conversation's rows (hooks/core/calls.ts), an agent is decided as its own turn starts
 // (hooks/features/dispatched-agents.ts), and find_skill is a skill either way (tests/find-skill.test.ts).
 
-import type { AgentInfo } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 import { blockedByHookText } from '../hooks/decision/escalation.ts'
 import { scriptEnded } from '../hooks/core/calls.ts'
 import { midrunState, type MidrunStep } from '../hooks/decision/midrun.ts'
 import { newRecord, stepsDue, withResponse, withScript, workSince } from '../hooks/decision/midrun-track.ts'
 import { agentJev } from './support/workflow.ts'
-import { jev, KEY, kind, type Reply, type Sent, type StepOptions, type World, world } from './support/world.ts'
+import { jev, KEY, kind, type ListedAgent, type Reply, type Sent, type StepOptions, type World, world } from './support/world.ts'
 
 const MEDIUM = [0, 1, 0, 0, 0]
 const FAILS = { error: 'Exit code 1\nTypeError: token is undefined' }
@@ -64,7 +63,8 @@ test('in a Code Mode session the calls are the ones a script makes: the script a
   expect(w.requests.map(kind)).toEqual(['effort.level', 'midrun.level'])
   expect(w.appended).toHaveLength(1)
   expect(w.appended[0]?.text.includes('raised your reasoning effort from medium to high')).toBe(true)
-  expect(efforts(w)).toEqual(['medium', 'medium', 'medium', 'medium', 'medium', 'high', 'high'])
+  // The failed call's row is one no request carries: the note goes on the next result of `Poll` (step 5), and the step after it takes the level.
+  expect(efforts(w)).toEqual(['medium', 'medium', 'medium', 'medium', 'medium', 'medium', 'high'])
   // What the decision model read of the run: the script's calls by their own tools, never `REPL` or `Poll`.
   const steps = (w.requests[1]?.body.state as { recent_steps?: { tools?: { tool: string; outcome: string }[] }[] }).recent_steps ?? []
   expect(steps.flatMap((step) => (step.tools ?? []).map((tool) => `${tool.tool} ${tool.outcome}`))).toEqual(['Bash failed', 'Edit ok', 'Bash failed'])
@@ -135,6 +135,9 @@ test("in a Code Mode session what each script returned to the main agent goes to
   // The event is the third script's failed call: its result came before that call's row, and is there; sent once though its row came twice.
   expect(steps.map((step) => step.script_result)).toEqual([`${RETURNED.replace('\n', ' ')} sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789`, 'undefined', RETURNED.replace('\n', ' ')])
   expect(String((w.requests[1]?.body.state as { progress_note: string }).progress_note).includes('`script_result` is what the step\'s script returned')).toBe(true)
+  // The note waits for a result a request carries: the wait for the script's events is the next one.
+  expect(w.appended).toEqual([])
+  await w.step({ index: 3, poll: true })
   expect(w.appended).toHaveLength(1)
 })
 
@@ -157,6 +160,9 @@ test('the row of a script\'s end is read by its event; a result is kept on the s
   const row = (text: string) => ({ message: { content: [{ type: 'text', text }] } })
   expect(scriptEnded(row('<event nonce="a" kind="repl-eval" at="t" eval="7" ms="20" status="settled">\n<result>{ a: 1 &lt; 2 &amp;&amp; true }</result>\n</event>'))).toEqual({ eval: 7, text: '{ a: 1 < 2 && true }', failed: false })
   expect(scriptEnded(row('<event nonce="a" kind="repl-eval" at="t" eval="8" ms="20" status="settled">\n<error>Error: boom</error>\n</event>'))).toEqual({ eval: 8, text: 'Error: boom', failed: true })
+  // What the script logged (and the harness's own notices) comes before what it returned, in the same event: the model reads both.
+  expect(scriptEnded(row('<event nonce="a" kind="repl-eval" at="t" eval="9" ms="20" status="settled">\n<log>3 of 12 failed</log>\n<log>[stderr] 1 tool call still running at script end</log>\n<result>undefined</result>\n</event>'))).toEqual({ eval: 9, text: '3 of 12 failed\n[stderr] 1 tool call still running at script end\nundefined', failed: false })
+  expect(scriptEnded(row('<event nonce="a" kind="repl-eval" at="t" eval="10" ms="20" status="settled">\n<log>step 1 ok</log>\n<error>Error: boom</error>\n</event>'))).toEqual({ eval: 10, text: 'step 1 ok\nError: boom', failed: true })
   expect(scriptEnded(row('<event nonce="a" kind="task-notification" at="t">\n<result>done</result>\n</event>'))).toBeUndefined()
   expect(scriptEnded(row('the person typed <result>x</result>'))).toBeUndefined()
 
@@ -196,7 +202,7 @@ test("the main agent's failures and a hook's blocks are counted from the rows: a
 // ---- Dispatched agents -----------------------------------------------------------------
 
 const TASK = 'Rename getUser to fetchUser across src/api and run `pnpm test api`.'
-const roster = (...agents: Partial<AgentInfo>[]): AgentInfo[] => agents.map((agent, i) => ({ id: `a${i + 1}`, description: 'Rename getUser', type: 'general-purpose', status: 'running', ...agent }) as AgentInfo)
+const roster = (...agents: Partial<ListedAgent>[]): ListedAgent[] => agents.map((agent, i) => ({ id: `a${i + 1}`, description: 'Rename getUser', type: 'general-purpose', status: 'running', ...agent }))
 
 test('an agent is decided as its own turn starts: its task is the turn\'s text, its description and type the roster\'s; the model goes into its plan with the effort, and every step names both', { options: KEY }, async ($, on) => {
   const w = world($, on, { agents: roster({}), backend: agentJev({ model: { haiku: 0.05, sonnet: 0.85, opus: 0.1 }, effort: [0, 0.1, 0.8, 0.1, 0] }) })
@@ -209,6 +215,16 @@ test('an agent is decided as its own turn starts: its task is the turn\'s text, 
   expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-sonnet-5-5 high', 'claude-sonnet-5-5 high'])
   const node = (await w.board()).nodes.find((one) => one.id === 'a1')
   expect(node).toMatchObject({ routed: true, model: 'sonnet', effort: 'high' })
+})
+
+test("an agent the roster says is on the model decided for it already is not held to it: its plan names the effort alone, so the engine's own fallback still stands (Claude Code 2.1.326 on)", { options: KEY }, async ($, on) => {
+  const w = world($, on, { agents: roster({ model: 'claude-sonnet-5-5' }), backend: agentJev({ model: { haiku: 0.05, sonnet: 0.85, opus: 0.1 }, effort: [0, 0.1, 0.8, 0.1, 0] }) })
+  // The engine names another model on a later step (its fallback under load): the mod writes the effort and leaves the model.
+  await w.step({ index: 0, turnId: 'sub-1', agentId: 'a1', model: 'claude-sonnet-5-5', effort: 'medium', task: TASK })
+  expect((await w.board()).nodes.find((one) => one.id === 'a1')).toMatchObject({ routed: true, model: 'sonnet', effort: 'high' })
+  await w.step({ index: 1, turnId: 'sub-1', agentId: 'a1', model: 'claude-haiku-5-5', effort: 'medium' })
+
+  expect(w.steps.map((s) => `${s.model} ${String(s.effort)}`)).toEqual(['claude-sonnet-5-5 high', 'claude-haiku-5-5 high'])
 })
 
 test('an agent woken again goes on as it was decided, and one the roster does not list (a Workflow\'s) is not asked about', { options: KEY }, async ($, on) => {

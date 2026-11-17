@@ -283,8 +283,8 @@ export function checkEngineStaysHome(sources: Readonly<Record<string, string>>):
   return problems
 }
 
-/** The events Claude Code's Code Mode refuses a mod for (2.1.325: it does not start beside a mod whose hooks module registers one of them). */
-export const CODE_MODE_REFUSES = /^(?:tool\.call|tool\.check|agent\.offer|agent\.spawn|session\.send|classic\.(?:PreToolUse|PermissionRequest|PermissionDenied|PostToolUse|PostToolUseFailure|TaskCreated|TaskCompleted|Elicitation|ElicitationResult|WorktreeCreate))$/
+/** The events Claude Code's Code Mode refuses a mod for (2.1.326, which added `tool.judge` and `tool.run` to 2.1.325's fifteen: it does not start beside a mod whose hooks module registers one of them). */
+export const CODE_MODE_REFUSES = /^(?:tool\.call|tool\.check|tool\.judge|tool\.run|agent\.offer|agent\.spawn|session\.send|classic\.(?:PreToolUse|PermissionRequest|PermissionDenied|PostToolUse|PostToolUseFailure|TaskCreated|TaskCompleted|Elicitation|ElicitationResult|WorktreeCreate))$/
 
 /**
  * The bridge (ADR 0028), checked across the two plugins: dispatch-pilot's hooks module registers none of the events

@@ -12,7 +12,8 @@
 //
 // What a script returned (or the error it stopped with) is a row of its own, `door: 'queue'`: the event the model then
 // reads, as a `Poll`'s result or beside its next request. It comes before the rows of the script's calls (measured on
-// 2.1.325), and may come twice; `scriptEnded` reads it.
+// 2.1.325), and may come twice; `scriptEnded` reads it. The lines the script logged (`self.log`, and the harness's own
+// notices) are in the same event, before the result (measured on 2.1.326), and are read with it: the model reads both.
 //
 // The calls named and not yet ended are kept in the module, the latest only: a hot reload loses them, and the calls
 // then ending are not read (as a call whose `tool.call` hook was lost with its module is not).
@@ -83,10 +84,10 @@ export function callsEnded(row: { message: { content: readonly ApiContentBlock[]
   return ended
 }
 
-/** What a script came to, as the model reads it: the value it returned, or the error it stopped with. */
+/** What a script came to, as the model reads it: the lines it logged, then the value it returned or the error it stopped with. */
 export type ScriptEnd = { eval: number; text: string; failed: boolean }
 
-const SCRIPT_EVENT = /<event\b([^>]*)\bkind="repl-eval"([^>]*)>\s*<(result|error)>([\s\S]*)<\/\3>\s*<\/event>/
+const SCRIPT_EVENT = /<event\b([^>]*)\bkind="repl-eval"([^>]*)>\s*((?:<log>[\s\S]*?<\/log>\s*)*)<(result|error)>([\s\S]*)<\/\4>\s*<\/event>/
 const ENTITIES: Readonly<Record<string, string>> = { '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'", '&amp;': '&' }
 
 /**
@@ -98,7 +99,9 @@ export function scriptEnded(row: { message: { content: unknown } }): ScriptEnd |
   const found = SCRIPT_EVENT.exec(text)
   if (found === null) return undefined
   const number = /\beval="(\d+)"/.exec(`${found[1]} ${found[2]}`)
-  return { eval: number === null ? -1 : Number(number[1]), text: (found[4] ?? '').replace(/&(?:lt|gt|quot|apos|amp);/g, (entity) => ENTITIES[entity] ?? entity).trim(), failed: found[3] === 'error' }
+  const logged = [...(found[3] ?? '').matchAll(/<log>([\s\S]*?)<\/log>/g)].map((line) => line[1] ?? '')
+  const told = [...logged, found[5] ?? ''].join('\n')
+  return { eval: number === null ? -1 : Number(number[1]), text: told.replace(/&(?:lt|gt|quot|apos|amp);/g, (entity) => ENTITIES[entity] ?? entity).trim(), failed: found[4] === 'error' }
 }
 
 /** The Agent calls already matched to the agent they started. */

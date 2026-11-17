@@ -44,38 +44,16 @@ step() {
   fi
 }
 
-# The mod as Claude Desktop's own Claude Code loads it.
-desktop_check() {
-  local mod=$1 out min=${MIN_CLAUDE_CODE[$1]:-}
-  if [[ -z $desktop_claude ]]; then
-    print -r -- "skip  $mod: Desktop's Claude Code (none here)"
-    return
-  fi
-  if out=$("$desktop_claude" plugin validate "./$mod" --strict 2>&1); then
-    print -r -- "ok    $mod: validate on Desktop's Claude Code $desktop_version"
-  elif [[ -n $min ]] && ! is-at-least "$min" "$desktop_version"; then
-    print -r -- "note  $mod: Desktop's Claude Code $desktop_version is older than the $min it needs, and refuses it; it runs in Desktop once Desktop updates"
-    print -r -- "$out" | awk '/Found [0-9]+ error/ { found = 1; next } found && /❯/ { print; exit }' | cut -c1-240
-  else
-    print -r -- "FAIL  $mod: validate on Desktop's Claude Code $desktop_version"
-    print -r -- "$out" | tail -40
-    failed=1
-  fi
-}
-
 # `plugin validate --strict`, less one finding. Claude Code 2.1.323 added a type check of every TypeScript file to
 # `plugin validate` ("each finding is a warning, and `--strict` fails on it"), run with its own compiler options and not the
 # mod's tsconfig.json, so every relative import that ends in `.ts` is TS5097 there. The mods keep those endings: Node runs
 # the same files (dispatch-pilot's eval/ and scripts/) and resolves nothing else, and each mod's tsconfig.json allows them
 # (`allowImportingTsExtensions`), which `tsc -p` below checks with. A strict failure made of nothing but TS5097 warnings is a
 # note; any error, or any other warning (another type error among them), still fails.
-strict_validate() {
-  local mod=$1 out tally
-  if out=$(command claude plugin validate "./$mod" --strict 2>&1); then
-    print -r -- "ok    $mod: validate --strict"
-    return
-  fi
-  if tally=$(command claude plugin validate "./$mod" --strict --json 2>/dev/null | node -e '
+#
+#   only_ts5097 <claude> <mod>   prints how many such warnings there are, and succeeds, when they are all a strict run finds
+only_ts5097() {
+  "$1" plugin validate "./$2" --strict --json 2>/dev/null | node -e '
       let text = ""
       process.stdin.on("data", (chunk) => (text += chunk)).on("end", () => {
         const report = JSON.parse(text)
@@ -85,7 +63,38 @@ strict_validate() {
         const endings = warnings.filter((warning) => /\bTS5097\b/.test(warning.message ?? ""))
         if (errors.length > 0 || endings.length === 0 || endings.length !== warnings.length) process.exit(1)
         console.log(endings.length)
-      })' 2>/dev/null); then
+      })' 2>/dev/null
+}
+
+# The mod as Claude Desktop's own Claude Code loads it (the same allowance for TS5097: its validator checks types as well).
+desktop_check() {
+  local mod=$1 out tally min=${MIN_CLAUDE_CODE[$1]:-}
+  if [[ -z $desktop_claude ]]; then
+    print -r -- "skip  $mod: Desktop's Claude Code (none here)"
+    return
+  fi
+  if out=$("$desktop_claude" plugin validate "./$mod" --strict 2>&1); then
+    print -r -- "ok    $mod: validate on Desktop's Claude Code $desktop_version"
+  elif tally=$(only_ts5097 "$desktop_claude" "$mod"); then
+    print -r -- "ok    $mod: validate on Desktop's Claude Code $desktop_version"
+    print -r -- "note  $mod: $tally imports end in .ts there too (TS5097)"
+  elif [[ -n $min ]] && ! is-at-least "$min" "$desktop_version"; then
+    print -r -- "note  $mod: Desktop's Claude Code $desktop_version is older than the $min it needs, and refuses it; it runs in Desktop once Desktop updates"
+    print -r -- "$out" | awk '/Found [0-9]+ error/ { found = 1; next } found && /❯/ { print; exit }' | cut -c1-240
+  else
+    print -r -- "FAIL  $mod: validate on Desktop's Claude Code $desktop_version"
+    print -r -- "$out" | grep -v 'error TS5097' | tail -40
+    failed=1
+  fi
+}
+
+strict_validate() {
+  local mod=$1 out tally
+  if out=$(command claude plugin validate "./$mod" --strict 2>&1); then
+    print -r -- "ok    $mod: validate --strict"
+    return
+  fi
+  if tally=$(only_ts5097 claude "$mod"); then
     print -r -- "ok    $mod: validate --strict"
     print -r -- "note  $mod: $tally imports end in .ts, which the validator's own type check warns of (TS5097); the mod's tsconfig.json allows them, and tsc checks with it"
   else

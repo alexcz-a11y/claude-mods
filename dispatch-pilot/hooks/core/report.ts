@@ -234,7 +234,7 @@ export type ForcedRaise = { kind: 'model'; from: string; to: string } | { kind: 
  * A mid-run look at the main agent's level (features/midrun-effort.ts): the level it was on, the one its steps go out at
  * from here (`to`, the same for a level kept), the level its message was decided at, what came of it, the event that asked
  * (`failure`, `resolved`, `report`, `handback`, `skill`, `todo`), and whether the step that takes it carried input already
- * (`free`: no row was appended).
+ * (`free`: no note went with it).
  */
 export type MidrunMoveRecord = { from: Effort; to: Effort; base: Effort; move: 'raise' | 'return' | 'down' | 'keep'; event: string; free: boolean }
 

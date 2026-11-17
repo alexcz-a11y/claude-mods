@@ -48,16 +48,16 @@ _Avoid_: 中途重判（0.8.x 的旧功能，每隔几步重判，0.9.0 删了�
 一轮中途的 effort 认的失败事件：同一类命令在改过文件之后又失败，原先通过的命令改过之后失败，或者下一个失败的步报了同一条首行。命令是 shell 命令（按它真正运行的那一段归类，选项不算），或 MCP server 的工具（按工具名）。单独一次失败不算；被 hook 或用户拒绝的调用不算失败。
 _Avoid_: 卡住（那是「这一轮的事实」里失败到了 `escalateAfter`）、失败次数
 
-**追加行（Appended Row）**：
-要在一轮中途换档时，Dispatch Pilot 在工具调用结束时往对话里追加的一行（`$.session.append`，user 行，包在 `<system-reminder>` 里）：模型只在带输入的一步上接受新的档，这一行让下一步带上输入。用户看不到它被当作输入。本来就带输入的步（送进来的报告、Stop hook 反馈之后的一步）不追加。
-_Avoid_: 提醒消息、注入
+**换档提示（Switch Note）**：
+要在一轮中途换档时，Dispatch Pilot 加在一次工具调用的结果行上的一行文字（结果后面的一个 text 块，一句英文，没有包装；ADR 0029）：模型只在带输入的一步上接受新的档，这一行让下一步带上输入。它在对话里显示成一行，标出换档的位置。本来就带输入的步（送进来的报告、Stop hook 反馈之后的一步）不加。0.15.0 及以前是另外追加的一行（`$.session.append`），用户看不到；Claude Code 2.1.326 起那样的行不再算输入。
+_Avoid_: 追加行（0.15.0 及以前的做法）、提醒消息、注入
 
 **发消息时的档（Base，一轮的基准）**：
 这一轮最近一条消息定下的 effort（计划表 `turns` 的 `base`）：一轮中途升的档回到这里，降档最多比它低一档。
 _Avoid_: 基础档（那是 effort 题的回答直接算出的档，还没过规则下限）
 
 **失败升模型（Failure Step-up）**：
-派出 agent（包括 Workflow 里的）计入的工具调用失败满 `escalateAfter` 次后，从它的下一步起改用高一档的模型：haiku 升到 `escalateHaikuTo`（默认 sonnet），sonnet 升到 opus，opus 升到 fable（要打开 `agentFable`）。0.11.0 起，派出 agent 第一次到门槛时先升一档 effort（追加行让它生效，最高到 max；ADR 0022，原来到 xhigh），再到门槛才升模型；用户点名了 effort 的、Workflow 里的不走这一步（ADR 0020）。不问决策模型；用户点名的模型不换，排除的模型跳过；每个 agent 最多升 `escalateLimit` 次，升过一次（或到了门槛却升不了）之后失败重新数。换不了模型时（`escalateLimit` 是 0、已经换满、已经是最强的、用户点名了模型），每到门槛就把 effort 再升一档，直到 max；`escalateLimit` 设成 0，agent 派出之后就从不换模型，失败只升 effort。用户的拒绝不算失败，被用户自己的 hook 拦下只在开关「hook 拦截计为失败」打开时才算。主 agent 的失败不升任何东西，只记进这一轮的事实。0.8.x 的做法是强制升档：再问决策模型、强制升高 effort（ADR 0013 改掉）。
+派出 agent（包括 Workflow 里的）计入的工具调用失败满 `escalateAfter` 次后，从它的下一步起改用高一档的模型：haiku 升到 `escalateHaikuTo`（默认 sonnet），sonnet 升到 opus，opus 升到 fable（要打开 `agentFable`）。0.11.0 起，派出 agent 第一次到门槛时先升一档 effort（换档提示让它生效，最高到 max；ADR 0022，原来到 xhigh），再到门槛才升模型；用户点名了 effort 的、Workflow 里的不走这一步（ADR 0020）。不问决策模型；用户点名的模型不换，排除的模型跳过；每个 agent 最多升 `escalateLimit` 次，升过一次（或到了门槛却升不了）之后失败重新数。换不了模型时（`escalateLimit` 是 0、已经换满、已经是最强的、用户点名了模型），每到门槛就把 effort 再升一档，直到 max；`escalateLimit` 设成 0，agent 派出之后就从不换模型，失败只升 effort。用户的拒绝不算失败，被用户自己的 hook 拦下只在开关「hook 拦截计为失败」打开时才算。主 agent 的失败不升任何东西，只记进这一轮的事实。0.8.x 的做法是强制升档：再问决策模型、强制升高 effort（ADR 0013 改掉）。
 _Avoid_: 强制升档（0.8.x 的旧做法，升 effort）、自动升级、重试升档
 
 **这一轮的事实（Turn Facts）**：

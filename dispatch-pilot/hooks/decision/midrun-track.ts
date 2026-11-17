@@ -89,18 +89,18 @@ export type MidrunRecord = {
   stuck: boolean
   /** The highest level the stakes asked for this turn (null: none): a raise taken back when its command passes goes no lower. */
   stakesFloor: MidrunRecord['engine']
-  /** Rows appended for a switch this turn, and the step of the last. */
+  /** Switches made with a note on a tool result's row this turn, and the step of the last. */
   switches: number
   switchedAt: number | null
   /** Times the decision model was asked this turn, and the step of the last. */
   judged: number
   judgedAt: number | null
   /**
-   * Looks by step count this turn and the step of the last (`midrun-steps`), counted apart from `judged`: an event is asked
-   * about however lately the steps were, and neither uses up the other's questions. And the way the latest such look wanted
-   * the level to go without taking it, with its step; null for none. All absent in a record kept from before 0.12.0.
+   * The step of the last look by step count (`midrun-steps`), kept apart from `judgedAt`: an event is asked about however
+   * lately the steps were, and such a look uses up none of the events' questions (a turn has as many as its steps bring).
+   * And the way the latest such look wanted the level to go without taking it, with its step; null for none. Both absent
+   * in a record kept from before 0.12.0.
    */
-  ticks?: number
   tickedAt?: number | null
   wanted?: { way: 'raise' | 'lower'; step: number } | null
   /**
@@ -119,7 +119,7 @@ export type MidrunRecord = {
 }
 
 export function newRecord(turnId: string): MidrunRecord {
-  return { turnId, step: 0, engine: null, toolsInStep: 0, uses: null, calls: 0, failed: 0, recent: [], commands: {}, edits: 0, lastError: null, todo: null, raisedFor: null, raisedAt: null, resolved: false, ratchet: false, stuck: false, stakesFloor: null, switches: 0, switchedAt: null, judged: 0, judgedAt: null, ticks: 0, tickedAt: null, wanted: null }
+  return { turnId, step: 0, engine: null, toolsInStep: 0, uses: null, calls: 0, failed: 0, recent: [], commands: {}, edits: 0, lastError: null, todo: null, raisedFor: null, raisedAt: null, resolved: false, ratchet: false, stuck: false, stakesFloor: null, switches: 0, switchedAt: null, judged: 0, judgedAt: null, tickedAt: null, wanted: null }
 }
 
 /** An event of the run at which the level is looked at again. */

@@ -29,6 +29,7 @@ settings hook 是 settings 文件里配置的 shell 命令、HTTP 请求或 prom
   - 改写：`return next({ ...e, ... })`
   - 直接回答：不调用 `next`，例如 `return { deny: "…" }`
 - 多个 mod 挂在同一事件上时，按加载顺序执行：先加载的最先看到事件，最后看到结果。
+- 要让模型在一轮中途读到一行新输入（例如让新的 effort 生效），在 `session.append`（`door: 'tool-result'`）的 hook 里、`next` 之前往 `e.message.content` 末尾加一个 text 块。2.1.326 起 `$.session.append` 追加的行紧跟工具结果时是系统消息，不算输入（dispatch-pilot 的 ADR 0029，`dispatch-pilot/hooks/core/notes.ts`）。
 - 同一事件不带 matcher 注册两次会报错。
 - 渲染 hook 的 props 在 `e.props` 上，`e` 顶层只有 `component`、`surface`、`requestId` 和 `viewport`。不需要绘制时返回 `next(e)`。
 
@@ -94,8 +95,9 @@ pre-commit 和 pre-merge-commit hook 都跑 `scripts/check.sh`（无冲突的合
 validate 通过并不代表以下几条也满足，它们需要自己留意：
 
 - 运行时限制：每个 hook 有 10 秒超时（`prompt.edit` 只有 50 ms）。command、tool 和 pane 的名字只能用字母、数字、`_`、`-`，最长 64 个字符。
-- Code Mode（实验功能，2.1.323 起）不和挂了以下事件的 mod 一起开：`tool.call`、`tool.check`、`agent.offer`、`agent.spawn`、`session.send`，以及 `classic.PreToolUse`、`classic.PermissionRequest`、`classic.PermissionDenied`、`classic.PostToolUse`、`classic.PostToolUseFailure`、`classic.TaskCreated`、`classic.TaskCompleted`、`classic.Elicitation`、`classic.ElicitationResult`、`classic.WorktreeCreate`（2.1.325 实测，引擎按 hooks 模块的静态扫描判定，matcher 不看）。dispatch-pilot 本体不注册它们：这类 hook 的主体写在本体里，由 dispatch-pilot-extras 经 `$.dispatchPilot` 调过来（ADR 0028，`dispatch-pilot/hooks/core/bridge.ts`），`dispatch-pilot/eval/validate.ts` 会检查。
+- Code Mode（实验功能，2.1.323 起）不和挂了以下事件的 mod 一起开：`tool.call`、`tool.check`、`agent.offer`、`agent.spawn`、`session.send`，以及 `classic.PreToolUse`、`classic.PermissionRequest`、`classic.PermissionDenied`、`classic.PostToolUse`、`classic.PostToolUseFailure`、`classic.TaskCreated`、`classic.TaskCompleted`、`classic.Elicitation`、`classic.ElicitationResult`、`classic.WorktreeCreate`，2.1.326 起还有 `tool.judge`、`tool.run`（2.1.325、2.1.326 从二进制里读出并实测，引擎按 hooks 模块的静态扫描判定，matcher 不看）。dispatch-pilot 本体不注册它们：这类 hook 的主体写在本体里，由 dispatch-pilot-extras 经 `$.dispatchPilot` 调过来（ADR 0028，`dispatch-pilot/hooks/core/bridge.ts`），`dispatch-pilot/eval/validate.ts` 会检查。
 - `$` 只能交给文件顶层声明的函数（或从本 mod 的文件导入的这类函数），不能交给局部函数或按名字查出来的函数；`engine.create` 里 `next(e)` 的结果不能当参数传出去。
+- mod 自己用 `$.tool.register` 注册的工具，如果在 `tool.call` 的 matcher 里按名字（`mcp__<mod>__<tool>`）写出来，要在 mod 的 `types/index.d.ts` 里手写进 `McpToolInputs`。生成的 `.claude-plugin/types/claude-code-mcp/` 只列保存 mod 时会话连着的 MCP server 的工具，不含 mod 自己的；它一旦列了任何工具，没声明的 `mcp__…` 名字就不被 matcher 接受，2.1.326 的 `tsc` 和 `plugin validate` 还会卡死或超出内存（dispatch-pilot 的 `visual_check` 实测）。
 - 仓库约定（沿用 playground）：目录名用 kebab-case，与 `plugin.json` 中的 `name` 一致，同样不能带上面那些保留前缀。
 
 ## 把 Claude 写的 mod 收进本仓库

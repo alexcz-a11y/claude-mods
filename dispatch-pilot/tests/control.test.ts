@@ -8,6 +8,13 @@ import { jev, KEY, world } from './support/world.ts'
 
 // ---- The lock ---------------------------------------------------------------
 
+test("every answer of /dp is for the person alone: the text is drawn and kept, and goes in no request (Claude Code 2.1.326 on)", { options: KEY }, async ($, on) => {
+  const w = world($, on, { session: true })
+  await w.start()
+  for (const args of ['status', 'lock high', 'unlock', 'log 3', 'midrun-effort off', 'no-such-switch on', 'off', 'on', 'what']) await w.command('dp', args)
+  expect(w.commandAnswers.map((answer) => answer.isTextDisplayOnly)).toEqual(new Array(9).fill(true))
+})
+
 test('/dp lock holds the main agent at that effort on every step, over the decision, until /dp unlock', { options: KEY }, async ($, on) => {
   // The decision model says high.
   const w = world($, on, { backend: jev([0.05, 0.1, 0.7, 0.1, 0.05]) })

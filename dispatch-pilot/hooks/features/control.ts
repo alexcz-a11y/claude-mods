@@ -117,52 +117,60 @@ export function registerControl(on: On, ctx: Ctx): void {
           // `/dp` toggles; `/dp log` only opens (and asks for the keys again).
           if (command.toggle && (await $.ui.panes()).some((pane) => pane.id === PANE_ID)) {
             await $.ui.close({ id: PANE_ID })
-            return { text: '依据面板已关闭' }
+            return shown('依据面板已关闭')
           }
           const keys = await takesKeys($)
           // `focus` is true or left out (the host's check).
           const opened = await $.ui.open({ id: PANE_ID, title: PANE_TITLE, ...(keys ? { focus: true as const } : {}), closeOnEscape: true, columns: PANE_COLUMNS })
-          if (opened.isPlaced) return { text: keys ? '依据面板已打开：p / n 翻看 agent，Esc 关闭' : '依据面板已打开' }
+          if (opened.isPlaced) return shown(keys ? '依据面板已打开：p / n 翻看 agent，Esc 关闭' : '依据面板已打开')
           await $.ui.close({ id: PANE_ID })
-          return { text: unplacedText(opened.reason) }
+          return shown(unplacedText(opened.reason))
         }
         case 'status': {
           const { value: lock = null } = await $.state.get(LOCK)
-          return { text: describeStatus(lock) }
+          return shown(describeStatus(lock))
         }
         case 'master':
           setMaster(command.on)
           await report(reporting, { switched: true })
-          return { text: `Dispatch Pilot 已${command.on ? '打开' : '关闭'}${await save(MASTER, command.on)}` }
+          return shown(`Dispatch Pilot 已${command.on ? '打开' : '关闭'}${await save(MASTER, command.on)}`)
         case 'switch': {
           const spec = listSwitches().find((s) => s.name === command.name)
           if (spec === undefined || !setSwitch(command.name, command.on)) {
             const names = listSwitches().map((s) => s.name).join(', ')
-            return { text: `没有叫「${command.name}」的开关（现有：${names}）` }
+            return shown(`没有叫「${command.name}」的开关（现有：${names}）`)
           }
           await report(reporting, { switched: true })
-          return { text: `${spec.name} 已${command.on ? '打开' : '关闭'}：${spec.info}${await save(spec.name, command.on)}` }
+          return shown(`${spec.name} 已${command.on ? '打开' : '关闭'}：${spec.info}${await save(spec.name, command.on)}`)
         }
         case 'lock': {
           await $.state.set(LOCK, command.effort)
           const inert = masterOn() ? '' : '（Dispatch Pilot 关着：/dp on 才生效）'
-          return { text: `主 agent 已锁在 ${command.effort}：每一步都用这一档${inert}；/dp unlock 解除` }
+          return shown(`主 agent 已锁在 ${command.effort}：每一步都用这一档${inert}；/dp unlock 解除`)
         }
         case 'unlock':
           await $.state.set(LOCK, null)
-          return { text: '已解除锁定，effort 回到按决定走' }
+          return shown('已解除锁定，effort 回到按决定走')
         case 'log': {
           const { value: kept = [] } = await $.state.get(DECISIONS)
-          return { text: describeDecisions(kept.slice(-command.count)) }
+          return shown(describeDecisions(kept.slice(-command.count)))
         }
         case 'unknown':
-          return { text: `没看懂这条命令。\n${USAGE}` }
+          return shown(`没看懂这条命令。\n${USAGE}`)
       }
     } catch (error) {
       // Always answer: a failing command must not leave the person without a word.
-      return { text: `出错了（${errorText(error)}）` }
+      return shown(`出错了（${errorText(error)}）`)
     }
   })
+}
+
+/**
+ * A command's answer, for the person alone: drawn and kept in the conversation, and in no request (`isTextDisplayOnly`,
+ * which Claude Code reads on any plugin's answer from 2.1.326 on; before that the text stays in the requests, as it did).
+ */
+function shown(text: string): { text: string; isTextDisplayOnly: true } {
+  return { text, isTextDisplayOnly: true }
 }
 
 /** Whether the pane takes the keyboard: where the session has a terminal, or where it does not say where it draws. */

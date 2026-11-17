@@ -11,6 +11,7 @@
 // in BACKEND_DEFAULTS below, the one table the mod, the eval and
 // scripts/decide*.ts read them from.
 
+import { CONFIRM_STEPS } from '../decision/midrun.ts'
 import type { PluginOptions } from 'claude-code'
 import type { Backend, BackendName, ImageBackendName } from '../decision/backend.ts'
 import type { ContextLimits } from '../decision/context.ts'
@@ -427,6 +428,11 @@ export type Config = {
   midrun: {
     /** Steps without a look after which the level is looked at again, with `midrun-steps` switched on (`midrunEverySteps`). */
     everySteps: number
+    /**
+     * Steps after which a look by step count that wanted the level moved is asked again, the level moving only when both
+     * want the same way (`midrunConfirmSteps`, 2 to 10); 0: no second look, the first one moves the level.
+     */
+    confirmSteps: number
   }
   /** Forced escalation (#7, ADR 0013): a dispatched agent whose calls keep failing goes on as the next model up. */
   escalation: {
@@ -622,6 +628,8 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     return value
   }
   const whole = (value: unknown, min: number, max: number, fallback: number) => Math.round(numberIn(value, min, max, fallback))
+  // `midrunConfirmSteps`: 2 to 10, and 0 for no second look; a wait of one step is none, so 1 is read as 2.
+  const confirmSteps = whole(options.midrunConfirmSteps, 0, 10, CONFIRM_STEPS)
   // `contextTokens` by kind of request: unset, each kind's own (BACKEND_DEFAULTS); set, the smaller of it and each kind's.
   const contextTokens = own('contextTokens', 100, defaults.contextTokensMax, true)
   const byKind = (cap: number) => (isNumber(options.contextTokens) ? Math.min(contextTokens, cap) : cap)
@@ -644,7 +652,7 @@ export function readConfig(options: PluginOptions, table: Readonly<Record<Backen
     ask: defaults.ask,
     context,
     contextByKind,
-    midrun: { everySteps: whole(options.midrunEverySteps, 6, 60, 15) },
+    midrun: { everySteps: whole(options.midrunEverySteps, 1, 60, 15), confirmSteps: confirmSteps === 1 ? 2 : confirmSteps },
     escalation: {
       after: whole(options.escalateAfter, 0, 20, 2),
       limit: whole(options.escalateLimit, 0, 10, 2),

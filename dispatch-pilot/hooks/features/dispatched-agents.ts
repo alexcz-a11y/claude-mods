@@ -26,7 +26,9 @@
 // (`$.agent.list()`), and what the main agent asked for is read from the Agent call that names the same task, when a row
 // has named it by then (core/calls.ts). The model cannot be set on a spawn there, so it goes into the plan with the
 // effort, and the core's step writer names it on every step (which also holds it against the engine's overload
-// fallback, the cost the spawn's way avoids). The main agent is told nothing beside the Agent tool's result.
+// fallback, the cost the spawn's way avoids): only when the agent is not on that model already, which the roster says
+// from Claude Code 2.1.326 on (`AgentInfo.model`, there as the agent's turn starts). The main agent is told nothing
+// beside the Agent tool's result.
 //
 // Its switch is `dispatched-agents` (`/dp dispatched-agents off`).
 
@@ -308,13 +310,15 @@ async function routeAtStart($: EngineInterface, ctx: Ctx, settings: DispatchSett
   }
   const decision = answered.decision
   const terms = termsOf(decision)
-  // The model the agent goes on as, when it is not the one the main agent asked for: the plan names it by its full id.
-  const moved = decision.model !== null && decision.model !== modelFamily(requested)
+  // The model the agent goes on as, when it is not the one it runs on already (the roster's, from 2.1.326 on; before
+  // that, the one the main agent asked for): the plan names it by its full id.
+  const running = modelFamily(runsOn(info))
+  const moved = decision.model !== null && decision.model !== (running ?? modelFamily(requested))
   if (moved || decision.effort !== null || terms !== null) {
     await $.state.set({ ...AGENTS, id: agentId }, { effort: decision.effort, floor: null, model: moved && decision.model !== null ? modelId(decision.model) : null, terms })
   }
-  const family = decision.model ?? modelFamily(requested)
-  const model = family ?? (await $.session.model().catch(() => ''))
+  const family = decision.model ?? modelFamily(requested) ?? running
+  const model = family ?? runsOn(info) ?? (await $.session.model().catch(() => ''))
   await report(reporting, {
     decision: {
       ...reportOf,
@@ -339,6 +343,15 @@ function leftAsItIs(spawn: { fork: boolean; isTeammate?: true; resume?: { agentI
   if (spawn.isTeammate === true) return 'teammate 跨多个任务，派出时不判断'
   if (spawn.resume !== undefined) return '续跑沿用原来的决定'
   return null
+}
+
+/**
+ * The model an agent runs on, as the roster names it: the full id, from Claude Code 2.1.326 on (measured there: set as
+ * the agent's turn starts, the main agent's pick or the model the agent inherits); undefined on an older engine.
+ */
+function runsOn(info: AgentInfo): string | undefined {
+  const model = (info as AgentInfo & { model?: unknown }).model
+  return typeof model === 'string' && model !== '' ? model : undefined
 }
 
 /** The conversation of the loop `agentId` (absent: the main one), as the transcript rows; none when it cannot be read. */

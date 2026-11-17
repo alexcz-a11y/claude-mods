@@ -44,7 +44,7 @@
 //   down      the loop is on the message's level, the event is no failure, the rest is only carrying out (yes), nothing new
 //             was uncovered, down at its bar, the answer settled, no ratchet → one level down, never under the message's rule
 //             floors (`/dp midrun-down off` turns it off)
-//   hold      a move that needs a row appended waits out the gap since the last one and the turn's cap; the turn's last
+//   hold      a move that needs a note waits out the gap since the last one and the turn's cap; the turn's last
 //             row is kept for a raise, except on max
 //
 // Missing answers lift and lower nothing.
@@ -376,19 +376,20 @@ export function midrunSignals(answers: Readonly<Record<string, Answer>>): Midrun
   }
 }
 
-/** A row is appended for a switch at most this many times a turn (Anthropic's harness advice: "stop after two or three reminders"). */
+/** A note goes out for a switch at most this many times a turn (Anthropic's harness advice: "stop after two or three reminders"). */
 export const MAX_SWITCHES = 4
-/** Two appended switches are at least this many steps apart; a raise for a failure that came back does not wait. */
+/** Two switches made with a note are at least this many steps apart; a raise for a failure that came back does not wait. */
 export const MIN_GAP_STEPS = 4
 /** A level raised for a failure is kept at least this many steps, however soon the failing command passes. */
 export const HOLD_STEPS = 3
 /** The decision model is asked at most this many times a turn, and (but for a failure) no sooner than this many steps after the last time. */
 export const MAX_JUDGMENTS = 12
 export const JUDGE_GAP_STEPS = 4
-/** A look by step count that wants the level moved is asked again this many steps on, and moves it only when both agree (`mid-hold`, `confirm`). */
+/**
+ * A look by step count that wants the level moved is asked again this many steps on, and moves it only when both agree
+ * (`mid-hold`, `confirm`): the option `midrunConfirmSteps` when it is left out (2 to 10 there, 0 for no second look).
+ */
 export const CONFIRM_STEPS = JUDGE_GAP_STEPS
-/** Looks by step count a turn gets at most, counted apart from the questions its events ask: neither takes the other's. */
-export const MAX_STEP_LOOKS = 12
 
 /**
  * The rows a turn may have had and still take one more for this move: a raise may take the last, a move down may not,
@@ -414,9 +415,9 @@ export type MidrunPosition = {
   stuckBefore: boolean
   /** Whether lowering under the message's level is on (`/dp midrun-down`). */
   downAllowed: boolean
-  /** The move needs no row appended: the step that takes it carries input already (a report delivered into the run). */
+  /** The move needs no note: the step that takes it carries input already (a report delivered into the run). */
   free: boolean
-  /** Steps since the last appended switch (null: none yet), and how many the turn has had. */
+  /** Steps since the last switch made with a note (null: none yet), and how many the turn has had. */
   sinceSwitch: number | null
   switches: number
   /**
@@ -424,6 +425,11 @@ export type MidrunPosition = {
    * (`MidrunDecision.awaits`); null or left out when it wanted none.
    */
   awaited?: 'raise' | 'lower' | null
+  /**
+   * A look by step count only: the steps after which a look that wants the level moved is asked again before it is
+   * taken (`midrunConfirmSteps`); 0: it is taken at once. Left out: `CONFIRM_STEPS`.
+   */
+  confirmSteps?: number
 }
 
 type Fields = Record<string, string | number | boolean | null>
@@ -590,16 +596,18 @@ export function decideMidrun(reading: EffortReading, signals: MidrunSignals, pos
   // A look by step count has no event behind it, and most of them should change nothing: of the looks that should keep the
   // level about one in twelve reads otherwise (DEVELOPMENT.md, effort-midrun), and a long turn has many. So what such a look
   // wants is taken only when the look before it wanted the same way; the first one waits (`awaits`: the feature asks again
-  // `CONFIRM_STEPS` on). The stakes do not wait: a red flag is read by the highest, at once.
-  if (position.event === 'steps' && move !== 'keep' && reason !== 'stakes') {
+  // `confirmSteps` on). The stakes do not wait: a red flag is read by the highest, at once. With `confirmSteps` 0 (the
+  // person's `midrunConfirmSteps`) there is no second look: the first one moves the level.
+  const confirmSteps = position.confirmSteps ?? CONFIRM_STEPS
+  if (position.event === 'steps' && move !== 'keep' && reason !== 'stakes' && confirmSteps > 0) {
     const way = move === 'raise' ? 'raise' : 'lower'
     if (position.awaited !== way) {
-      steps.push({ rule: 'mid-hold', applied: true, level: current, wanted: level, why: 'confirm', lowering: move !== 'raise', again: CONFIRM_STEPS })
+      steps.push({ rule: 'mid-hold', applied: true, level: current, wanted: level, why: 'confirm', lowering: move !== 'raise', again: confirmSteps })
       return { effort: current, move: 'keep', reason: 'held', picked, flagged, stuck, stakes: stakesFloor, steps, awaits: way }
     }
   }
 
-  // A move that needs a row appended keeps to the turn's cap and the gap since the last one; a raise for a red flag does not wait
+  // A move that needs a note keeps to the turn's cap and the gap since the last one; a raise for a red flag does not wait
   // out the gap. The turn's last row is a raise's: a loop that could no longer be raised is worse off than one left a level high
   // (on max there is no raise to keep it for).
   if (move !== 'keep' && !position.free) {
@@ -646,11 +654,14 @@ const NOTE_WHY: Readonly<Record<MidrunReason, string>> = {
 }
 
 /**
- * The row appended for a switch (features/midrun-effort.ts): one short reminder in the engine's own wrapping, which says
- * what changed and why and asks for nothing. It has to be there: a model takes a new level only at a step with input.
+ * The note for a switch, put on the row of a tool's result (core/notes.ts, ADR 0029): one short line that says what changed
+ * and why and asks for nothing. It has to be there: a model takes a new level only at a step with input. It has no
+ * wrapping (until 0.15.0 the engine's `<system-reminder>`): the person reads it in the conversation, where it marks the
+ * step the level moved at, and the tags would be two more lines there. What reads the conversation back leaves it out by
+ * its words (decision/context.ts `withoutReminders`).
  */
 export function switchNote(from: Effort, to: Effort, reason: MidrunReason | 'failures'): string {
   const why = reason === 'failures' ? 'several of your tool calls failed' : NOTE_WHY[reason]
   const verb = at(to) > at(from) ? 'raised' : 'lowered'
-  return `<system-reminder>\nDispatch Pilot (the user's routing plugin) ${verb} your reasoning effort from ${from} to ${to}${why === '' ? '' : `: ${why}`}. No reply to this note is needed; carry on with the work.\n</system-reminder>`
+  return `Dispatch Pilot (the user's routing plugin) ${verb} your reasoning effort from ${from} to ${to}${why === '' ? '' : `: ${why}`}. No reply to this note is needed; carry on with the work.`
 }

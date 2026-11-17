@@ -28,4 +28,4 @@ claude plugin install dispatch-pilot-extras@alex-mods --scope user
 
 ## 要求
 
-和 Dispatch Pilot 相同（Claude Code 2.1.300 及以上）。**0.15.0 测试用的是 Claude Code 2.1.325**。
+和 Dispatch Pilot 相同（Claude Code 2.1.300 及以上）。**0.16.0 测试用的是 Claude Code 2.1.326**，0.15.0 用的是 2.1.325。

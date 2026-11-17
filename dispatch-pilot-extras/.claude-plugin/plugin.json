@@ -1,6 +1,6 @@
 {
   "name": "dispatch-pilot-extras",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Dispatch Pilot 的另一半：把工具调用和派出 agent 这几个事件接到 Dispatch Pilot 上。装上它，Dispatch Pilot 的全部功能照常工作（Workflow 里的 agent、看图核对、截图接管，以及派出 agent 在启动前就定好模型）。Claude Code 的 Code Mode（实验功能）不能和挂这几个事件的 mod 一起用：要开 Code Mode 的会话里禁用这一个，Dispatch Pilot 本身留着，发消息时的 effort、一轮中途的 effort、派出 agent 的模型和 effort、skill 推荐照常工作。它自己不做任何判断，不发任何请求。",
   "author": {
     "name": "alexcz-a11y",
@@ -8,5 +8,6 @@
   },
   "repository": "https://github.com/alexcz-a11y/claude-mods",
   "license": "MIT",
+  "engines": { "claude-code": ">=2.1.300" },
   "dependencies": ["dispatch-pilot"]
 }

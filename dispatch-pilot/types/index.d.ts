@@ -240,7 +240,7 @@ declare module 'claude-code' {
          * A mid-run look at the main agent's level (`midrun-effort`, ADR 0020): the level it was on, the one its steps go
          * out at from here (the same for a level kept), the level its message was decided at, what came of it, the event
          * that asked (`failure`, `resolved`, `report`, `handback`, `skill`, `todo`, `steps`), and whether the step that takes it
-         * carried input already (no row was appended).
+         * carried input already (no note went with it).
          */
         midrun?: {
           from: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
@@ -467,13 +467,12 @@ declare module 'claude-code' {
         stuck: boolean
         /** The highest level the stakes asked for this turn: a raise taken back when its command passes goes no lower. */
         stakesFloor: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        /** Rows appended for a switch this turn and the step of the last; times the decision model was asked and the step of the last. */
+        /** Switches made with a note this turn and the step of the last; times the decision model was asked and the step of the last. */
         switches: number
         switchedAt: number | null
         judged: number
         judgedAt: number | null
-        /** Looks by step count this turn (`midrun-steps`) and the step of the last; what the latest wanted and did not take, and its step. */
-        ticks?: number
+        /** The step of the last look by step count (`midrun-steps`); what the latest wanted and did not take, and its step. */
         tickedAt?: number | null
         wanted?: { way: 'raise' | 'lower'; step: number } | null
         /** Steps since the last look in which the model only waited (Code Mode's `Poll`): a look by step count leaves them out. */
@@ -619,6 +618,28 @@ declare module 'claude-code' {
    * hooks of the events Code Mode refuses a mod for through it. `start` runs the hook `name` up to its `next`,
    * `resume` hands it what the engine's `next` came to.
    */
+  /**
+   * The mod's own tool (`$.tool.register`, hooks/features/visual-check.ts) under the name the model calls it by; its
+   * arguments mirror VISUAL_CHECK_INPUT (hooks/decision/visual-check-tool.ts). Declared by hand, as the engine's types
+   * ask for a tool the project knows (`McpToolInputs`: "one written by hand adds entries"). The generated
+   * `claude-code-mcp` types list only the servers a session had connected when the mod was last saved, never this
+   * tool, and once they declare any tool, a `tool.call` matcher that names an undeclared `mcp__…` tool is not
+   * accepted (and the type check of 2.1.326 does not come back from it).
+   */
+  interface McpToolInputs {
+    'mcp__dispatch-pilot__visual_check': {
+      images: string[]
+      reference?: string[]
+      compare_to?: string
+      sequence?: boolean
+      spec?: string
+      same_view?: boolean
+      checks?: { part: string; property: string }[]
+      look?: boolean
+      from_seconds?: number
+      to_seconds?: number
+    }
+  }
   interface EngineInterface {
     /** dispatch-pilot-extras' own noun: there when that plugin is loaded (hooks/core/bridge.ts `hasExtras`); a call on it throws when it is not. */
     dispatchPilotExtras: { present: () => Promise<boolean> }

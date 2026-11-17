@@ -11,9 +11,10 @@
 //   - a dispatched agent whose counted failures reach `escalateAfter` for the
 //     first time has its effort raised one level, to max at most (ADR 0020, ADR 0022;
 //     Anthropic: "Raise effort before you change models", and a new model
-//     costs the agent its cache): a row is appended to its conversation
-//     (`$.session.append` with its `agentId`), since a model takes a new level
-//     only at a step with input, and its plan is written. Not when the person
+//     costs the agent its cache): a note goes on the row of its next tool
+//     result (core/notes.ts, ADR 0029), since a model takes a new level only at
+//     a step with input, and its plan is written once that row is stored with
+//     the note. Not when the person
 //     named its effort, not for a Workflow's agent (short, and dispatched many
 //     at once at one level), and not with `midrun-effort` off.
 //   - after that, or where the effort cannot go up, a dispatched agent (a plain
@@ -40,6 +41,7 @@
 import type { EngineInterface, On, TurnStepInput } from 'claude-code'
 import { bridgeStart, hasExtras, type HookGiven } from '../core/bridge.ts'
 import { callsEnded } from '../core/calls.ts'
+import { carriedByRequest, holdsNote, withNote } from '../core/notes.ts'
 import { errorText } from '../decision/backend.ts'
 import { blockedByHookText, briefOf, errorLine, outcomeOf, rowsFromTranscript, stepUp, withError, type StepUpSettings, type TranscriptRow, type TurnFacts } from '../decision/escalation.ts'
 import { EFFORTS, isEffort, type Effort } from '../decision/effort.ts'
@@ -63,6 +65,18 @@ const DECISIONS = { plugin: 'dispatch-pilot', key: 'decisionLog' } as const
 
 /** At most this many Workflow runs' directories are kept. */
 const MAX_RUNS = 8
+
+/**
+ * The agents whose effort is to go up, by agent id: each waits for the row of its next tool result, which takes the note
+ * (the `session.append` hook below), and its plan is written once that row is stored with it. A module variable
+ * (CLAUDE.md): a hot reload loses a raise that waited, and the agent goes on at its level until its failures reach the
+ * bar again. At most MAX_WAITING are kept, the oldest dropped first (an agent that ended before another result came).
+ */
+const waitingRaises = new Map<string, WaitingRaise>()
+const MAX_WAITING = 64
+
+/** A raise that waits: the levels, the model the agent is on, and what its decision is about (the failures that reached the bar). */
+type WaitingRaise = { from: Effort; to: Effort; model: string; about: string; reached: number; /** A row has taken the note and is being stored. */ onRow?: true }
 
 /** The feature's switch (`/dp escalation on|off`). */
 const SWITCH = 'escalation'
@@ -160,21 +174,44 @@ export function registerEscalation(on: On, ctx: Ctx): void {
     return result
   }) }))
 
-  // Without dispatch-pilot-extras (a Code Mode session) the hook above does not run: every loop's calls are counted as their
-  // results are stored (core/calls.ts). A Workflow's run is not noted there (its agents are not routed without the other plugin).
+  // The row of a tool's result, before it is stored. Without dispatch-pilot-extras (a Code Mode session) the hook above
+  // does not run: every loop's calls are counted here (core/calls.ts). A Workflow's run is not noted there (its agents are
+  // not routed without the other plugin). Then, either way, an agent whose effort is to go up has its note put on the row,
+  // when a request carries the row (core/notes.ts), and the raise is made once the row is stored with it.
   on('session.append', { door: 'tool-result' }, async ($, e, next) => {
-    const stored = await next(e)
-    if (!masterOn()) return stored
+    if (!masterOn()) return next(e)
     try {
-      if (await hasExtras(() => $.dispatchPilotExtras.present())) return stored
-      for (const call of callsEnded(e, await $.clock.now())) {
-        const ended = outcomeOf(call.tool, { isError: call.isError, text: call.text }, call.isError && blockedByHookText(call.text))
-        const failing = ended === 'failed' || ended === 'blocked'
-        if (call.agentId === undefined) await countMain($, ended, failing ? errorLine(call.tool, call.text) : null)
-        else if (failing) await countAgent($, settings, call.agentId, ended)
+      if (!(await hasExtras(() => $.dispatchPilotExtras.present()))) {
+        for (const call of callsEnded(e, await $.clock.now())) {
+          const ended = outcomeOf(call.tool, { isError: call.isError, text: call.text }, call.isError && blockedByHookText(call.text))
+          const failing = ended === 'failed' || ended === 'blocked'
+          if (call.agentId === undefined) await countMain($, ended, failing ? errorLine(call.tool, call.text) : null)
+          else if (failing) await countAgent($, settings, call.agentId, ended)
+        }
       }
     } catch (error) {
       $.ui.log(`escalation: ${errorText(error)}`, { to: 'debug' })
+    }
+    const agentId = e.agentId
+    const raise = agentId === undefined ? undefined : waitingRaises.get(agentId)
+    if (agentId === undefined || raise === undefined || raise.onRow === true || !carriedByRequest(e.message.content)) return next(e)
+    // One row takes it: the results of a step's calls are stored one after another.
+    raise.onRow = true
+    const note = switchNote(raise.from, raise.to, 'failures')
+    let stored: Awaited<ReturnType<typeof next>>
+    try {
+      stored = await next({ ...e, message: withNote(e.message, note) })
+    } catch (error) {
+      if (waitingRaises.get(agentId) === raise) waitingRaises.delete(agentId)
+      throw error
+    }
+    try {
+      if (holdsNote(stored, note)) await takeRaise($, settings, agentId, raise)
+      else await dropRaise($, settings, agentId, raise)
+    } catch (error) {
+      $.ui.log(`escalation: ${errorText(error)}`, { to: 'debug' })
+    } finally {
+      if (waitingRaises.get(agentId) === raise) waitingRaises.delete(agentId)
     }
     return stored
   })
@@ -275,44 +312,23 @@ async function countAgent($: EngineInterface, s: Settings, agentId: string, ende
   const reached = total(countedOf({ ...after, base: wasBase }))
   const rows = await agentRows($, agentId)
   const about = aboutOf(agentId, rows === null ? '' : briefOf(rows), after.step, reached)
-  let record = after
   if (effort !== null && (after.effortRaises ?? 0) > (before?.effortRaises ?? 0)) {
-    if (await raiseEffort($, agentId, planCell, effort)) {
-      await decide($, agentId, after, {
-        outcome: `effort ${effort.to}（原 ${effort.from}）`,
-        about,
-        reason: modelLeft(after)
-          ? `工具调用失败 ${reached} 次（门槛 ${s.after}），先把 effort 升一档：给它追加了一行提示，从下一步起生效，不动它的缓存；再失败到门槛才换模型`
-          : `工具调用失败 ${reached} 次（门槛 ${s.after}），把 effort 升一档：给它追加了一行提示，从下一步起生效，不动它的缓存；不换模型（${noModelWhy(after, s, where)}），${effort.to === 'max' ? '已经到 max，之后不再升' : '再失败到门槛就再升一档，直到 max'}`,
-        tone: 'warn',
-        forced: { kind: 'effort', from: effort.from, to: effort.to },
-      })
-      await showCounts($, agentId, after)
-      return
-    }
-    // The row could not be appended: the level would not go out. The raise is not counted as made; the model goes up as
-    // it would have, where it can, and where it cannot the decision says so.
-    record = await update(cell, (r) => {
-      const loop = r ?? after
-      return { ...loop, effortRaises: Math.max(0, (loop.effortRaises ?? 1) - 1), effortStep: null }
-    })
-    if (!modelLeft(record)) {
-      await decide($, agentId, record, {
-        outcome: `effort ${effort.from}（保持）`,
-        about,
-        reason: `工具调用失败 ${reached} 次（门槛 ${s.after}），本想把 effort 升到 ${effort.to}，但给它追加提示行不成，这一档发不出去；不换模型（${noModelWhy(record, s, where)}）`,
-        tone: 'info',
-      })
-      await showCounts($, agentId, record)
-      return
-    }
-    record = await update(cell, (r) => {
-      const loop = r ?? record
-      return { ...loop, raises: loop.raises + 1, raiseStep: loop.step }
-    })
+    // The raise waits for the agent's next tool result, whose row takes the note: it is made, and reported, once that row
+    // is stored with it (`takeRaise`), and where the row does not keep the note the model goes up instead (`dropRaise`).
+    waitingRaises.set(agentId, { ...effort, model: from, about, reached })
+    while (waitingRaises.size > MAX_WAITING) waitingRaises.delete(waitingRaises.keys().next().value as string)
+    await showCounts($, agentId, after)
+    return
   }
+  await raiseModel($, s, agentId, after, where, from, about, reached)
+}
+
+/** An agent goes on as the next model up, where it can (`where`); the decision says which, or why not. */
+async function raiseModel($: EngineInterface, s: Settings, agentId: string, record: LoopRecord, where: ReturnType<typeof stepUp>, from: string, about: string, reached: number): Promise<void> {
   if ('to' in where) {
     const to = where.to.id
+    const planRef = { ...AGENTS, id: agentId }
+    const planCell: Cell<AgentPlan> = { get: () => $.state.get(planRef), set: (value, options) => $.state.set(planRef, value, options) }
     await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), model: to }))
     await decide($, agentId, record, {
       outcome: `model ${to}（原 ${from}）`,
@@ -350,24 +366,64 @@ function effortUp(sent: Effort | null, planned: AgentPlan | undefined): { from: 
   return at >= EFFORTS.length - 1 ? null : { from: sent, to: EFFORTS[at + 1] as Effort }
 }
 
+/** An agent's plan and its loop's record, as cells, with what they hold now. */
+async function loopOf($: EngineInterface, agentId: string): Promise<{ cell: Cell<LoopRecord>; planCell: Cell<AgentPlan>; record: LoopRecord; planned: AgentPlan | undefined }> {
+  const ref = { ...ESCALATION, id: agentId }
+  const cell: Cell<LoopRecord> = { get: () => $.state.get(ref), set: (value, options) => $.state.set(ref, value, options) }
+  const planRef = { ...AGENTS, id: agentId }
+  const planCell: Cell<AgentPlan> = { get: () => $.state.get(planRef), set: (value, options) => $.state.set(planRef, value, options) }
+  const [{ value: record }, { value: planned }] = await Promise.all([cell.get(), planCell.get()])
+  return { cell, planCell, record: record ?? newLoop(''), planned }
+}
+
 /**
- * Raises a running agent's effort: a row appended to its conversation, so that its next step carries input and takes the
- * level, then its plan. False when the row could not be appended (the plan is left as it was: a level written for a step of
- * tool results would not go out).
+ * Makes a raise of a running agent's effort, once the row of its tool result is stored with the note: its plan, and the
+ * decision (the level went with a step that carries input, so it goes out).
  */
-async function raiseEffort($: EngineInterface, agentId: string, planCell: Cell<AgentPlan>, effort: { from: Effort; to: Effort }): Promise<boolean> {
-  try {
-    const appended = await $.session.append({ agentId, message: { type: 'user', content: [{ type: 'text', text: switchNote(effort.from, effort.to, 'failures') }] } })
-    if (typeof appended.deny === 'string') {
-      $.ui.log(`escalation: the row for agent ${agentId}'s effort was refused: ${appended.deny}`, { to: 'debug' })
-      return false
-    }
-  } catch (error) {
-    $.ui.log(`escalation: the row for agent ${agentId}'s effort could not be appended: ${errorText(error)}`, { to: 'debug' })
-    return false
+async function takeRaise($: EngineInterface, s: Settings, agentId: string, raise: WaitingRaise): Promise<void> {
+  const { planCell, record, planned } = await loopOf($, agentId)
+  await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), effort: raise.to }))
+  const where = stepUp(raise.model, s, planned?.terms ?? null)
+  const modelLeft = record.raises < s.limit && 'to' in where
+  await decide($, agentId, record, {
+    outcome: `effort ${raise.to}（原 ${raise.from}）`,
+    about: raise.about,
+    reason: modelLeft
+      ? `工具调用失败 ${raise.reached} 次（门槛 ${s.after}），先把 effort 升一档：在它的工具结果后面加了一行提示，从下一步起生效，不动它的缓存；再失败到门槛才换模型`
+      : `工具调用失败 ${raise.reached} 次（门槛 ${s.after}），把 effort 升一档：在它的工具结果后面加了一行提示，从下一步起生效，不动它的缓存；不换模型（${noModelWhy(record, s, where)}），${raise.to === 'max' ? '已经到 max，之后不再升' : '再失败到门槛就再升一档，直到 max'}`,
+    tone: 'warn',
+    forced: { kind: 'effort', from: raise.from, to: raise.to },
+  })
+  await showCounts($, agentId, record)
+}
+
+/**
+ * A raise whose note the row did not keep: the level would not go out, so the plan is left as it was and the raise is not
+ * counted as made. The model goes up as it would have, where it can, and where it cannot the decision says so.
+ */
+async function dropRaise($: EngineInterface, s: Settings, agentId: string, raise: WaitingRaise): Promise<void> {
+  $.ui.log(`escalation: the note for agent ${agentId}'s effort ${raise.to} was not kept on its tool result's row; it stays on ${raise.from}`, { to: 'debug' })
+  const { cell, record: seen, planned } = await loopOf($, agentId)
+  let record = await update(cell, (r) => {
+    const loop = r ?? seen
+    return { ...loop, effortRaises: Math.max(0, (loop.effortRaises ?? 1) - 1), effortStep: null }
+  })
+  const where = stepUp(raise.model, s, planned?.terms ?? null)
+  if (!(record.raises < s.limit && 'to' in where)) {
+    await decide($, agentId, record, {
+      outcome: `effort ${raise.from}（保持）`,
+      about: raise.about,
+      reason: `工具调用失败 ${raise.reached} 次（门槛 ${s.after}），本想把 effort 升到 ${raise.to}，但提示行加不到它的工具结果上，这一档发不出去；不换模型（${noModelWhy(record, s, where)}）`,
+      tone: 'info',
+    })
+    await showCounts($, agentId, record)
+    return
   }
-  await update(planCell, (r) => ({ ...(r ?? { effort: null, floor: null, model: null, terms: null }), effort: effort.to }))
-  return true
+  record = await update(cell, (r) => {
+    const loop = r ?? record
+    return { ...loop, raises: loop.raises + 1, raiseStep: loop.step }
+  })
+  await raiseModel($, s, agentId, record, where, raise.model, raise.about, raise.reached)
 }
 
 /**
