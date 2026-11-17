@@ -1,0 +1,237 @@
+# dispatch-pilot 重写：原生适配 Code Mode（设计）
+
+日期：2026-11-17　分支：`dp/rewrite`　Claude Code：2.1.326
+
+## 1. 意图
+
+dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派出的 agent 定模型和 effort。上一版为了适配 Code Mode 拆成了两个 plugin、两条代码路径。这次从零重写，不沿用旧代码和旧注释，让同一套代码在普通会话和 Code Mode 会话里行为一致，并且不抵消 Code Mode 带来的收益。决策模型的问法、读法和参数严格照 Nace 和 TypeSafe 现行官方文档。
+
+## 2. 目标、非目标、反目标
+
+**目标**
+
+1. 三项换挡都保留：发消息时定 effort；一轮中途换 effort；派出 agent 时定模型和 effort。
+2. skill 一组功能保留：去掉引擎的 skill 列表、发消息时推荐、`find-skill`。
+3. 单个 plugin，只注册 Code Mode 允许的事件，两种会话走同一条路径。
+4. 决策模型默认 Drex `drex-max-v1.1`，另一个后端是 Jev `jev-latest`。
+5. 任何决策失败或超时都放行，会话照没有这个 mod 时那样继续。
+
+**非目标（这次不做，以后各自立项）**
+
+失败升档、未解决次数、长期约束、摘要、看图核对、截图接管、图片路由、Workflow 专门处理、依据面板（pane）、pplx 和 Liquid 后端。
+
+**反目标（做到了也算失败）**
+
+- 装上后 Code Mode 不能启动。
+- 往上下文里加固定内容，或让固定内容比不装时更多。
+- 给脚本内部的工具调用加等待。
+- 换主 agent 的模型，或以别的方式让主 agent 的 prompt cache 失效。
+- 决策模型不可用时卡住用户的消息。
+
+## 3. 约束
+
+### 3.1 Code Mode
+
+- Code Mode（实验功能，2.1.323 起，只在交互终端可用）不和挂了以下事件的 mod 一起开：`tool.call`、`tool.check`、`tool.judge`、`tool.run`、`agent.offer`、`agent.spawn`、`session.send`，以及 `classic.PreToolUse`、`classic.PermissionRequest`、`classic.PermissionDenied`、`classic.PostToolUse`、`classic.PostToolUseFailure`、`classic.TaskCreated`、`classic.TaskCompleted`、`classic.Elicitation`、`classic.ElicitationResult`、`classic.WorktreeCreate`。引擎按 hooks 模块的静态扫描判定，不看 matcher。
+- 所以 `$.tool.register` 注册的工具不能用（它靠 `tool.call` 回答）。
+- Anthropic 没有专讲 Claude Code Code Mode 的博客，官方只有文档页（https://code.claude.com/docs/en/code-mode ）和 changelog。收益来自更少的固定工具说明和不进上下文的中间结果。本设计按第 2 节的反目标来保护它。
+
+### 3.2 引擎行为（2.1.326，2026-11-17 用一次性探针实测，探针不进仓库）
+
+| # | 行为 | 普通会话 | Code Mode 会话 |
+|---|---|---|---|
+| E1 | 挂了 5.1 节全部九个事件的 mod 不挡 Code Mode；`prompt.submit`、`prompt.attachment`（`skill_listing`）、`turn.start`、`turn.step`、`session.append`、`turn.complete`、`command.run` 在 Code Mode 会话里都实际触发过，`skill.prompt` 只验证了注册不挡 | — | 已测 |
+| E2 | agent 的 `turn.start` 上 `e.text` 是派出时的任务原文，`e.agentId` 是它的 id | 已测 | 已测 |
+| E3 | agent 的 `turn.step` 上 `next({ ...e, model })` 生效：`$.agent.list()` 的 `lastRequest.model` 是改后的模型（Sonnet 5.5 改 Haiku 5.5）。改写只管一步，每步都要重写 | 已测 | 未单独测（同一引擎路径） |
+| E4 | 在只带工具结果的步上改 `effort` 不发出：`lastRequest.effort` 仍是原档 | 已测（agent 循环） | — |
+| E5 | 在 `session.append`（door `tool-result`）里、`next` 之前给结果行加一个 text 块，下一步改的 `effort` 就发出，并保持到之后只带工具结果的步 | 已测（agent 循环，Sonnet 5.5 和 Haiku 5.5） | 已测（Code Mode 会话里的 agent 循环） |
+| E6 | 主循环的 E5 | 未能直接读出（引擎不给主循环的 `lastRequest`）；core 收到了改后的值 | 同左 |
+| E7 | Code Mode 下主循环的行：请求会带上的结果行是 `tool-result`、`origin.tool` 为 `REPL` 或 `Poll`、`message.role` 为 `user`。脚本内部调用（`Read`、`Agent` 等）也各有一条 `tool-result` 行，但 `message.role` 缺省，请求不带它 | — | 已测 |
+| E8 | 加在结果行上的 text 块在终端里显示成一行以 `❯` 开头的文字 | — | 已测 |
+| E9 | 环境变量 `CLAUDE_EFFORT` 不反映 hook 改写的档位 | 已测 | — |
+
+类型文件对 E4、E5 的原文（`TurnStepInput.effort`）："A rewrite lasts one step. On a model that takes effort per message, a level on tool results alone is not sent if another is in force, and one on a step with input stays for later tool steps whose `effort` is a level."
+
+E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 2.1.326 上也报告过主循环可用。实施时按第 9 节补一条主循环的旁证。
+
+### 3.3 缓存
+
+- 官方文档：在 Fable 5.1 及以后、Opus 5.5、Sonnet 5.5、Haiku 5.5 上用 API key 或订阅时，换 effort 不丢缓存；换模型会丢。Bedrock、Google Cloud、网关上换 effort 也会丢。
+- 主 agent 的模型永不改写。agent 的模型只在它第一步之前定一次，之后每步写同一个值。
+- skill 列表的替换文字是固定的一句，回答稳定，只在第一次请求时改变一次前缀。
+
+### 3.4 决策模型官方文档
+
+**Nace Drex**（https://console.nace.ai/docs/drex/ 下的 questions、reading-answers、drex-max、errors-and-retries、reference/models 各页）
+
+- 有序标签用 `score`，无序用 `choice`。`score` 的 `criteria` 是从低到高的数组，回答里 `probabilities` 按档位下标给出分布。
+- "Rounding `score` to the nearest level loses information."，读尾部概率和，例如 `probabilities["2"] + probabilities["3"]`。
+- "There is no built-in cutoff."，门槛按两类错误的代价定；两类都贵时用两个门槛，中间带单独处理。
+- `noul` 用 `criteria.true` 和 `criteria.false` 写清两边，比只写 `instructions` 更能移动答案。
+- state 约 8000 token 以内全文读，更长只读抽取的片段。一次请求最多 512 题。
+- 调门槛时固定模型版本。`drex-latest` 现在指向 `drex-max-v1.1`。
+- 文档建议客户端超时不低于 60 秒（服务端最多排队 55 秒）。
+
+**TypeSafe Jev**（https://docs.typesafe.ai/ 下的 primitives、confidence、models、model-jaggedness 各页和 skill_suggestion cookbook）
+
+- Score 的 `criteria` 是 2 到 10 档的有序数组，回答里有 `probabilities`。
+- "Ask one yes/no question per Noul."，高值表示「是」。
+- "Good starting thresholds are 0.7 and 0.3 ... Give the band between 0.3 and 0.7 its own outcome in code rather than rounding it to one side."，门槛随出错代价调整，用自己的数据测。
+- "Include only the context relevant to the current questions."。默认上限每次请求 64k、每题 32k。同一请求里的题互不影响。
+- Choice 偏向排在前面的选项；用陪伴的 Noul 代替 "other" 选项。
+- `jev-latest` 现在指向 `jev-1.14.0`，别名会随新版移动；回答的 `model` 字段给出实际版本；调过门槛就该固定版本。
+- skill cookbook：第一次请求问一道 Choice（选项是各 skill 的说明）、三道「是否要动手」的 Noul 和一道「是否点名了方法」的 Noul；三道的均值不低于 0.30 或点名题不低于 0.50 才算需要 skill。第二次请求对前三名重排，并逐个问「这个 skill 是否正好做用户要的事」，最高分低于 0.30 就不推荐。
+
+两家都没有 effort 或模型分级路由的官方配方。
+
+## 4. 做法的选择
+
+| 做法 | 内容 | 取舍 |
+|---|---|---|
+| 一、单插件、单路（**选定**） | 只挂 Code Mode 允许的事件；中途换挡时在结果行上加一行说明 | 每次中途换挡往上下文加一行，约几十 token |
+| 二、单路、零追加 | 同上，但中途只在本来带新输入的步换挡 | 上下文一个字不加；按 E4，Code Mode 的一轮几乎全是只带工具结果的步，中途换挡基本不起作用 |
+| 三、双插件、双路 | 核心加 extras，普通会话里用 `agent.spawn`、`tool.call` | 信号更全；两套路径、两套测试，两种会话行为不一致 |
+
+用户选了一：三项换挡在两种会话里都能用，代码只有一条路。让 Claude 自己在脚本里申请换挡的路也考虑过，它要加固定说明，也绕过了决策模型，已排除。
+
+## 5. 设计
+
+### 5.1 事件
+
+| 事件 | 用途 |
+|---|---|
+| `session.start` | 注册 `/dp` 命令，读配置，建会话状态 |
+| `prompt.submit` | 发消息时的判断：effort 题和 skill 题；把推荐的 skill 放进 `context` |
+| `prompt.attachment`（`type: 'skill_listing'`） | 记下列表里的 skill，主循环的列表换成固定的一句；agent 的列表不动 |
+| `skill.prompt` | 回答 `dispatch-pilot:find-skill` |
+| `turn.start` | 主循环：记下这一轮的基准档。agent：拿任务原文，发起判断 |
+| `turn.step` | 每步写 effort；agent 每步写定下的模型和 effort |
+| `session.append` | 读每步的结果行作为依据；到检查点时判断，要换挡就在结果行上加说明 |
+| `turn.complete` | 收尾：清这一轮的计数 |
+| `command.run`（`command: 'dp'`） | `/dp` |
+
+不注册 3.1 列出的任何事件，不调用 `$.tool.register`。
+
+### 5.2 档位怎么问、怎么读（三项换挡共用）
+
+- effort 用一道 `score` 题，五档从低到高：`low`、`medium`、`high`、`xhigh`、`max`。每档的说明照 Anthropic 对 effort 的说法写（low：快速的机械工作；medium：常规开发；high：要验证、要考虑边界的工作和老代码里的 bug；xhigh、max：长时间自主处理的难题）。
+- 读法是一个函数 `decide(current, probabilities)`，三处共用：
+  - 升：比当前高一档及以上的概率和不低于升档门槛，就升一档，再对新的一档重复。
+  - 降：比当前低一档及以下的概率和不低于降档门槛，就降一档，再重复。
+  - 两边都不到，保持当前档。这就是文档说的中间带。
+- 门槛按后端和模型版本各存一张表。初值：升档 0.7，降档 0.7（即文档的 0.7/0.3 起步），`xhigh` 和 `max` 的升档门槛更高（初值 0.8），因为高档多花的钱多。初值只是起点，发布前用评测集校准（第 8 节）。
+- 条件类的判断各用一道 `noul`，一题一个条件，高值表示「是」，带 `criteria.true/false`。同样用两个门槛，中间带按「不确定」处理。
+- 一次判断的所有题放进同一次请求。
+- state 只放和题目有关的内容，上限 4000 token，两家都不触发抽取或长上下文模式。
+
+### 5.3 发消息时定 effort
+
+- 只处理人发的消息（`origin.kind` 为 `composer`、`sdk`、`bridge`），其他来源直接放行。
+- state：用户这条消息，加上一段简短的近况（上一轮在做什么、上一轮的档位）。
+- 题：effort 的 `score` 题，加一道 `noul`「这条消息是否只是让助手继续它已经提出或正在做的工作」。
+- `current` 的取值：续做题为「是」时取上一轮的档位，否则取会话设定的档位。结果写进状态，由这一轮的每个 `turn.step` 发出。
+- 用户用 `/dp lock` 锁了档位时不判断。
+
+### 5.4 一轮中途换 effort
+
+- 依据来自 `session.append` 的行：这一轮里每步用了哪些工具、是否报错、结果文字的开头（Code Mode 下是 `REPL` 和 `Poll` 结果行的文字，以及脚本内部调用行的工具名和报错标记，见 E7）。
+- 检查点（到了才问决策模型）：
+  1. 这一轮中途进来了新输入（用户插话、后台任务通知、agent 交回报告）。这种步本来就带输入，换挡不用加说明。
+  2. 代码数到失败成簇：同一处报错在一次修改之后再次出现，或连续两步报错。
+  3. 距离上一个检查点满 N 个工作步（`midrunEverySteps`，默认 8，0 为关闭）。只等事件的 `Poll` 步不算工作步。
+- 在检查点：state 是用户这一轮的请求、当前档位和最近几步的摘要，题是 effort 的 `score` 题，用 `decide` 读。
+- 要换挡时，在这条结果行存下之前给它加一个 text 块（E5），下一步起每个 `turn.step` 发新档。说明是一行英文事实，例如 `[dispatch-pilot] effort is now high: the same test failed again after a fix.`，不带命令语气。
+- 限制：一轮最多加 4 条说明（`midrunMaxNotes`）；两次换挡至少隔 3 个工作步；一轮中途最高升到 `xhigh`，不升到 `max`；新档和当前档相同时不加说明。
+- Code Mode 下说明只加在请求会带的结果行上（`REPL` 或 `Poll`），不加在脚本内部调用的行上。
+
+### 5.5 派出 agent 的模型和 effort
+
+- agent 的 `turn.start` 带任务原文（E2）。在这里发起一次判断，它的第一个 `turn.step` 等这次判断，最多等到时限；之后每步写同一组值（E3）。超时就按继承值跑，这个 agent 之后也不再改。等的是 agent 自己的第一次请求，不是主循环脚本里的调用。
+- 派出时已经明写了模型或 effort 的（`$.agent.list()` 里它的 `model`、`effort` 有值），那一项不改。
+- 题：一道模型层级的 `score` 题和一道 effort 的 `score` 题。模型层级的顺序固定为 `haiku` < `sonnet` < `opus` < `fable`，候选取 `agentModels`（默认这四个）里不高于主 agent 的那些。写给引擎的是别名本身，由引擎解析成具体模型（实测 `haiku` 解析为 `claude-haiku-5-5`）。主 agent 的层级按它的模型 id 里的家族名认；认不出时不改 agent 的模型，只定 effort。
+- `current` 取继承值（主 agent 的模型和当前档位）。模型只在把握大时才换：换模型的门槛初值 0.8，升降同值。
+- `e.text` 为空的 agent（续跑的，或引擎不让 hook 看到的）不处理。agent 中途不再判断。
+
+### 5.6 skill
+
+- `prompt.attachment` 收到主循环的 `skill_listing` 时，解析出里面的 skill 名和说明，存进会话状态，作为候选集；这样候选只含引擎允许模型调用的 skill。然后把这条附件换成固定的一句：说明列表被收起，合适的 skill 会随消息推荐，其他的用 `dispatch-pilot:find-skill` 查。agent 的列表原样放行。
+- 发消息时的推荐照 TypeSafe cookbook 的结构和门槛（3.4 节）。第一次请求和 effort 题合并成同一次请求。需要第二次请求时才发。最多推荐一个 skill，放进 `prompt.submit` 的 `context`，内容是 skill 名、说明和「用 Skill 工具加载」的一句。不推荐时什么也不加。
+- Drex 没有 skill 配方，用同一结构；门槛初值同 cookbook，校准后各存各的。
+- `find-skill`：plugin 自带的 skill（`skills/find-skill/SKILL.md`），`skill.prompt` 收到它时，用参数里的几个词对候选集做同样的两步判断，回答最多三个合适的 skill 名和说明。
+- 候选超过 255 个时（Drex 每题上限）按来源分批问。
+
+### 5.7 后端
+
+- 接口是一个函数：`ask({ state, questions }) -> { answers, model, ms }`，`drex` 和 `jev` 各一个实现。两家的请求体都是 `state` 加 `questions`，回答字段名相同的部分直接用，不同的部分（Jev 的 `legend` 是对象、`noul` 没有 `confidence`）在各自的实现里抹平。
+- 默认后端 Drex（`drex-max-v1.1`，固定版本）。另一个是 Jev（`jev-latest`）。配置了两个密钥时，默认后端请求失败或超时，同一次判断改问另一个，只改问一次。
+- 每次判断有总时限，到时放行：发消息 4 秒，中途检查点 2 秒，agent 3 秒，可配置。这比 Nace 建议的 60 秒客户端超时短，是有意的：用户在等，超时的请求不重试，所以不会反复排队。
+- 发给决策模型的内容：用户的消息、近况和最近几步的摘要（含工具结果文字的开头），按 5.2 节的上限截断，不脱敏。这沿用用户此前对脚本结果的决定。除两家决策模型的接口外不向任何地方发送。
+- 每条决策记录写下：时间、哪一项换挡、题的原始回答（分布和 noul 值）、门槛、结果、回答里的 `model` 字段、耗时、是否放行。存进 `$.store`，只留最近 200 条。
+
+### 5.8 状态
+
+- `$.state`：会话当前档位和基准档、锁定、这一轮的步数和说明数、最近几步的摘要、每个 agent 定下的模型和 effort、skill 候选集。
+- 模块级变量只放相邻两个事件之间传的值（例如 agent 判断的进行中请求），注释写明丢了的代价是这一次不换挡。
+- `$.store`：决策记录。
+
+### 5.9 界面和命令
+
+- `$.ui.status` 一行：当前档位，以及最近一次换挡的方向和原因。
+- `/dp`：当前档位、锁定状态、后端、最近 5 条决策。
+- `/dp lock <level>` 和 `/dp unlock`：本会话锁定或解锁档位，锁定时三项 effort 判断都不做。
+- `/dp log [n]`：最近 n 条决策记录，含原始回答。
+- 不做看板 band 和依据面板。
+
+### 5.10 配置（`userConfig`）
+
+`enabled`、`mode`（`apply` 或 `shadow`，后者只判断和记录、不改任何东西；默认 `apply`）、`backend`、`drexApiKey`、`jevApiKey`（sensitive）、`drexModel`、`jevModel`、`midrunEverySteps`、`midrunMaxNotes`、`agentModels`、三个时限，以及四个布尔开关 `submitShift`、`midrunShift`、`agentShift`、`skills`，分别开关发消息定档、中途换挡、agent 定档和 skill 一组功能，默认都开。没有密钥的后端视为不可用；两个都没有时 mod 什么也不做，并在 `/dp` 里说明。
+
+### 5.11 放行规则
+
+以下情况一律放行（不改 effort、不改模型、不加说明、不换 skill 列表以外的任何东西），并记一条记录：请求失败、超时、回答缺字段、模型不接受 effort（`e.effort` 缺省）、`mode` 为 `shadow`。hook 自己抛错时引擎会跳过它，所以每个 hook 的主体都包在一层兜底里，保证总是走到 `next(e)`。
+
+## 6. 仓库里的变化
+
+- `dispatch-pilot/` 原地替换成新实现，plugin 名不变，版本 `1.0.0`，`engines["claude-code"]` 写 `>=2.1.326`。
+- 删除 `dispatch-pilot-extras/`，同时从 `.claude-plugin/marketplace.json` 去掉它，并更新 dispatch-pilot 的说明。
+- 新写一条 ADR 记这次重写和它取代的旧决定；旧 ADR 保留不动。更新 `GLOSSARY.md` 和 `CLAUDE.md` 里提到两个 plugin 的段落。
+- README 写给使用者：功能、配置、Code Mode 下的行为、测试用的 Claude Code 版本。DEVELOPMENT.md 记第 3.2 节的实测。
+
+## 7. 测试
+
+- `claude plugin test`：每个 hook 的行为、`decide` 的各种分布、两个后端的请求体和回答解析、放行规则、限制（说明条数、间隔、上限）。`http.fetch` 全部打桩，不联网。
+- 一条静态检查：hooks 模块里出现的事件名都不在 3.1 的名单里，也没有 `$.tool.register`。接进 `scripts/check.sh`。
+- 实机：普通会话和 Code Mode 会话各跑一遍三项换挡和 skill 推荐，记进 DEVELOPMENT.md。
+
+## 8. 校准
+
+官方文档要求门槛用自己的数据测。校准属于这个项目，是最后一个阶段；`1.0.0` 在校准之后发布。发布前：
+
+- 实施者新写一个评测集：发消息定档、中途换挡、agent 定档、skill 推荐四类，每类至少 60 例，带期望结果。不沿用旧评测集。用户抽查期望结果。
+- 两个后端各跑一遍，按「该升没升」和「该降没降」的代价调门槛表，记下所用的模型版本。Jev 用别名时，校准记录里写当时解析到的版本；决策记录里版本变了就重新校准。
+- 先用 `shadow` 模式在真实会话里跑，看记录再打开 `apply`。
+
+## 9. 留给实施者
+
+- 各题的具体措辞和各档说明的文字，以评测结果为准。
+- 一步里有多个并行工具调用时说明加在哪一条结果行上（实测每个结果各有一行）。
+- Code Mode 下 `queue`、`delivery` 这两种行算不算带新输入，没测；没测清之前按不算处理。
+- 主循环上 E5 的旁证（E6）：比较加说明前后几步的思考量，或用引擎以后提供的读数。主 agent 的中途换挡是必须保留的功能：如果旁证显示它在主循环上不起作用，停下来告诉用户，不要自行降级成做法二。
+- `$.http.fetch` 在 2.1.326 的超时和取消方式，以及时限怎么和 hook 的 10 秒预算配合。
+- 说明行在终端里的显示（E8）要不要改写法。
+- 状态的具体形状、文件划分、`/dp` 输出的排版。
+
+## 10. 我替用户做的决定（请在读的时候核对）
+
+1. Drex 作默认，Jev 作另一个后端并在 Drex 失败时接手。核心版没有看图功能，所以没有「带图给 Jev」这条。
+2. `jev-latest` 按用户要求用别名；每条记录写实际版本，版本变了重新校准。
+3. 门槛初值取 0.7/0.3 的起步值，高档更严，发布前校准。
+4. 中途检查点三种：新输入、失败成簇、每 8 个工作步；一轮最多 4 条说明；中途不升到 `max`。
+5. agent 的模型只在把握大时才换，层级 `haiku` < `sonnet` < `opus` < `fable`，不高于主 agent。派出时明写的值不改。agent 的第一步最多等 3 秒。
+6. 时限 4 秒、2 秒、3 秒，短于 Nace 建议的 60 秒，超时不重试。
+7. 只留状态行和 `/dp`，不做 band 和面板。配置从 40 项减到十几项，加了 `shadow` 模式。
+8. 版本号 `1.0.0`，删除 `dispatch-pilot-extras`。
+9. agent 的 skill 列表不动，只收起主循环的。
+10. 发给决策模型的内容不脱敏，只截断，沿用此前对脚本结果的决定。
+11. 校准算在这个项目里，评测集新写，不用旧的；默认 `apply`，校准后才发 `1.0.0`。
+12. 主循环中途换挡若验证不通过，停下来问，不自行降级。
