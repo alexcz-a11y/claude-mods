@@ -160,7 +160,7 @@ test('空闲时不评估：时间轴的一行也写出原因', () => {
 })
 
 test('一轮里还没有评估（没锁定）：上次评估那一行和面板都写「本轮还没有评估」', () => {
-  const fresh = model({ ...SCENES.up, recent: [] })
+  const fresh = model({ ...SCENES.up, recent: [], turn: { ...SCENES.up.turn!, lastJudged: null, shifts: [] } })
   expect(fresh.last).toBe(null)
   expect(rowText(timelineRows(fresh, { columns: 120, isPaneOpen: false })[3]!)).toBe('上次评估 本轮还没有评估')
   expect(paneSections(fresh)[2]!.rows.map(rowText)).toEqual(['本轮还没有评估'])
@@ -168,7 +168,8 @@ test('一轮里还没有评估（没锁定）：上次评估那一行和面板�
 
 test('想升没执行的评估：时间轴和面板都照模型的话写', () => {
   const recent = SCENES.up.recent.map((d) => (d.id === 't7-m9' ? { ...d, to: 'xhigh', reason: 'same-failure', applied: false, sent: null } : d)) as Decision[]
-  const m = model({ ...SCENES.up, recent })
+  // As record() keeps it: the turn's last evaluation is that one.
+  const m = model({ ...SCENES.up, recent, turn: { ...SCENES.up.turn!, lastJudged: recent.at(-1)! } })
   expect(m.last?.text).toBe('想升到 xhigh，未执行')
   expect(rowText(timelineRows(m, { columns: 120, isPaneOpen: false })[3]!)).toMatch(/^上次评估 想升到 xhigh，未执行 · 同一失败又出现 /)
   expect(rowText(paneSections(m)[2]!.rows[0]!)).toBe('想升到 xhigh，未执行')
@@ -336,7 +337,7 @@ test('一轮里不再评估：轨道那一行放得下时写出原因，太窄�
 // A turn whose first step has not arrived (controller ruling): no cell yet, so no track row; the quiet mark.
 test('一轮刚开始：第一行和功能行，没有空的「步」那一行；终端和 Desktop；脚部标签', () => {
   const s = SCENES.start
-  const m = boardModel(CFG, { ...s, session: { ...s.session, sessionLevel: 'medium' }, turn: { ...s.turn!, base: null, wanted: null, track: [], stepNo: 0 }, recent: [] })
+  const m = boardModel(CFG, { ...s, session: { ...s.session, sessionLevel: 'medium' }, turn: { ...s.turn!, base: null, wanted: null, track: [], stepNo: 0, lastJudged: null, shifts: [] }, recent: [] })
   const rows = timelineRows(m, { columns: 120, isPaneOpen: false })
   expect(rows.map((r) => r.id)).toEqual(['now', 'last', 'features'])
   expect(rowText(rows[0]!)).toBe('▮▮▯▯▯ medium  – 这一轮刚开始   第 7 轮 · 刚开始 · Code Mode 会话')

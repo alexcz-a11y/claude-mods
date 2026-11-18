@@ -4,10 +4,11 @@ import type { Engine } from 'claude-code/testing'
 import { TRACK_KEEP, boardModel } from '../hooks/board/model.ts'
 import { readConfig } from '../hooks/config.ts'
 import { openStep, readout } from '../hooks/flows/readout.ts'
+import type { Decision } from '../hooks/log.ts'
 import type { SessionState, TrackCell, TurnState } from '../hooks/state.ts'
 import { assistantToolUse, deliveryResult, replReceipt, scriptByPoll, toolResult } from './support/rows.ts'
 import { seedOf, standIn } from './support/standin.ts'
-import { KEYS, appendAll, complete, dp, drexOk, noul, score, start, step, submit, turns, world } from './support/world.ts'
+import { KEYS, appendAll, complete, dp, drexOk, noul, score, spawn, start, step, submit, turns, world } from './support/world.ts'
 
 type World = ReturnType<typeof world>
 
@@ -292,4 +293,31 @@ test('第 0 步没有档位（模型不收 effort）：之后看板才说不收 
   await step($, { turnId: 't1', index: 0 })
   expect(turnState(w).stepNo).toBe(1)
   expect(boardOf(w).status).toEqual({ kind: 'none', text: '这个模型不收 effort' })
+})
+
+// Final review I1: recent keeps 30 Decisions, so what the board shows of the turn's evaluations is kept on the turn.
+test('长的一轮：第 1 步后升档，之后 30 次不变，再派出 40 个 agent：看板仍有这次换挡和上一次评估', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (n) => (n === 1 ? SAME_FAILURE : HOLD)) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  for (let n = 1; n <= 31; n++) {
+    await appendAll($, scriptByPoll(n, 'Run the uploader test', 'FAIL upload.test.ts'))
+    await stepT1($, n, 'medium')
+  }
+  for (let i = 0; i < 40; i++) await spawn($, { tool_use_id: 'toolu_' + i })
+
+  const recent = lastOf(w, 'recent') as Decision[]
+  expect(recent).toHaveLength(30)
+  expect(recent.every((d) => d.kind === 'agent')).toBe(true)
+  const m = boardModel(readConfig(KEYS), { session: session(w), turn: turnState(w), recent, skills: [] })
+  expect(m.shifts.map((s) => [s.at, s.from, s.to])).toEqual([['第 1 步后', 'medium', 'high']])
+  expect(m.last).toMatchObject({ at: '第 31 步后', mark: 'hold', text: '不变' })
+  // The turn holds the shift and its last evaluation, whatever recent kept.
+  expect(turnState(w).shifts.map((d) => [d.step, d.from, d.to])).toEqual([[1, 'medium', 'high']])
+  expect(turnState(w).lastJudged).toMatchObject({ kind: 'midrun', step: 31, from: 'high', to: 'high' })
+  // Between turns, the last one kept moves to the session: 此前.
+  await complete($, 't1')
+  const idle = boardModel(readConfig(KEYS), { session: session(w), turn: null, recent: lastOf(w, 'recent') as Decision[], skills: [] })
+  expect(idle.last).toMatchObject({ at: '此前 · 第 31 步后', mark: 'hold' })
 })

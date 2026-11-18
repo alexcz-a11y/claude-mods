@@ -507,9 +507,12 @@ for (const [name, options] of NOT_ASKED) {
     expect(w.spawned.map((s) => s.model)).toEqual([undefined, 'opus', undefined, undefined])
     expect([capped.model, kept.model]).toEqual([OPUS, OPUS])
     expect(effortsOf(w, 'agent-2')).toEqual(['high'])
-    const capping = logged(w).find((d) => d.to === 'opus · —')
-    expect(capping).toMatchObject({ kind: 'agent', backend: null, model: null, raw: null, reason: null, failure: null, bars: null, ms: 0, from: 'fable · high', applied: true })
+    // Only the cap changed anything: the spawns nothing was asked of and nothing changed record nothing, keep nothing.
+    const d = logged(w)
+    expect(d).toHaveLength(1)
+    expect(d[0]).toMatchObject({ kind: 'agent', backend: null, model: null, raw: null, reason: null, failure: null, bars: null, ms: 0, from: 'fable · high', to: 'opus · —', applied: true })
     expect(entry(w, 'agent-2')).toMatchObject({ effort: null })
+    expect([...new Set(agentWrites(w).map((s) => s.id))]).toEqual(['agent-2'])
   })
 }
 

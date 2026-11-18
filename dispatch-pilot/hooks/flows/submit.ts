@@ -172,7 +172,9 @@ export async function endTurn($: EngineInterface, e: TurnCompleteInput): Promise
     ended: endedOf(e),
     level: held.wanted ?? held.base,
   }
-  await update($, SESSION, (s) => ({ ...s, previous }))
+  // The board's 此前 between turns: this turn's last evaluation, or an older one when this turn had none.
+  const judged = held.lastJudged
+  await update($, SESSION, (s) => ({ ...s, previous, lastJudged: judged ?? s.lastJudged }))
   await update($, TURN, (cur) => (cur !== null && cur.turnId === e.turnId ? null : cur))
   // The board folds to its one row between turns.
   await redraw($)

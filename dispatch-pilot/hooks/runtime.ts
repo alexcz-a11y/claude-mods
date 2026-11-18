@@ -4,12 +4,12 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { Io } from './backend.ts'
-import { boardModel, markOf } from './board/model.ts'
+import { boardModel, keepJudged } from './board/model.ts'
 import { desktopStatus } from './board/view.ts'
 import type { Config } from './config.ts'
 import { RECENT_KEEP, pushLog, readLog } from './log.ts'
 import type { Decision } from './log.ts'
-import { withSent } from './readout.ts'
+import { judgedWithSent, withSent } from './readout.ts'
 import { emptySession } from './state.ts'
 
 // $.state, through the state library: a read of a key never written gives the initial, and update()
@@ -122,8 +122,8 @@ async function appendLog($: EngineInterface, d: Decision): Promise<void> {
 
 /**
  * Appends a decision to $.store's log and to this session's recent; an evaluation of the main loop's level (submit,
- * midrun) also leaves its mark on its turn, for the timeline's next cell (design 5.14). Then the board is drawn
- * again. Never throws.
+ * midrun) is also kept on its turn (keepJudged: the mark for the timeline's next cell, the last evaluation, a shift),
+ * which is what the board shows of it (design 5.14). Then the board is drawn again. Never throws.
  */
 export async function record($: EngineInterface, d: Decision): Promise<void> {
   // Each write fails on its own: losing one copy must not lose the other.
@@ -132,18 +132,17 @@ export async function record($: EngineInterface, d: Decision): Promise<void> {
   } catch (err) {
     trace($, 'record', err)
   }
-  if (d.kind === 'submit' || d.kind === 'midrun') await keepMark($, d)
+  if (d.kind === 'submit' || d.kind === 'midrun') await keepOnTurn($, d)
   await inOrder(() => appendLog($, d))
   await redraw($)
 }
 
-async function keepMark($: EngineInterface, d: Decision): Promise<void> {
+async function keepOnTurn($: EngineInterface, d: Decision): Promise<void> {
   try {
-    const mark = markOf(d)
     const held = await read($, TURN)
-    // Read first: update() writes whatever its callback returns.
-    if (held === null || held.turnId !== d.turnId || held.pendingMark === mark) return
-    await update($, TURN, (cur) => (cur !== null && cur.turnId === d.turnId ? { ...cur, pendingMark: mark } : cur))
+    // Read first: update() writes whatever its callback returns. Only the Decision's own turn keeps it.
+    if (held === null || held.turnId !== d.turnId) return
+    await update($, TURN, (cur) => (cur !== null && cur.turnId === d.turnId ? keepJudged(cur, d) : cur))
   } catch (err) {
     trace($, 'record', err)
   }
@@ -159,8 +158,9 @@ async function storeSent($: EngineInterface, id: string, sent: Decision['sent'])
 }
 
 /**
- * Writes a recorded Decision's sent, in recent and in $.store's log (after every record queued before it); withSent
- * says when. The board, which reads recent, is drawn again when recent changed. Never throws.
+ * Writes a recorded Decision's sent, in recent, in the copies its turn keeps (keepJudged) and in $.store's log (after
+ * every record queued before it); withSent says when. A turn's copies are amended only while it runs: readings come
+ * in its steps. The board is drawn again when recent or the turn changed. Never throws.
  */
 export async function amendSent($: EngineInterface, id: string, sent: Decision['sent']): Promise<void> {
   let wrote = false
@@ -168,6 +168,16 @@ export async function amendSent($: EngineInterface, id: string, sent: Decision['
     // Read first: update() writes whatever its callback returns, and a repeated unsure reading changes nothing.
     if (withSent(await read($, RECENT), id, sent) !== null) {
       await update($, RECENT, (list) => withSent(list, id, sent) ?? list)
+      wrote = true
+    }
+  } catch (err) {
+    trace($, 'amend', err)
+  }
+  // Each copy fails on its own, as record's do.
+  try {
+    const held = await read($, TURN)
+    if (held !== null && judgedWithSent(held, id, sent) !== null) {
+      await update($, TURN, (cur) => (cur === null ? cur : (judgedWithSent(cur, id, sent) ?? cur)))
       wrote = true
     }
   } catch (err) {

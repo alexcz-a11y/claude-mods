@@ -73,6 +73,8 @@ export type SessionState = {
   progressBlocked: boolean
   /** The agent types seen this session, the last learned last (agents.ts AGENT_TYPES_KEEP at most). */
   agentTypes: AgentType[]
+  /** The last submit or mid-run Decision of the turns that ended (the board's 此前 between turns). */
+  lastJudged: Decision | null
 }
 
 export type TurnState = {
@@ -92,6 +94,9 @@ export type TurnState = {
   stepNo: number
   track: TrackCell[]
   pendingMark: Mark | null
+  /** This turn's last submit or mid-run Decision, and its shifts made (markOf up or down; SHIFTS_KEEP at most): the board's. */
+  lastJudged: Decision | null
+  shifts: Decision[]
 }
 
 /** One per dispatched agent, by agentId. */
@@ -109,6 +114,7 @@ export function emptySession(): SessionState {
     pending: null,
     progressBlocked: false,
     agentTypes: [],
+    lastJudged: null,
   }
 }
 
@@ -127,6 +133,8 @@ export function newTurn(turnId: string, request: string): TurnState {
     stepNo: 0,
     track: [],
     pendingMark: null,
+    lastJudged: null,
+    shifts: [],
   }
 }
 

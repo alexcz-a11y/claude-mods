@@ -4,6 +4,7 @@
 import { agentTypeOf } from '../agents.ts'
 import { canAsk } from '../backend.ts'
 import type { Failure } from '../backend.ts'
+import { MAX_NOTES } from '../config.ts'
 import type { Config } from '../config.ts'
 import { START, margins, readNoul } from '../decide.ts'
 import type { Reason, Thresholds } from '../decide.ts'
@@ -20,6 +21,8 @@ export type { Mark, TrackCell } from '../state.ts'
 
 /** The cells a turn keeps: the drawings fold several steps into a column once there are more than they have room for. */
 export const TRACK_KEEP = 300
+/** The shifts a turn keeps: one per note at most, and the message's own (a shift on new input takes no note, so the oldest may go). */
+export const SHIFTS_KEEP = MAX_NOTES + 1
 
 export type BoardState = { session: SessionState; turn: TurnState | null; recent: readonly Decision[]; skills: readonly Skill[] }
 
@@ -100,6 +103,17 @@ export function takeStep(turn: TurnState, level: Level | null): TurnState {
   return { ...turn, track, pendingMark: null, stepNo: done + 1 }
 }
 
+/**
+ * The turn once one of its own submit or mid-run Decisions is recorded (design 5.14): the mark it leaves for the next
+ * cell, the last evaluation, and the shift when it made one. Kept on the turn, so the board never depends on recent,
+ * which keeps the last RECENT_KEEP Decisions of every kind.
+ */
+export function keepJudged(turn: TurnState, d: Decision): TurnState {
+  const mark = markOf(d)
+  const shifts = mark === 'up' || mark === 'down' ? [...turn.shifts, d].slice(-SHIFTS_KEEP) : turn.shifts
+  return { ...turn, pendingMark: mark, lastJudged: d, shifts }
+}
+
 /** The turn with the level a main-loop request carried written into the last cell, while that cell has none. */
 export function cellSent(turn: TurnState, level: Level): TurnState {
   const last = turn.track.at(-1)
@@ -125,9 +139,9 @@ function statusOf(s: { locked: boolean; idle: boolean; starting: boolean }, want
   return { kind: 'sent', text: '已发出' }
 }
 
-function shiftsOf(thisTurn: readonly Decision[]): BoardModel['shifts'] {
+function shiftsOf(kept: readonly Decision[]): BoardModel['shifts'] {
   const out: BoardModel['shifts'] = []
-  for (const d of thisTurn) {
+  for (const d of kept) {
     const mark = isJudged(d) ? markOf(d) : 'hold'
     // Only a level that changed is a shift: a Decision not applied is never one (markOf reads it as hold).
     if ((mark !== 'up' && mark !== 'down') || !isLevel(d.from) || !isLevel(d.to)) continue
@@ -282,9 +296,9 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   const sent = session.lastSent
   const thisTurn = turn === null ? [] : recent.filter((d) => d.turnId === turn.turnId)
   const agents = thisTurn.filter((d) => d.kind === 'agent')
-  // Inside a turn its own last evaluation (none yet: null); between turns the last one recorded, which may be older
-  // than the last turn (one with no evaluation), hence 此前.
-  const judged = turn === null ? recent.findLast(isJudged) : thisTurn.findLast(isJudged)
+  // Inside a turn its own last evaluation (none yet: null), kept on the turn; between turns the one the last turns
+  // left on the session, which may be older than the last turn (one with no evaluation), hence 此前.
+  const judged = turn === null ? session.lastJudged : turn.lastJudged
   // The turn's first step has not come: its level is not known yet.
   const starting = turn !== null && turn.stepNo === 0
   return {
@@ -297,8 +311,8 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
     sent,
     status: statusOf({ locked, idle: isIdle, starting }, wanted, sent),
     track: turn === null ? [] : turn.track,
-    shifts: shiftsOf(thisTurn),
-    last: locked || judged === undefined ? null : lastOf(cfg, judged, turn === null ? '此前 · ' : ''),
+    shifts: turn === null ? [] : shiftsOf(turn.shifts),
+    last: locked || judged === null ? null : lastOf(cfg, judged, turn === null ? '此前 · ' : ''),
     next: nextOf(cfg, { session, turn, locked, ask, wanted, starting }),
     features: featuresOf(cfg, { ...s, locked, ask, agents: agents.length }),
     backend: backendOf(cfg, recent),

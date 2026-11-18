@@ -126,6 +126,14 @@ export function withSent(log: readonly Decision[], id: string, sent: Decision['s
   return amendLog(log, id, { sent })
 }
 
+/** The turn with one Decision's sent replaced in the copies it keeps (lastJudged, shifts), or null when nothing changes. */
+export function judgedWithSent(turn: TurnState, id: string, sent: Decision['sent']): TurnState | null {
+  const last = turn.lastJudged === null ? null : withSent([turn.lastJudged], id, sent)
+  const shifts = withSent(turn.shifts, id, sent)
+  if (last === null && shifts === null) return null
+  return { ...turn, lastJudged: last?.[0] ?? turn.lastJudged, shifts: shifts ?? turn.shifts }
+}
+
 /** The turn with that check cleared; unchanged when it waits on another by now. */
 export function clearCheck(turn: TurnState | null, awaited: Awaited): TurnState | null {
   const w = turn?.unverified ?? null

@@ -62,13 +62,16 @@ export async function keepSpawn($: EngineInterface, s: Spawned, r: AgentSpawnRes
 }
 
 // The spawn started an agent: its entry (an effort of null: not handled, its steps are left alone) and the Decision.
+// A spawn with no Decision (nothing asked, nothing changed) keeps no entry either: there is nothing to do on its steps.
 // Every spawn keeps its own values here and writes its own key; record() serialises the shared log, so spawns in
 // flight at once do not mix.
 export async function keepAgent($: EngineInterface, s: Spawned, agentId: string): Promise<null> {
+  const decision = s.decision
+  if (decision === null) return null
   const at = await $.clock.now()
   const id = decisionId(at)
   await update($, { plugin: 'dispatch-pilot', key: 'agents', id: agentId } as const, () => ({ effort: s.effort, isEffortExplicit: null, decisionId: id, steps: 0 }))
-  await record($, { ...s.decision, id, at })
+  await record($, { ...decision, id, at })
   return null
 }
 

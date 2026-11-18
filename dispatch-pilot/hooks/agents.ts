@@ -34,10 +34,11 @@ export function agentTypeOf(d: { detail: string }): string {
 }
 
 /**
- * What a spawn's answers make of the agent: the model to give it, the effort for its steps, and the Decision; learn:
- * the type to learn from what the engine answers (the mod gave no model and the call named none), else null.
+ * What a spawn's answers make of the agent: the model to give it, the effort for its steps, and the Decision (null: a
+ * spawn nothing was asked of and nothing changed, which records nothing); learn: the type to learn from what the
+ * engine answers (the mod gave no model and the call named none), else null.
  */
-export type Spawned = { model: Tier | null; effort: Level | null; decision: Omit<Decision, 'id' | 'at'>; learn: { type: string; parentTier: Tier | null } | null }
+export type Spawned = { model: Tier | null; effort: Level | null; decision: Omit<Decision, 'id' | 'at'> | null; learn: { type: string; parentTier: Tier | null } | null }
 
 // The agent's model and effort from the answers (design 5.5). Pure. `r` is null when nothing was asked; `known` is what
 // a spawn of this type under the same parent tier taught (knownType). A call that names no model runs on its type's own
@@ -71,7 +72,7 @@ export function settleSpawn(r: AskResult | null, c: { cfg: Config; e: AgentSpawn
   const effort = plan?.effort ?? null
   const applies = cfg.mode === 'apply'
   const failed = r !== null && !r.ok ? r : null
-  const decision: Omit<Decision, 'id' | 'at'> = {
+  const decision: Omit<Decision, 'id' | 'at'> | null = r === null && chosen === null ? null : {
     kind: 'agent',
     backend: r?.backend ?? null,
     model: ok?.model ?? null,

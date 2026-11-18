@@ -36,6 +36,9 @@ export type Config = {
 
 const DEFAULT_AGENT_MODELS: Tier[] = ['haiku', 'sonnet', 'opus']
 
+/** The most notes a turn may be given (midrunMaxNotes is clamped to it). */
+export const MAX_NOTES = 12
+
 function bool(v: unknown, fallback: boolean): boolean {
   return typeof v === 'boolean' ? v : fallback
 }
@@ -79,7 +82,7 @@ export function readConfig(options: Record<string, unknown>): Config {
     skills: bool(options.skills, true),
     midrunEverySteps: clamped(options.midrunEverySteps, 8, 0, 60),
     midrunEveryScripts: clamped(options.midrunEveryScripts, 1, 0, 60),
-    midrunMaxNotes: clamped(options.midrunMaxNotes, 4, 0, 12),
+    midrunMaxNotes: clamped(options.midrunMaxNotes, 4, 0, MAX_NOTES),
     agentModels: tiers(options.agentModels),
     fableAgents: bool(options.fableAgents, false),
     verifyEffort: bool(options.verifyEffort, true),

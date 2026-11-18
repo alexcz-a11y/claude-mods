@@ -65,6 +65,7 @@ export type DpSessionState = {
   pending: { request: string; result: DpAskResult } | null
   progressBlocked: boolean
   agentTypes: DpAgentType[]
+  lastJudged: DpDecision | null
 }
 
 export type DpTurnState = {
@@ -81,6 +82,8 @@ export type DpTurnState = {
   stepNo: number
   track: DpTrackCell[]
   pendingMark: DpMark | null
+  lastJudged: DpDecision | null
+  shifts: DpDecision[]
 }
 
 export type DpAgentState = { effort: DpLevel | null; isEffortExplicit: boolean | null; decisionId: string | null; steps: number }

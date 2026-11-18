@@ -2,7 +2,9 @@ import { expect, test } from 'claude-code/testing'
 
 import { readConfig } from '../hooks/config.ts'
 import type { Decision } from '../hooks/log.ts'
-import { boardModel, markOf } from '../hooks/board/model.ts'
+import { SHIFTS_KEEP, boardModel, keepJudged, markOf } from '../hooks/board/model.ts'
+import { judgedWithSent } from '../hooks/readout.ts'
+import { paneSections, rowText, timelineRows } from '../hooks/board/view.ts'
 import type { BoardState } from '../hooks/board/model.ts'
 import { SCENES } from './support/scenes.ts'
 
@@ -10,6 +12,19 @@ import { SCENES } from './support/scenes.ts'
 const scenes: Record<keyof typeof SCENES, BoardState> = SCENES
 
 const of = (name: keyof typeof SCENES, options: Record<string, unknown> = {}) => boardModel(readConfig({ drexApiKey: 'k', ...options }), scenes[name])
+
+/**
+ * The state with these Decisions recorded, as record() leaves them: in recent, and the turn's own submit and mid-run
+ * ones kept on the turn (its last, its shifts); between turns the last one on the session.
+ */
+function judging(s: BoardState, list: readonly Decision[]): BoardState {
+  const turn = s.turn
+  const judged = list.filter((d) => (d.kind === 'submit' || d.kind === 'midrun') && (turn === null || d.turnId === turn.turnId))
+  const lastJudged = judged.at(-1) ?? null
+  if (turn === null) return { ...s, recent: list, session: { ...s.session, lastJudged } }
+  const shifts = judged.filter((d) => markOf(d) === 'up' || markOf(d) === 'down')
+  return { ...s, recent: list, turn: { ...turn, lastJudged, shifts } }
+}
 
 // The brief's nine.
 
@@ -152,23 +167,23 @@ test('六个场景：其余各项', () => {
 test('总能算出：空的 recent、raw 为 null 或没有 open、bars 为 null、没有格子、不认识的题、reason 为 null', () => {
   const s = scenes.up
   const cfg = readConfig({ drexApiKey: 'k' })
-  const empty = boardModel(cfg, { ...s, recent: [] })
+  const empty = boardModel(cfg, judging(s, []))
   expect([empty.last, empty.shifts, empty.agents, empty.skill]).toEqual([null, [], [], null])
   expect(empty.backend).toEqual({ isOk: true, text: 'Drex drex-max-v1.1 · 可用' })
   expect(empty.features[2]).toEqual({ label: 'agent 定档', state: 'active', note: '' })
 
   const base = s.recent.at(-1)!
   const odd: Decision = { ...base, raw: { odd_question: { type: 'noul', noul: 0.5 }, choice: { type: 'choice', choice: 'a', probabilities: { a: 1 } } }, bars: null, reason: null }
-  const m = boardModel(cfg, { ...s, recent: [odd] })
+  const m = boardModel(cfg, judging(s, [odd]))
   // No open answer: no distribution and no rules; an unknown question is shown by its key, read with the starting bars.
   expect(m.last).toMatchObject({ mark: 'hold', text: '不变', probs: null, rules: [], nouls: [{ label: 'odd_question', value: 0.5, reading: 'unsure' }] })
 
-  const noRaw = boardModel(cfg, { ...s, recent: [{ ...base, raw: null }] })
+  const noRaw = boardModel(cfg, judging(s, [{ ...base, raw: null }]))
   expect(noRaw.last).toMatchObject({ probs: null, nouls: [], rules: [] })
 
   // A shift with no reason has an empty why.
   const shift: Decision = { ...base, from: 'medium', to: 'high', reason: null, applied: true, sent: 'not-sent' }
-  expect(boardModel(cfg, { ...s, recent: [shift] }).shifts).toEqual([{ at: '第 9 步后', from: 'medium', to: 'high', why: '', isSent: false }])
+  expect(boardModel(cfg, judging(s, [shift])).shifts).toEqual([{ at: '第 9 步后', from: 'medium', to: 'high', why: '', isSent: false }])
 
   // A turn with no cells yet: no step taken (starting: the level last seen), the readout not yet due.
   const fresh = boardModel(cfg, { ...s, session: { ...s.session, lastSent: null }, turn: { ...s.turn!, track: [], stepNo: 0 } })
@@ -215,8 +230,8 @@ test('后端：没有密钥；Jev；最近一次失败；进展记录的失败�
   const ok = scenes.up.recent.at(-1)!
   expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: [ok, progress] }).backend).toEqual({ isOk: true, text: 'Drex drex-max-v1.1 · 可用' })
   const http: Decision = { ...s.recent.at(-1)!, failure: 'model-mismatch' }
-  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: [http] }).backend).toEqual({ isOk: false, text: 'Drex drex-max-v1.1 · 最近一次应答的模型不对' })
-  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: [http] }).last).toMatchObject({ by: 'Drex 应答的模型不对', rules: ['评估失败：应答的模型不对，按规则放行'] })
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), judging(s, [http])).backend).toEqual({ isOk: false, text: 'Drex drex-max-v1.1 · 最近一次应答的模型不对' })
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), judging(s, [http])).last).toMatchObject({ by: 'Drex 应答的模型不对', rules: ['评估失败：应答的模型不对，按规则放行'] })
 })
 
 test('下次评估：其余几种情形', () => {
@@ -256,7 +271,7 @@ test('shadow 模式里想升档的决策：记号是不变，不算换挡，写�
   const s = scenes.start
   const wished = s.recent.map((d) => (d.kind === 'submit' ? { ...d, applied: false, sent: null } : d))
   // In shadow the turn still holds the level it would have set (wanted high); the steps go at the engine's own.
-  const m = boardModel(readConfig({ drexApiKey: 'k', mode: 'shadow' }), { ...s, session: { ...s.session, lastSent: 'medium' }, recent: wished })
+  const m = boardModel(readConfig({ drexApiKey: 'k', mode: 'shadow' }), judging({ ...s, session: { ...s.session, lastSent: 'medium' } }, wished))
   expect([m.wanted, m.level, m.status]).toEqual(['medium', 'medium', { kind: 'sent', text: '已发出' }])
   expect(m.shifts).toEqual([])
   // The evaluation itself is shown as any other: its distribution, answers and rules.
@@ -268,10 +283,10 @@ test('shadow 模式里想升档的决策：记号是不变，不算换挡，写�
 test('写入时被拒的换挡：不算换挡，写「想升到 / 想降到 X，未执行」', () => {
   const s = scenes.notsent
   const refused = s.recent.map((d) => (d.id === 't5-m7' ? { ...d, applied: false } : d))
-  const m = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: refused })
+  const m = boardModel(readConfig({ drexApiKey: 'k' }), judging(s, refused))
   expect(m.shifts).toEqual([{ at: '第 3 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', isSent: true }])
   expect(m.last).toMatchObject({ at: '第 7 步后', mark: 'hold', text: '想升到 xhigh，未执行', rules: ['再升一档要上方合计 ≥ 0.80，现在 0.80', '降一档要下方合计 ≥ 0.70，现在 0.05'] })
-  const down = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: [{ ...s.recent.at(-1)!, to: 'medium', applied: false }] })
+  const down = boardModel(readConfig({ drexApiKey: 'k' }), judging(s, [{ ...s.recent.at(-1)!, to: 'medium', applied: false }]))
   expect([down.last?.mark, down.last?.text, down.shifts]).toEqual(['hold', '想降到 medium，未执行', []])
 })
 
@@ -328,16 +343,17 @@ test('下次评估：关着和锁定先于空闲；空闲时按下一条消息�
 test('上次评估：这一轮还没有评估时是 null；空闲时是此前的最后一次', () => {
   const s = scenes.up
   const earlier = scenes.idle.recent
-  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: earlier }).last).toBe(null)
-  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn: null, recent: earlier }).last).toMatchObject({ at: '此前 · 第 13 步后', mark: 'hold' })
-  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn: null, recent: [earlier[0]!] }).last).toMatchObject({ at: '此前 · 发消息时' })
+  // Only the last turn's (t4) evaluations recorded: none is this turn's (t7).
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), judging(s, earlier)).last).toBe(null)
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), judging({ ...s, turn: null }, earlier)).last).toMatchObject({ at: '此前 · 第 13 步后', mark: 'hold' })
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), judging({ ...s, turn: null }, [earlier[0]!])).last).toMatchObject({ at: '此前 · 发消息时' })
 })
 
 test('换挡之后的规则：从新档再走一档要多少，再写为什么到了这一档', () => {
   const s = scenes.up
   const cfg = readConfig({ drexApiKey: 'k' })
   const base = { ...s.recent.at(-1)!, applied: true }
-  const rules = (d: Decision) => boardModel(cfg, { ...s, recent: [d] }).last?.rules
+  const rules = (d: Decision) => boardModel(cfg, judging(s, [d])).last?.rules
   // Down by a flag: one more level down from the new one, then the reason.
   const found: Decision = { ...base, from: 'high', to: 'medium', reason: 'cause-found', raw: { open: { type: 'score', score: 0.95, probabilities: [0.1, 0.8, 0.05, 0.05, 0] } } }
   expect(rules(found)).toEqual(['再降一档要下方合计 ≥ 0.70，现在 0.10', '降到这一档：原因已查明，剩下的是常规工作'])
@@ -366,7 +382,7 @@ test('会话种类：照 session.codeMode 写 Code Mode 会话或普通会话，
 
 test('Jev 标「未校准」：后端行（可用和失败时）、上次评估的 by；Drex 答的不变，经 fallback 也一样', () => {
   const jev = readConfig({ backend: 'jev', jevApiKey: 'k' })
-  const asJev = (s: BoardState): BoardState => ({ ...s, recent: s.recent.map((d) => (d.backend === null ? d : { ...d, backend: 'jev' as const })) })
+  const asJev = (s: BoardState): BoardState => judging(s, s.recent.map((d) => (d.backend === null ? d : { ...d, backend: 'jev' as const })))
   expect(boardModel(jev, scenes.up).backend).toEqual({ isOk: true, text: 'Jev jev-latest（未校准）· 可用' })
   expect(boardModel(jev, asJev(scenes.ordinary)).backend).toEqual({ isOk: false, text: 'Jev jev-latest（未校准）· 最近一次超时' })
   expect(boardModel(jev, asJev(scenes.ordinary)).last).toMatchObject({ by: 'Jev（未校准） 超时' })
@@ -385,10 +401,70 @@ test('agent 行只写类型：派出时因为不知道而没动模型的说明�
   ])
 })
 
+// Final review I1: what the board shows of a turn's evaluations is kept on the turn, not taken from recent (30 kept).
+
+/** n mid-run holds at high, after steps from+1 on, as the decision log keeps them. */
+function holdsAfter(turnId: string, from: number, n: number): Decision[] {
+  const base = scenes.up.recent.at(-1)!
+  return Array.from({ length: n }, (_, i) => ({ ...base, id: `${turnId}-h${from + i + 1}`, turnId, step: from + i + 1, from: 'high', to: 'high', reason: 'hold' as const, applied: false }))
+}
+
+test('长的一轮：第 1 步后升档、之后 30 次不变，再派出 40 个 agent：换挡记录、最近一次换挡和上次评估都还在', () => {
+  const s = scenes.up
+  const cfg = readConfig({ drexApiKey: 'k' })
+  const shift: Decision = { ...s.recent.find((d) => d.id === 't7-m6')!, id: 't7-up1', step: 1, sent: 'high' }
+  const holds = holdsAfter('t7', 1, 30)
+  const turn = { ...s.turn!, shifts: [shift], lastJudged: holds.at(-1)! }
+  const agent = s.recent.find((d) => d.id === 't7-a1')!
+  const agents = Array.from({ length: 40 }, (_, i) => ({ ...agent, id: `t7-x${i}` }))
+  // recent holds the last 30 only: the 30 holds, then nothing but the agents.
+  for (const recent of [[shift, ...holds].slice(-30), [...holds, ...agents].slice(-30)]) {
+    const m = boardModel(cfg, { ...s, turn, recent })
+    expect(m.shifts.map((x) => [x.at, x.from, x.to])).toEqual([['第 1 步后', 'medium', 'high']])
+    expect(m.last).toMatchObject({ at: '第 31 步后', mark: 'hold', text: '不变' })
+    // The timeline's marks row tells the last shift; the pane lists it and the last evaluation.
+    const rows = timelineRows(m, { columns: 160, isPaneOpen: false }).map(rowText)
+    expect(rows.find((r) => r.startsWith('评 '))).toContain('第 1 步后 medium → high')
+    expect(rows.find((r) => r.startsWith('上次评估'))).toContain('不变')
+    const shifts = paneSections(m).find((x) => x.id === 'shifts')!.rows.map(rowText)
+    expect(shifts[0]).toContain('medium → high')
+  }
+})
+
+test('keepJudged：每条评估都成为这一轮的上次评估，换了档的进换挡记录，最多 SHIFTS_KEEP 条；judgedWithSent 改两处的副本', () => {
+  const t = { ...scenes.up.turn!, lastJudged: null, shifts: [] }
+  const hold = scenes.up.recent.find((d) => d.id === 't7-m9')!
+  const shift = scenes.up.recent.find((d) => d.id === 't7-m6')!
+  let kept = keepJudged(t, hold)
+  expect([kept.lastJudged?.id, kept.shifts, kept.pendingMark]).toEqual(['t7-m9', [], 'hold'])
+  for (let i = 0; i < SHIFTS_KEEP + 3; i++) kept = keepJudged(kept, { ...shift, id: 's' + i, sent: null })
+  expect(kept.shifts).toHaveLength(SHIFTS_KEEP)
+  expect([kept.shifts[0]!.id, kept.lastJudged?.id, kept.pendingMark]).toEqual(['s3', 's' + (SHIFTS_KEEP + 2), 'up'])
+  // A reading amends the copies the turn keeps; one that changes nothing gives null.
+  const last = 's' + (SHIFTS_KEEP + 2)
+  const amended = judgedWithSent(kept, last, 'high')!
+  expect([amended.lastJudged?.sent, amended.shifts.at(-1)?.sent]).toEqual(['high', 'high'])
+  expect(judgedWithSent(amended, last, 'high')).toBe(null)
+  expect(judgedWithSent(amended, 'nope', 'high')).toBe(null)
+})
+
+test('两轮之间的「此前」取上一轮结束时留在会话里的那次评估，不看 recent', () => {
+  const s = scenes.idle
+  const cfg = readConfig({ drexApiKey: 'k' })
+  const kept = s.session.lastJudged!
+  // recent has moved on (agents only, as after many spawns), the session still holds the last turn's last.
+  const agent = scenes.up.recent.find((d) => d.id === 't7-a1')!
+  const m = boardModel(cfg, { ...s, recent: Array.from({ length: 30 }, (_, i) => ({ ...agent, id: `x${i}` })) })
+  expect(m.last).toMatchObject({ at: '此前 · 第 13 步后', mark: 'hold', by: 'Drex · 301 ms' })
+  expect(kept.id).toBe('t4-m13')
+  // Nothing judged in any turn so far: none.
+  expect(boardModel(cfg, { ...s, session: { ...s.session, lastJudged: null } }).last).toBe(null)
+})
+
 // A turn whose first step has not arrived (controller ruling): its level is not known yet, which is not "no effort".
 const starting = (session: Partial<BoardState['session']> = {}): BoardState => {
   const s = scenes.start
-  return { ...s, session: { ...s.session, sessionLevel: 'medium', ...session }, turn: { ...s.turn!, base: null, wanted: null, track: [], stepNo: 0 }, recent: [] }
+  return { ...s, session: { ...s.session, sessionLevel: 'medium', ...session }, turn: { ...s.turn!, base: null, wanted: null, track: [], stepNo: 0, lastJudged: null, shifts: [] }, recent: [] }
 }
 
 test('一轮刚开始、第一步还没来：这一轮刚开始，档位是上次见到的，不说不收 effort', () => {
