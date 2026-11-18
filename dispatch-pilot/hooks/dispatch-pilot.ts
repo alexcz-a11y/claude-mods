@@ -1,15 +1,16 @@
 import { atom, read, update } from 'claude-code'
 import type { AgentSpawnInput, CommandRunResult, EngineInterface, Register, SessionAppendInput, TurnCompleteInput, TurnStepInput } from 'claude-code'
 
-import { ask, noulOf, scoreOf } from './backend.ts'
-import type { AskResult, Io } from './backend.ts'
+import { settleSpawn } from './agents.ts'
+import type { Spawned } from './agents.ts'
+import { ask } from './backend.ts'
+import type { Io } from './backend.ts'
 import { readConfig } from './config.ts'
 import type { Config } from './config.ts'
-import { agentPlan, readNoul, submitLevel, thresholdsFor } from './decide.ts'
 import { kindOf, rowOf } from './journal.ts'
 import { isLevel, tierOfModelId } from './levels.ts'
-import type { Level, Tier } from './levels.ts'
-import { DP_USAGE, RECENT_KEEP, badLevelReply, decisionId, failureText, lockReply, parseDp, pushLog, readLog, renderDp, renderLog, unlockReply } from './log.ts'
+import type { Level } from './levels.ts'
+import { DP_USAGE, RECENT_KEEP, badLevelReply, decisionId, lockReply, parseDp, pushLog, readLog, renderDp, renderLog, unlockReply } from './log.ts'
 import type { Decision } from './log.ts'
 import { applyShift, planRow, settleCheckpoint, withNote } from './midrun.ts'
 import type { Judged, RowPlan } from './midrun.ts'
@@ -19,6 +20,7 @@ import { emptySession, newTurn } from './state.ts'
 import type { SessionState, TurnState } from './state.ts'
 import { agentState, clip, submitState } from './statebuild.ts'
 import type { PreviousTurn } from './statebuild.ts'
+import { settleSubmit } from './submit.ts'
 
 // $.state, through the state library: a read of a key never written gives the initial, and update()
 // writes with compare-and-set and tries again on a miss. So no key needs initialising: session.start,
@@ -168,37 +170,6 @@ async function startTurn($: EngineInterface, turnId: string, text: string): Prom
   return null
 }
 
-const NO_LEVEL = 'effort 缺省或是数字，没有改'
-
-type Settled = { base: Level | null; wanted: Level | null; decision: Decision }
-
-// What a message's answers make of its turn: the level it starts from, the level the mod wants, and
-// the Decision that records both. Pure. `writes`: the mod would write a level (apply mode, no lock).
-function settle(
-  r: AskResult,
-  c: { effort: unknown; previousLevel: Level | null; writes: boolean; turnId: string; id: string; at: number },
-): Settled {
-  const own = isLevel(c.effort) ? c.effort : null
-  const common = { id: c.id, at: c.at, kind: 'submit' as const, backend: r.backend, ms: r.ms, turnId: c.turnId, step: 0, sent: null }
-  if (!r.ok) {
-    // A failed request changes nothing: the turn runs at the session's own level.
-    const decision: Decision = { ...common, model: null, raw: null, from: own, to: own, reason: null, detail: failureText(r), bars: null, failure: r.reason, requestId: r.requestId ?? null, applied: false }
-    return { base: own, wanted: null, decision }
-  }
-  if (own === null) {
-    // Answers came, but the step has no level to start from or to replace.
-    const decision: Decision = { ...common, model: r.model, raw: r.answers, from: null, to: null, reason: null, detail: NO_LEVEL, bars: null, failure: null, requestId: null, applied: false }
-    return { base: null, wanted: null, decision }
-  }
-  const bars = thresholdsFor(r.backend, r.model, 'submit')
-  // "Go on" carries the last turn's level; anything else starts from the session's.
-  const continues = readNoul(noulOf(r.answers.continues), bars) === 'yes'
-  const base = continues && c.previousLevel !== null ? c.previousLevel : own
-  const v = submitLevel(base, { open: scoreOf(r.answers.open), mechanical: noulOf(r.answers.mechanical), unknownCause: noulOf(r.answers.unknown_cause) }, bars)
-  const decision: Decision = { ...common, model: r.model, raw: r.answers, from: base, to: v.level, reason: v.reason, detail: '', bars, failure: null, requestId: null, applied: c.writes }
-  return { base, wanted: v.level, decision }
-}
-
 // The turn's first step takes the decision its message left, once: it is cleared whatever comes of it.
 async function takePending($: EngineInterface, cfg: Config, e: TurnStepInput, session: SessionState, own: TurnState | null): Promise<TurnState | null> {
   const pending = session.pending
@@ -208,7 +179,7 @@ async function takePending($: EngineInterface, cfg: Config, e: TurnStepInput, se
   if (own === null || own.request !== pending.request) return own
   const at = await $.clock.now()
   const writes = cfg.enabled && cfg.mode === 'apply' && session.lock === null
-  const s = settle(pending.result, { effort: e.effort, previousLevel: session.previous?.level ?? null, writes, turnId: e.turnId, id: decisionId(at), at })
+  const s = settleSubmit(pending.result, { effort: e.effort, previousLevel: session.previous?.level ?? null, writes, turnId: e.turnId, id: decisionId(at), at })
   const turn: TurnState = { ...own, base: s.base, wanted: s.wanted }
   await update($, TURN, () => turn)
   await record($, s.decision)
@@ -241,58 +212,6 @@ async function mainStep($: EngineInterface, cfg: Config, e: TurnStepInput): Prom
 function endedOf(e: { reason: string; isAborted: boolean }): PreviousTurn['ended'] {
   if (e.isAborted || e.reason === 'aborted') return 'interrupted'
   return e.reason === 'answer' ? 'answered' : 'error'
-}
-
-/** What a spawn's answers make of the agent: the model to give it, the effort for its steps, and the Decision. */
-type Spawned = { model: Tier | null; effort: Level | null; decision: Omit<Decision, 'id' | 'at'> }
-
-// The agent's model and effort from the answers (design 5.5). Pure. `r` is null when nothing was asked. Only the
-// model goes into the spawn, and only when the call named none: the plan's tier when it differs from the inherited
-// one; without a plan (not asked, or the ask failed) only the fableAgents cap, a configuration rule that holds
-// whatever the decision model did. In shadow mode nothing is given, and the Decision records what would have been.
-function settleSpawn(r: AskResult | null, c: { cfg: Config; e: AgentSpawnInput; tier: Tier | null; level: Level | null; turn: TurnState | null }): Spawned {
-  const { cfg, e, tier, level } = c
-  const ok = r !== null && r.ok ? r : null
-  const bars = ok === null ? null : thresholdsFor(ok.backend, ok.model, 'agent')
-  const a = ok?.answers
-  const plan =
-    a === undefined || bars === null
-      ? null
-      : agentPlan(
-          { level, tier },
-          { open: scoreOf(a.open), mechanical: noulOf(a.mechanical), unknownCause: noulOf(a.unknown_cause), readOnly: noulOf(a.read_only) },
-          { agentModels: cfg.agentModels, fableAgents: cfg.fableAgents },
-          bars,
-        )
-  let chosen: Tier | null = null
-  if (e.model === undefined) {
-    if (plan !== null) chosen = plan.model !== null && plan.model !== tier ? plan.model : null
-    else if (tier === 'fable' && !cfg.fableAgents) chosen = 'opus'
-  }
-  const effort = plan?.effort ?? null
-  const applies = cfg.mode === 'apply'
-  const failed = r !== null && !r.ok ? r : null
-  const decision: Omit<Decision, 'id' | 'at'> = {
-    kind: 'agent',
-    backend: r?.backend ?? null,
-    model: ok?.model ?? null,
-    ms: r?.ms ?? 0,
-    raw: a ?? null,
-    from: `${tier ?? 'inherit'} · ${level ?? '—'}`,
-    // The model the agent is given: the mod's alias, else the one the call named, else the parent's.
-    to: `${chosen ?? e.model ?? 'inherit'} · ${effort ?? '—'}`,
-    reason: plan?.reason ?? null,
-    detail: e.subagentType,
-    turnId: c.turn?.turnId ?? null,
-    step: c.turn?.journal.workSteps ?? null,
-    bars,
-    failure: failed?.reason ?? null,
-    requestId: failed?.requestId ?? null,
-    // The model is changed, or an effort will be written on the agent's steps that carry a level.
-    applied: applies && (chosen !== null || effort !== null),
-    sent: null,
-  }
-  return { model: applies ? chosen : null, effort: applies ? effort : null, decision }
 }
 
 // The judgement when an agent is dispatched (design 5.5): the hook waits here for the answer, up to agentTimeoutMs.
