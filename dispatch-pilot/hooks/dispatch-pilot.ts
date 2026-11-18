@@ -10,12 +10,12 @@ import type { Config } from './config.ts'
 import { kindOf, rowOf } from './journal.ts'
 import { isLevel, tierOfModelId } from './levels.ts'
 import type { Level } from './levels.ts'
-import { DP_USAGE, RECENT_KEEP, amendLog, badLevelReply, decisionId, lockReply, parseDp, pushLog, readLog, renderDp, renderLog, unlockReply } from './log.ts'
+import { DP_USAGE, RECENT_KEEP, badLevelReply, decisionId, lockReply, parseDp, pushLog, readLog, renderDp, renderLog, unlockReply } from './log.ts'
 import type { Decision } from './log.ts'
 import { applyShift, planRow, settleCheckpoint, withNote } from './midrun.ts'
 import type { Judged, RowPlan } from './midrun.ts'
 import { agentQuestions, midrunQuestions, submitQuestions } from './questions.ts'
-import { agentSent, awaitCheck, classify, clearCheck, notePlaced, settleReading } from './readout.ts'
+import { agentSent, awaitCheck, classify, clearCheck, modelBase, notePlaced, settleReading, withSent } from './readout.ts'
 import type { OpenStep, Reading } from './readout.ts'
 import { emptySession, newTurn } from './state.ts'
 import type { AgentState, SessionState, TurnState } from './state.ts'
@@ -131,23 +131,24 @@ export async function record($: EngineInterface, d: Decision): Promise<void> {
   await inOrder(() => appendLog($, d))
 }
 
-async function amendStored($: EngineInterface, id: string, patch: Partial<Decision>): Promise<void> {
+async function storeSent($: EngineInterface, id: string, sent: Decision['sent']): Promise<void> {
   try {
-    const log = readLog(await $.store.get(LOG))
-    if (log.some((d) => d.id === id)) await $.store.set(LOG, amendLog(log, id, patch))
+    const next = withSent(readLog(await $.store.get(LOG)), id, sent)
+    if (next !== null) await $.store.set(LOG, next)
   } catch (err) {
     trace($, 'amend', err)
   }
 }
 
-/** Writes a patch on a recorded Decision, in recent and in $.store's log (after every record queued before it). Never throws. */
-async function amend($: EngineInterface, id: string, patch: Partial<Decision>): Promise<void> {
+/** Writes a recorded Decision's sent, in recent and in $.store's log (after every record queued before it); withSent says when. Never throws. */
+async function amendSent($: EngineInterface, id: string, sent: Decision['sent']): Promise<void> {
   try {
-    await update($, RECENT, (list) => (list.some((d) => d.id === id) ? amendLog(list, id, patch) : list))
+    // Read first: update() writes whatever its callback returns, and a repeated unsure reading changes nothing.
+    if (withSent(await read($, RECENT), id, sent) !== null) await update($, RECENT, (list) => withSent(list, id, sent) ?? list)
   } catch (err) {
     trace($, 'amend', err)
   }
-  await inOrder(() => amendStored($, id, patch))
+  await inOrder(() => storeSent($, id, sent))
 }
 
 const shown = (text: string): CommandRunResult => ({ text, isTextDisplayOnly: true })
@@ -387,7 +388,7 @@ async function checkAgent($: EngineInterface, agentId: string, held: AgentState)
   const { effort, decisionId: id } = held
   if (effort === null || id === null) return null
   const listed = (await $.agent.list()).find((a) => a.id === agentId)
-  await amend($, id, { sent: agentSent(effort, listed?.lastRequest) })
+  await amendSent($, id, agentSent(effort, listed?.lastRequest))
   return null
 }
 
@@ -475,7 +476,7 @@ async function onRow($: EngineInterface, cfg: Config, e: SessionAppendInput): Pr
 }
 
 // The steps open now, for the readout to tell the main loop's request from an agent's (design 5.12): the main loop's
-// step, and the agent steps by model. Module level, set around each step's next() and cleared in a finally: a hot
+// step, and the agent steps by model (modelBase). Module level, set around each step's next() and cleared in a finally: a hot
 // reload in the middle of a step loses them, and that step's request is then recorded as unverified.
 let openMain: OpenStep | null = null
 const agentStepsOpen = new Map<string, number>()
@@ -484,11 +485,12 @@ const agentStepsOpen = new Map<string, number>()
 export function openStep(e: { turnId: string; index: number; model: string; agentId?: string }): () => void {
   const { turnId, index, model } = e
   if (e.agentId !== undefined) {
-    agentStepsOpen.set(model, (agentStepsOpen.get(model) ?? 0) + 1)
+    const base = modelBase(model)
+    agentStepsOpen.set(base, (agentStepsOpen.get(base) ?? 0) + 1)
     return () => {
-      const left = (agentStepsOpen.get(model) ?? 1) - 1
-      if (left > 0) agentStepsOpen.set(model, left)
-      else agentStepsOpen.delete(model)
+      const left = (agentStepsOpen.get(base) ?? 1) - 1
+      if (left > 0) agentStepsOpen.set(base, left)
+      else agentStepsOpen.delete(base)
     }
   }
   openMain = { turnId, index, model, matched: false }
@@ -505,7 +507,7 @@ export function readout($: EngineInterface, e: { url: string; init?: HttpInit },
   const open = openMain
   let reading: Reading
   try {
-    reading = classify({ originPlugin: origin, url: e.url, body: e.init?.body, open, agentStepsOpen: open === null ? 0 : (agentStepsOpen.get(open.model) ?? 0) })
+    reading = classify({ originPlugin: origin, url: e.url, body: e.init?.body, open, agentStepsOpen: open === null ? 0 : (agentStepsOpen.get(modelBase(open.model)) ?? 0) })
   } catch (err) {
     trace($, 'http.fetch', err)
     return null
@@ -525,14 +527,19 @@ async function keepReading($: EngineInterface, r: Reading, open: OpenStep | null
   }
   const settled = settleReading(await read($, TURN), r, open)
   if (settled === null) return null
-  // Cleared on what update() reads: of two readings at once, only the one that clears the check amends.
+  // An unsure reading in the open step marks the Decision and leaves the check for the main reading.
+  if (!settled.clears) {
+    await amendSent($, settled.awaited.id, settled.sent)
+    return null
+  }
+  // Cleared on what update() reads: of two main readings at once, only the one that clears the check amends.
   const box = { cleared: false }
   await update($, TURN, (cur) => {
     const next = clearCheck(cur, settled.awaited)
     box.cleared = next !== cur
     return next
   })
-  if (box.cleared) await amend($, settled.awaited.id, { sent: settled.sent })
+  if (box.cleared) await amendSent($, settled.awaited.id, settled.sent)
   return null
 }
 

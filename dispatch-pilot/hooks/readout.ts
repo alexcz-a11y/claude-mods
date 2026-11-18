@@ -9,16 +9,24 @@
 // is recorded as unverified, never as a level that may be someone else's.
 import { isLevel } from './levels.ts'
 import type { Level } from './levels.ts'
+import { amendLog } from './log.ts'
 import type { Decision } from './log.ts'
 import type { TurnState } from './state.ts'
 
 /** The main loop's step whose request is on its way; matched: one of its requests was read already. */
 export type OpenStep = { turnId: string; index: number; model: string; matched: boolean }
 
-export type Reading = { kind: 'main'; effort: Level | null } | { kind: 'unsure' } | { kind: 'ignore' }
+/** unsure: stepOpen tells a request read while a main-loop step was open from one read between steps. */
+export type Reading = { kind: 'main'; effort: Level | null } | { kind: 'unsure'; stepOpen: boolean } | { kind: 'ignore' }
 
 const IGNORE: Reading = { kind: 'ignore' }
-const UNSURE: Reading = { kind: 'unsure' }
+
+const SUFFIX = /\[[^\]]*\]$/
+
+/** A model id without one trailing bracket suffix ("[1m]"): the form a step's model and a request's are compared in. */
+export function modelBase(id: string): string {
+  return id.replace(SUFFIX, '')
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === 'object' && !Array.isArray(v)
@@ -35,8 +43,8 @@ function isMessages(url: string): boolean {
 }
 
 /**
- * What one request is. `agentStepsOpen`: the agent steps open now on the open main step's model, whose requests look
- * just like the main loop's. The cheap checks come first; a body (it can be hundreds of KB) is parsed once, here, and
+ * What one request is. `agentStepsOpen`: the agent steps open now on the open main step's model (modelBase), whose
+ * requests look just like the main loop's. The cheap checks come first; a body (it can be hundreds of KB) is parsed once, here, and
  * nothing of it leaves but the level.
  */
 export function classify(i: { originPlugin: string | undefined; url: string; body: unknown; open: OpenStep | null; agentStepsOpen: number }): Reading {
@@ -49,7 +57,8 @@ export function classify(i: { originPlugin: string | undefined; url: string; bod
   }
   if (!isRecord(body) || !('thread' in body)) return IGNORE
   const open = i.open
-  if (open === null || open.matched || body.model !== open.model || i.agentStepsOpen > 0) return UNSURE
+  if (open === null) return { kind: 'unsure', stepOpen: false }
+  if (open.matched || typeof body.model !== 'string' || modelBase(body.model) !== modelBase(open.model) || i.agentStepsOpen > 0) return { kind: 'unsure', stepOpen: true }
   // The top level only: a message that carried a change has an output_config of its own (E6).
   const config = body.output_config
   return { kind: 'main', effort: isRecord(config) && isLevel(config.effort) ? config.effort : null }
@@ -84,15 +93,30 @@ export function sentOf(r: Reading, level: Level): Decision['sent'] {
 }
 
 /**
- * The check a reading settles, if any: the first reading (main or unsure) after the check was set settles it. A
- * request read before a queued note is on its row says nothing of that Decision, nor does a main-loop request of a
+ * What a reading does to the check it meets, if anything (controller ruling):
+ * - the main loop's request writes the level it carried (or not-sent) and clears the check (`clears`);
+ * - an unsure one read while the turn's main step is open writes unverified and keeps the check, so a later main
+ *   reading replaces it: unverified stays only when no clean main reading came;
+ * - an unsure one read between steps (an agent's, a side request) does nothing.
+ * A request read before a queued note is on its row says nothing of that Decision, nor does one read in a step of a
  * turn other than the one held. `open`: the main step open when the request was read.
  */
-export function settleReading(turn: TurnState | null, r: Reading, open: OpenStep | null): { awaited: Awaited; sent: Decision['sent'] } | null {
+export function settleReading(turn: TurnState | null, r: Reading, open: OpenStep | null): { awaited: Awaited; sent: Decision['sent']; clears: boolean } | null {
   const awaited = turn?.unverified ?? null
   if (turn === null || awaited === null || awaited.queued || r.kind === 'ignore') return null
-  if (r.kind === 'main' && open?.turnId !== turn.turnId) return null
-  return { awaited, sent: sentOf(r, awaited.level) }
+  if (r.kind === 'unsure' && !r.stepOpen) return null
+  if (open?.turnId !== turn.turnId) return null
+  return { awaited, sent: sentOf(r, awaited.level), clears: r.kind === 'main' }
+}
+
+/**
+ * The log with one Decision's sent replaced, or null when nothing changes. Unverified never replaces a level or
+ * not-sent: a main reading may land before an unsure one read beside it.
+ */
+export function withSent(log: readonly Decision[], id: string, sent: Decision['sent']): Decision[] | null {
+  const d = log.find((x) => x.id === id)
+  if (d === undefined || d.sent === sent || (sent === 'unverified' && d.sent !== null)) return null
+  return amendLog(log, id, { sent })
 }
 
 /** The turn with that check cleared; unchanged when it waits on another by now. */

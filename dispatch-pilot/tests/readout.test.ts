@@ -6,7 +6,7 @@ import { readConfig } from '../hooks/config.ts'
 import { openStep, readout } from '../hooks/dispatch-pilot.ts'
 import { renderDp } from '../hooks/log.ts'
 import type { Decision } from '../hooks/log.ts'
-import { classify } from '../hooks/readout.ts'
+import { classify, modelBase, withSent } from '../hooks/readout.ts'
 import type { OpenStep } from '../hooks/readout.ts'
 import type { SessionState, TurnState } from '../hooks/state.ts'
 import { scriptByDelivery, scriptByPoll } from './support/rows.ts'
@@ -258,14 +258,38 @@ test('classify：请求体不是文本或不是 JSON：ignore，不抛错', () =
 test('classify：同模型的 agent 步同时开着，或这一步已经配过请求：unsure', () => {
   const main = body({ effort: 'high' })
   // An agent step open on the main step's model: its request cannot be told from the main loop's.
-  expect(read(main, { agentStepsOpen: 1 })).toEqual({ kind: 'unsure' })
+  expect(read(main, { agentStepsOpen: 1 })).toEqual({ kind: 'unsure', stepOpen: true })
   // The step's request was read already (a retry, or another request on the same thread).
-  expect(read(main, { open: { ...OPEN, matched: true } })).toEqual({ kind: 'unsure' })
-  // No main step open (between steps, or lost to a hot reload), or a model the step does not name.
-  expect(read(main, { open: null })).toEqual({ kind: 'unsure' })
-  expect(read(body({ model: HAIKU, effort: 'high' }))).toEqual({ kind: 'unsure' })
+  expect(read(main, { open: { ...OPEN, matched: true } })).toEqual({ kind: 'unsure', stepOpen: true })
+  // A model the step does not name, or none.
+  expect(read(body({ model: HAIKU, effort: 'high' }))).toEqual({ kind: 'unsure', stepOpen: true })
+  expect(read(JSON.stringify({ thread: {}, output_config: { effort: 'high' } }))).toEqual({ kind: 'unsure', stepOpen: true })
+  // No main step open: between steps (an agent's request, a side request), or lost to a hot reload.
+  expect(read(main, { open: null })).toEqual({ kind: 'unsure', stepOpen: false })
   // The same request with none of these is the main loop's.
   expect(read(main, { agentStepsOpen: 0, open: OPEN })).toEqual({ kind: 'main', effort: 'high' })
+})
+
+test('模型名只差末尾一个方括号后缀（[1m]）时算同一个；别的不同都认不准', () => {
+  expect(modelBase('claude-opus-5-5[1m]')).toBe('claude-opus-5-5')
+  expect(modelBase('claude-opus-5-5')).toBe('claude-opus-5-5')
+  // One suffix, at the end only.
+  expect(modelBase('claude-opus-5-5[1m][2m]')).toBe('claude-opus-5-5[1m]')
+  expect(modelBase('opus[1m]-x')).toBe('opus[1m]-x')
+  const main = { kind: 'main', effort: 'high' }
+  const unsure = { kind: 'unsure', stepOpen: true }
+  const pairs: [string, string, unknown][] = [
+    ['claude-opus-5-5[1m]', 'claude-opus-5-5', main],
+    ['claude-opus-5-5', 'claude-opus-5-5[1m]', main],
+    ['claude-opus-5-5[1m]', 'claude-opus-5-5[200k]', main],
+    ['claude-opus-5-5', 'claude-opus-5-1', unsure],
+    ['claude-opus-5-5', 'claude-opus-5-5x', unsure],
+    ['claude-opus-5-5', 'claude-opus-5-5[1m][2m]', unsure],
+    ['claude-opus-5-5', 'Claude-Opus-5-5', unsure],
+  ]
+  for (const [step, sent, want] of pairs) {
+    expect([step, sent, read(body({ model: sent, effort: 'high' }), { open: { ...OPEN, model: step } })]).toEqual([step, sent, want])
+  }
 })
 
 test('请求原样放行：桩收到的 url 和 init 与发出的相同', { options: KEYS, plugins: [WATCHER, WIRE] }, async ($, on) => {
@@ -480,29 +504,108 @@ test('发消息时定的档：由第 0 步的请求核对；引擎发出的不�
   expect(none.log()[0]!.sent).toBe('not-sent')
 })
 
-test('认不准的请求记 unverified，不写当前档位：模型不同、没有开着的主循环步、同模型的 agent 步开着；模型不同的 agent 步不碍事', { options: KEYS }, async ($, on) => {
+test('主循环步开着时认不准（模型不同、同模型的 agent 步开着）：记 unverified，留着待核对；之后的主循环请求换成实际档位', { options: KEYS }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, HOLD) })
   await start($)
   await submit($, TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  const waiting = turnState(w).unverified
   const id = logged(w)[0]!.id
+  expect(waiting).toEqual({ id, level: 'high', queued: false })
   const cases: [string, Open[], string][] = [
     ['the request names another model than the step', [{ turnId: 't1', index: 0 }], HAIKU],
-    ['no main-loop step open (what a hot reload leaves)', [], OPUS],
     ['an agent step open on the same model', [{ turnId: 'a1', index: 0, agentId: 'agent-x' }, { turnId: 't1', index: 0 }], OPUS],
+    ['an agent step open on the same model, with a bracket suffix', [{ turnId: 'a1', index: 0, agentId: 'agent-x', model: `${OPUS}[1m]` }, { turnId: 't1', index: 0 }], OPUS],
   ]
   for (const [what, open, model] of cases) {
     const f = fakeDollar(seedOf(w))
     await sendIn(f, open, [body({ model, effort: 'high' })])
     expect([what, f.log().map((d) => [d.id, d.sent])]).toEqual([what, [[id, 'unverified']]])
     expect([what, f.recent().map((d) => d.sent)]).toEqual([what, ['unverified']])
-    expect([what, f.turn()!.unverified]).toEqual([what, null])
+    // The check stays: a clean reading may still come.
+    expect([what, f.turn()!.unverified]).toEqual([what, waiting])
     expect([what, f.lastSents()]).toEqual([what, []])
+    // The main loop's next request replaces it with the level it carried, and the check is done.
+    await sendIn(f, [{ turnId: 't1', index: 1 }], [body({ effort: 'high' })])
+    expect([what, f.log().map((d) => [d.id, d.sent])]).toEqual([what, [[id, 'high']]])
+    expect([what, f.recent().map((d) => d.sent)]).toEqual([what, ['high']])
+    expect([what, f.turn()!.unverified]).toEqual([what, null])
+    expect([what, f.lastSents()]).toEqual([what, ['high']])
   }
-  // An agent step open on another model: the request with the step's model is the main loop's.
+  // An agent step open on another model: the request with the step's model is the main loop's at once.
   const f = fakeDollar(seedOf(w))
   await sendIn(f, [{ turnId: 'a1', index: 0, agentId: 'agent-y', model: HAIKU }, { turnId: 't1', index: 0 }], [body({ effort: 'high' })])
   expect(f.log().map((d) => [d.id, d.sent])).toEqual([[id, 'high']])
+  expect(f.lastSents()).toEqual(['high'])
+})
+
+test('主循环步开着时认不准，之后再没有干净的读数：留下 unverified', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, HOLD) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  const id = logged(w)[0]!.id
+  const f = fakeDollar(seedOf(w))
+  await sendIn(f, [{ turnId: 't1', index: 0 }], [body({ model: HAIKU, effort: 'high' }), body({ model: HAIKU, effort: 'low' })])
+  expect(f.log().map((d) => [d.id, d.sent])).toEqual([[id, 'unverified']])
+  // The second unsure reading of the step changes nothing: one write of recent and one of the log.
+  expect(f.writes.filter((x) => x.key === 'recent')).toHaveLength(1)
+  // Requests between steps do nothing to it.
+  const before = f.writes.length
+  await sendIn(f, [], [body({ effort: 'high' })])
+  await sendIn(f, [{ turnId: 'a1', index: 0, agentId: 'agent-x', model: HAIKU }], [body({ model: HAIKU, effort: 'low' })])
+  expect(f.writes).toHaveLength(before)
+  expect(f.log().map((d) => [d.id, d.sent])).toEqual([[id, 'unverified']])
+  expect(f.recent().map((d) => d.sent)).toEqual(['unverified'])
+  expect(f.lastSents()).toEqual([])
+})
+
+test('没有开着的主循环步时认不准（agent 的请求、旁路请求）：待核对的不动，什么都不写', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, HOLD) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  const waiting = turnState(w).unverified
+  const f = fakeDollar(seedOf(w))
+  // Between steps (what a hot reload also leaves): the same model and level as the main loop's, an agent's on its own model.
+  await sendIn(f, [], [body({ effort: 'high' }), body({ effort: 'low' })])
+  await sendIn(f, [{ turnId: 'a1', index: 0, agentId: 'agent-x', model: HAIKU }], [body({ model: HAIKU, effort: 'medium' })])
+  expect(f.writes).toEqual([])
+  expect(f.log().map((d) => d.sent)).toEqual([null])
+  expect(f.turn()!.unverified).toEqual(waiting)
+  // The step's own request is read as usual afterwards.
+  await sendIn(f, [{ turnId: 't1', index: 0 }], [body({ effort: 'high' })])
+  expect(f.log().map((d) => d.sent)).toEqual(['high'])
+})
+
+test('Code Mode：说明放在回执行上，脚本里 agent 的请求先到（没有开着的主循环步），主循环下一次请求才核对：记实际档位', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (s) => (s.current_level === 'medium' ? SAME_FAILURE : HOLD)) })
+  await begin($)
+  await appendAll($, scriptByDelivery(1, 'run the upload test', 'FAIL test_upload'))
+  await stepT1($, 1)
+  // The next script's receipt carries the queued note; the script then runs, with no main-loop step open.
+  const second = scriptByPoll(2, 'spawn a reader and rerun', '3 passed')
+  await appendAll($, second)
+  const shift = midruns(w)[0]!
+  const receipt = second.find((r) => r.door === 'tool-result' && r.origin.kind === 'tool' && r.origin.tool === 'REPL')!
+  expect(reached(w, receipt)!.message.content.at(-1)).toEqual({ type: 'text', text: NOTE_HIGH })
+  expect(turnState(w).unverified).toEqual({ id: shift.id, level: 'high', queued: false })
+
+  const f = fakeDollar(seedOf(w))
+  // Agents the script started: one on haiku, one on the main loop's own model; both carry a thread.
+  await sendIn(f, [{ turnId: 'a1', index: 0, agentId: 'agent-1', model: HAIKU }], [body({ model: HAIKU, effort: 'medium' })])
+  await sendIn(f, [{ turnId: 'a2', index: 0, agentId: 'agent-2', model: OPUS }], [body({ model: OPUS, effort: 'low' })])
+  expect(f.writes).toEqual([])
+  expect(f.turn()!.unverified).toEqual({ id: shift.id, level: 'high', queued: false })
+  // The main loop's next step: its request carries high.
+  await sendIn(f, [{ turnId: 't1', index: 2 }], [body({ effort: 'high' })])
+  expect(f.log().map(row)).toEqual([
+    ['submit', 'medium', 'medium', true, null],
+    ['midrun', 'medium', 'high', true, 'high'],
+    ['midrun', 'high', 'high', false, null],
+  ])
+  expect(f.recent()).toEqual(f.log())
+  expect(f.turn()!.unverified).toBe(null)
   expect(f.lastSents()).toEqual(['high'])
 })
 
@@ -674,6 +777,18 @@ test('一轮结束时还没核对：sent 留空，下一轮的请求只核对下
     ['midrun', 't1', 'high', true, null],
     ['submit', 't2', 'medium', true, 'medium'],
   ])
+})
+
+test('withSent：unverified 不盖掉已经读到的档位或 not-sent；没变化时不写', () => {
+  const at = (sent: Decision['sent']): Decision[] => [{ id: 'a', at: 0, kind: 'midrun', backend: null, model: null, ms: 0, raw: null, from: 'medium', to: 'high', reason: null, detail: '', turnId: 't1', step: 1, bars: null, failure: null, requestId: null, applied: true, sent }]
+  expect(withSent(at(null), 'a', 'unverified')?.[0]!.sent).toBe('unverified')
+  expect(withSent(at('unverified'), 'a', 'high')?.[0]!.sent).toBe('high')
+  expect(withSent(at('unverified'), 'a', 'not-sent')?.[0]!.sent).toBe('not-sent')
+  // A main reading that landed first is not undone by an unsure one read beside it.
+  expect(withSent(at('high'), 'a', 'unverified')).toBe(null)
+  expect(withSent(at('not-sent'), 'a', 'unverified')).toBe(null)
+  expect(withSent(at('unverified'), 'a', 'unverified')).toBe(null)
+  expect(withSent(at(null), 'other', 'high')).toBe(null)
 })
 
 test('/dp 的当前档位取最近一次主循环请求实际带的；读不到时是 mod 要的并标未核对；每条决策写出核对结果', () => {
