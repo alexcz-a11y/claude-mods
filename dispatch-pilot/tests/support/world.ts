@@ -22,7 +22,10 @@ import type {
   TurnCompleteReason,
   TurnStepInput,
   TurnStepResult,
+  UiPane,
 } from 'claude-code'
+
+import type { BoardState } from '../../hooks/board/model.ts'
 
 /** userConfig with the Drex key set (fallback stays off, so only Drex is asked). */
 export const KEYS = { drexApiKey: 'k-drex' }
@@ -43,8 +46,23 @@ export type WorldOptions = {
   complete?: (e: ModelCompleteInput) => string | ModelCompleteResult | null | Promise<string | ModelCompleteResult | null>
   /** What $.session.surfaces() answers; ['terminal'] when left out. */
   surfaces?: string[]
-  /** $ calls to answer with { deny }, so the mod's call rejects: ui.status, store.get, store.set, command.register, session.surfaces. */
+  /**
+   * $ calls to answer with { deny }, so the mod's call rejects: ui.status, store.get, store.set, command.register,
+   * session.surfaces, state.get (every read of the mod's own state), ui.invalidate (the kit swallows that refusal:
+   * the mod's call neither throws nor rejects, measured on 2.1.327).
+   */
   refuse?: string[]
+  /**
+   * The board's state (tests/support/scenes.ts): every read of session, turn, recent and skills answers it. The
+   * version comes from the kit's own store, so the mod's update()s still land there (a scene that answered a fixed
+   * version would make each one miss on every try and give up, measured); later reads answer the scene all the same.
+   */
+  scene?: BoardState
+  /**
+   * What $.ui.open answers: placed (shown at once), or, the default, refused as on a terminal too narrow, so the
+   * tests that run /dp without caring for the pane get its text version. $.ui.panes and $.ui.close follow it.
+   */
+  pane?: 'placed' | 'refused'
   /**
    * Runs inside the engine's prompt.submit, before it answers. The engine starts a message's turn there
    * (turn.start inside prompt.submit's next(e), with the text that reached it; measured on 2.1.327), so a
@@ -102,6 +120,14 @@ export function world(on: On, o: WorldOptions = {}) {
   const storeWrites: { key: string; value: unknown }[] = []
   /** Every $.state.set the mod made, landed or not (isSet false: an ifVersion that missed). */
   const stateWrites: { key: string; id: string | undefined; value: unknown; isSet: boolean }[] = []
+  /** The panes open now, as $.ui.panes() lists them; every $.ui.open's argument, and every closed id, in order. */
+  const panes: UiPane[] = []
+  const opened: { id: string; title?: string }[] = []
+  const closed: string[] = []
+  /** What each $.ui.invalidate asked to run again. */
+  const invalidated: string[] = []
+  /** The footer's labels as each drawing of it reached the engine. */
+  const footers: string[][] = []
 
   // The mod races $.clock.sleep against its requests: without a mock clock every sleep rejects at once
   // and reads as a timeout.
@@ -163,6 +189,41 @@ export function world(on: On, o: WorldOptions = {}) {
     return { value: (typeof out === 'string' ? { isAnswered: true as const, text: out, usage } : out) as never }
   })
   on('session.surfaces', () => (refused('session.surfaces') ? REFUSED : { value: (o.surfaces ?? ['terminal']) as RenderSurface[] }))
+  on('ui.open', (_$, e) => {
+    opened.push({ id: e.id, ...(e.title === undefined ? {} : { title: e.title }) })
+    const isPlaced = o.pane === 'placed'
+    const pane = { id: e.id, title: e.title ?? e.id, isShown: isPlaced, isFocused: false, isPlaced }
+    const at = panes.findIndex((p) => p.id === e.id)
+    if (at === -1) panes.push(pane)
+    else panes[at] = pane
+    return { value: isPlaced ? { isPlaced: true as const } : { isPlaced: false as const, reason: 'too narrow' } }
+  })
+  on('ui.close', (_$, e) => {
+    closed.push(e.id)
+    const at = panes.findIndex((p) => p.id === e.id)
+    if (at !== -1) panes.splice(at, 1)
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({ value: panes.map((p) => ({ ...p })) }))
+  on('ui.invalidate', (_$, e) => {
+    if (refused('ui.invalidate')) return REFUSED
+    invalidated.push(e.event)
+    return { value: undefined }
+  })
+  // The engine's footer, beneath the mod: the labels the mod passed on.
+  on('ui.render', { component: 'SessionMode' }, (_$, e, next) => {
+    footers.push([...e.props.modes])
+    return next(e)
+  })
+  if (refused('state.get')) on('state.get', { plugin: 'dispatch-pilot' }, () => REFUSED)
+  else if (o.scene !== undefined) {
+    const scene: Record<string, unknown> = { ...o.scene }
+    on('state.get', { plugin: 'dispatch-pilot' }, async (_$, e, next) => {
+      const r = await next(e)
+      if (!(e.key in scene) || !('value' in r)) return r
+      return { value: { value: scene[e.key], version: r.value?.version ?? 0 } } as never
+    })
+  }
   // Not a stub: the kit keeps $.state itself. This only watches the writes on their way down; like
   // every $ call's, the answer comes back as { value } or { deny }.
   on('state.set', async (_$, e, next) => {
@@ -207,7 +268,7 @@ export function world(on: On, o: WorldOptions = {}) {
   })
   on('skill.prompt', (_$, e) => ({ text: e.text }))
 
-  return { fetched, requests, statuses, logs, debugLogs, stepsSent, appended, spawned, listed, submitted, attachments, completes, commands, storeWrites, stateWrites, clock }
+  return { fetched, requests, statuses, logs, debugLogs, stepsSent, appended, spawned, listed, submitted, attachments, completes, commands, storeWrites, stateWrites, panes, opened, closed, invalidated, footers, clock }
 }
 
 // Answers in the shapes the decision models send (backend.ts reads them).

@@ -7,7 +7,7 @@ import { cellSent } from '../board/model.ts'
 import type { Level } from '../levels.ts'
 import { classify, clearCheck, modelBase, settleReading } from '../readout.ts'
 import type { OpenStep, Reading } from '../readout.ts'
-import { amendSent, failOpen, trace } from '../runtime.ts'
+import { amendSent, failOpen, redraw, trace } from '../runtime.ts'
 import { emptySession } from '../state.ts'
 
 // The state atoms this file reads and writes, one line each and alike in every file that declares them: the module
@@ -60,31 +60,35 @@ export function readout($: EngineInterface, e: { url: string; init?: HttpInit },
 
 // What a reading writes: the session's current level (a main-loop reading only), and the check it settles, on both
 // copies of the Decision. Each fails on its own: a level that could not be written keeps no Decision from its check.
+// The board is drawn again once the level or the cell changed (amendSent redraws for the Decision's sent).
 async function keepReading($: EngineInterface, r: Reading, open: OpenStep | null): Promise<null> {
   if (r.kind === 'main') {
     const effort = r.effort
-    await failOpen($, 'http.fetch', null, () => keepLevel($, effort))
-    await failOpen($, 'http.fetch', null, () => keepCell($, effort, open))
+    const level = await failOpen($, 'http.fetch', false, () => keepLevel($, effort))
+    const cell = await failOpen($, 'http.fetch', false, () => keepCell($, effort, open))
+    if (level || cell) redraw($)
   }
   await failOpen($, 'http.fetch', null, () => settleCheck($, r, open))
   return null
 }
 
-async function keepLevel($: EngineInterface, effort: Level | null): Promise<null> {
-  if ((await read($, SESSION)).lastSent !== effort) await update($, SESSION, (s) => ({ ...s, lastSent: effort }))
-  return null
+// Whether it wrote: the board is drawn again only for a change.
+async function keepLevel($: EngineInterface, effort: Level | null): Promise<boolean> {
+  if ((await read($, SESSION)).lastSent === effort) return false
+  await update($, SESSION, (s) => ({ ...s, lastSent: effort }))
+  return true
 }
 
 // The timeline's cell of the work step under way (design 5.14) takes the level its first main-loop request carried;
 // the requests after it in the same work step leave it as it is.
-async function keepCell($: EngineInterface, effort: Level | null, open: OpenStep | null): Promise<null> {
-  if (effort === null || open === null) return null
+async function keepCell($: EngineInterface, effort: Level | null, open: OpenStep | null): Promise<boolean> {
+  if (effort === null || open === null) return false
   const turnId = open.turnId
   const held = await read($, TURN)
   // Read first: update() writes whatever its callback returns.
-  if (held === null || held.turnId !== turnId || cellSent(held, effort) === held) return null
+  if (held === null || held.turnId !== turnId || cellSent(held, effort) === held) return false
   await update($, TURN, (cur) => (cur !== null && cur.turnId === turnId ? cellSent(cur, effort) : cur))
-  return null
+  return true
 }
 
 async function settleCheck($: EngineInterface, r: Reading, open: OpenStep | null): Promise<null> {

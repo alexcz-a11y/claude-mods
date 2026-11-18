@@ -3,6 +3,7 @@
 import type { Register } from 'claude-code'
 
 import { canAsk } from './backend.ts'
+import { registerBoard } from './board/board.tsx'
 import { readConfig } from './config.ts'
 import { SEARCH_OFF_REPLY, isFindSkill, suggestionBlock } from './skills.ts'
 import { agentStep, checkAgent, endAgent, keepAgent, planSpawn } from './flows/agents.ts'
@@ -119,6 +120,9 @@ export const register: Register = (on, options) => {
     await failOpen($, 'turn.complete', null, () => (agentId !== undefined && verifies(cfg) ? endAgent($, agentId) : endTurn($, e)))
     return next(e)
   })
+
+  // The board: the timeline, the pane and the footer's label (design 5.14); nothing while cfg.board is off.
+  registerBoard(on, cfg)
 
   // Every request the engine and the plugins send passes here. Each goes on as it came; the readout is written beside
   // it (design 5.12). Not registered at all while the readout is off (verifyEffort, or the mod, off).

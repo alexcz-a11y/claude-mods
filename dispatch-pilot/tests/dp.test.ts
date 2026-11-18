@@ -44,6 +44,8 @@ function fakeDollar(o: { store?: Record<string, unknown>; storeFails?: boolean; 
         if (o.logThrows) throw new Error('log refused')
         logs.push({ text, to: options?.to })
       },
+      // record() asks for the board to be drawn again.
+      invalidate: () => undefined,
     },
     state: {
       get: async (ref: { key: string }) => state.get(ref.key) ?? { value: undefined, version: 0 },

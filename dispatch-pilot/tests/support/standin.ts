@@ -1,7 +1,8 @@
 // A stand-in $ for calling flows/readout.ts's openStep and readout directly: the kit raises no http.fetch as the
 // engine (its $ has no http, and a plugin named engine does not load: DEVELOPMENT.md). Seeded with the state an
 // engine-driven run left (seedOf), it has what the readout touches: $.state with versions (the state library's
-// compare-and-set), $.store and $.ui.log; `refuse` and `refuseStore` make a state or store write throw.
+// compare-and-set), $.store, $.ui.log and $.ui.invalidate; `refuse` and `refuseStore` make a state or store write
+// throw, `refuseInvalidate` makes $.ui.invalidate throw.
 import type { Decision } from '../../hooks/log.ts'
 import type { SessionState, TurnState } from '../../hooks/state.ts'
 import type { world } from './world.ts'
@@ -20,14 +21,21 @@ export function seedOf(w: World): { state: Record<string, unknown>; store: { log
 
 export function standIn(
   seed: { state?: Record<string, unknown>; store?: Record<string, unknown> } = {},
-  o: { refuse?: (key: string, value: unknown) => boolean; refuseStore?: (key: string) => boolean } = {},
+  o: { refuse?: (key: string, value: unknown) => boolean; refuseStore?: (key: string) => boolean; refuseInvalidate?: boolean } = {},
 ) {
   const state = new Map<string, { value: unknown; version: number }>(Object.entries(seed.state ?? {}).map(([k, v]) => [k, { value: v, version: 1 }]))
   const store = new Map<string, unknown>(Object.entries(JSON.parse(JSON.stringify(seed.store ?? {}))))
   const logs: string[] = []
   const writes: { key: string; value: unknown }[] = []
+  const invalidated: string[] = []
   const $ = {
-    ui: { log: (text: string) => void logs.push(text) },
+    ui: {
+      log: (text: string) => void logs.push(text),
+      invalidate: (event: string) => {
+        if (o.refuseInvalidate === true) throw new Error('invalidate refused by the test')
+        invalidated.push(event)
+      },
+    },
     state: {
       get: async (ref: { key: string }) => state.get(ref.key) ?? { value: undefined, version: 0 },
       set: async (ref: { key: string }, value: unknown, opts?: { ifVersion?: number }) => {
@@ -52,6 +60,8 @@ export function standIn(
     $: $ as never,
     logs,
     writes,
+    /** What each $.ui.invalidate asked to run again. */
+    invalidated,
     /** What $.store holds now, every key. */
     stored: () => [...store.values()],
     log: () => (store.get('log') ?? []) as Decision[],

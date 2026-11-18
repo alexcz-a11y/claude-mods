@@ -11,7 +11,7 @@ import type { Level } from '../levels.ts'
 import { decisionId } from '../log.ts'
 import { submitQuestions } from '../questions.ts'
 import { awaitCheck } from '../readout.ts'
-import { failOpen, ioOf, record, verifies } from '../runtime.ts'
+import { failOpen, ioOf, record, redraw, verifies } from '../runtime.ts'
 import { stageOne } from '../skills.ts'
 import type { SkillOutcome } from '../skills.ts'
 import { emptySession, newTurn } from '../state.ts'
@@ -138,6 +138,7 @@ export async function mainStep($: EngineInterface, cfg: Config, e: TurnStepInput
     await failOpen($, 'turn.step', null, async () => {
       if (takeStep(stepped, level) === stepped) return null
       await update($, TURN, (cur) => (cur !== null && cur.turnId === stepped.turnId ? takeStep(cur, level) : cur))
+      redraw($)
       return null
     })
   }
@@ -172,5 +173,7 @@ export async function endTurn($: EngineInterface, e: TurnCompleteInput): Promise
   }
   await update($, SESSION, (s) => ({ ...s, previous }))
   await update($, TURN, (cur) => (cur !== null && cur.turnId === e.turnId ? null : cur))
+  // The board folds to its one row between turns.
+  redraw($)
   return null
 }

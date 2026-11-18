@@ -24,6 +24,18 @@ const TURN = atom({ plugin: 'dispatch-pilot', key: 'turn' } as const, null)
 /** $.store key of the decision log, shared by every session on this machine. */
 export const LOG = 'log'
 
+/**
+ * Asks the engine to draw the board again (design 5.14). Never throws: a redraw that fails costs the board a moment,
+ * never the hook that asked for it.
+ */
+export function redraw($: EngineInterface): void {
+  try {
+    $.ui.invalidate('ui.render')
+  } catch (err) {
+    trace($, 'redraw', err)
+  }
+}
+
 /** Whether the readout runs (design 5.12): verifyEffort on, and the mod enabled (controller ruling: off, it does nothing at all). */
 export function verifies(cfg: Config): boolean {
   return cfg.enabled && cfg.verifyEffort
@@ -86,7 +98,8 @@ async function appendLog($: EngineInterface, d: Decision): Promise<void> {
 
 /**
  * Appends a decision to $.store's log and to this session's recent; an evaluation of the main loop's level (submit,
- * midrun) also leaves its mark on its turn, for the timeline's next cell (design 5.14). Never throws.
+ * midrun) also leaves its mark on its turn, for the timeline's next cell (design 5.14). Then the board is drawn
+ * again. Never throws.
  */
 export async function record($: EngineInterface, d: Decision): Promise<void> {
   // Each write fails on its own: losing one copy must not lose the other.
@@ -97,6 +110,7 @@ export async function record($: EngineInterface, d: Decision): Promise<void> {
   }
   if (d.kind === 'submit' || d.kind === 'midrun') await keepMark($, d)
   await inOrder(() => appendLog($, d))
+  redraw($)
 }
 
 async function keepMark($: EngineInterface, d: Decision): Promise<void> {
@@ -120,7 +134,10 @@ async function storeSent($: EngineInterface, id: string, sent: Decision['sent'])
   }
 }
 
-/** Writes a recorded Decision's sent, in recent and in $.store's log (after every record queued before it); withSent says when. Never throws. */
+/**
+ * Writes a recorded Decision's sent, in recent and in $.store's log (after every record queued before it); withSent
+ * says when. Then the board is drawn again. Never throws.
+ */
 export async function amendSent($: EngineInterface, id: string, sent: Decision['sent']): Promise<void> {
   try {
     // Read first: update() writes whatever its callback returns, and a repeated unsure reading changes nothing.
@@ -129,6 +146,7 @@ export async function amendSent($: EngineInterface, id: string, sent: Decision['
     trace($, 'amend', err)
   }
   await inOrder(() => storeSent($, id, sent))
+  redraw($)
 }
 
 // session.start's refresh: only the surfaces (the session state belongs to no one feature).
