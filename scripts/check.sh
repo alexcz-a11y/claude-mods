@@ -22,7 +22,7 @@ fi
 # The oldest Claude Code each mod asks for (its README's 「要求」). Desktop's own
 # Claude Code older than this refusing the mod is a note, not a failure: the
 # mod does not run there until Desktop updates. A mod not listed must load in it.
-typeset -A MIN_CLAUDE_CODE=(dispatch-pilot 2.1.300)
+typeset -A MIN_CLAUDE_CODE=(dispatch-pilot 2.1.327)
 autoload -Uz is-at-least
 
 # Claude Desktop's own Claude Code: the newest it has fetched (macOS). Empty where there is no Desktop.
@@ -46,13 +46,16 @@ step() {
 
 # The mod as Claude Desktop's own Claude Code loads it.
 desktop_check() {
-  local mod=$1 out min=${MIN_CLAUDE_CODE[$1]:-}
+  local mod=$1 out tally min=${MIN_CLAUDE_CODE[$1]:-}
   if [[ -z $desktop_claude ]]; then
     print -r -- "skip  $mod: Desktop's Claude Code (none here)"
     return
   fi
   if out=$("$desktop_claude" plugin validate "./$mod" --strict 2>&1); then
     print -r -- "ok    $mod: validate on Desktop's Claude Code $desktop_version"
+  elif tally=$(only_ts5097 "$desktop_claude" "$mod"); then
+    print -r -- "ok    $mod: validate on Desktop's Claude Code $desktop_version"
+    print -r -- "note  $mod: $tally imports end in .ts, which Desktop's validator warns of as well (TS5097, see only_ts5097 below)"
   elif [[ -n $min ]] && ! is-at-least "$min" "$desktop_version"; then
     print -r -- "note  $mod: Desktop's Claude Code $desktop_version is older than the $min it needs, and refuses it; it runs in Desktop once Desktop updates"
     print -r -- "$out" | awk '/Found [0-9]+ error/ { found = 1; next } found && /❯/ { print; exit }' | cut -c1-240
@@ -69,13 +72,11 @@ desktop_check() {
 # the same files (dispatch-pilot's eval/ and scripts/) and resolves nothing else, and each mod's tsconfig.json allows them
 # (`allowImportingTsExtensions`), which `tsc -p` below checks with. A strict failure made of nothing but TS5097 warnings is a
 # note; any error, or any other warning (another type error among them), still fails.
-strict_validate() {
-  local mod=$1 out tally
-  if out=$(command claude plugin validate "./$mod" --strict 2>&1); then
-    print -r -- "ok    $mod: validate --strict"
-    return
-  fi
-  if tally=$(command claude plugin validate "./$mod" --strict --json 2>/dev/null | node -e '
+#
+# only_ts5097 <claude> <mod>: succeeds, printing the number of them, when that is all the strict report of this Claude Code holds.
+only_ts5097() {
+  local claude=$1 mod=$2
+  "$claude" plugin validate "./$mod" --strict --json 2>/dev/null | node -e '
       let text = ""
       process.stdin.on("data", (chunk) => (text += chunk)).on("end", () => {
         const report = JSON.parse(text)
@@ -85,7 +86,16 @@ strict_validate() {
         const endings = warnings.filter((warning) => /\bTS5097\b/.test(warning.message ?? ""))
         if (errors.length > 0 || endings.length === 0 || endings.length !== warnings.length) process.exit(1)
         console.log(endings.length)
-      })' 2>/dev/null); then
+      })' 2>/dev/null
+}
+
+strict_validate() {
+  local mod=$1 out tally
+  if out=$(command claude plugin validate "./$mod" --strict 2>&1); then
+    print -r -- "ok    $mod: validate --strict"
+    return
+  fi
+  if tally=$(only_ts5097 claude "$mod"); then
     print -r -- "ok    $mod: validate --strict"
     print -r -- "note  $mod: $tally imports end in .ts, which the validator's own type check warns of (TS5097); the mod's tsconfig.json allows them, and tsc checks with it"
   else
