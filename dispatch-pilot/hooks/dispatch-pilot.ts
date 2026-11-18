@@ -259,8 +259,9 @@ async function endTurn($: EngineInterface, e: TurnCompleteInput): Promise<null> 
   return null
 }
 
-// After a checkpoint was evaluated, whatever came of it (a shift, a hold, a failed request): the one place later
-// parts attach to, the progress note in the background and the board's mark on the timeline. Records the decision.
+// After a checkpoint was evaluated, whatever came of it (a shift made, a hold, a shift not made, a failed request;
+// judged.shift is the shift only when it was made): the one place later parts attach to, the progress note in the
+// background and the board's mark on the timeline. Records the decision.
 async function afterCheckpoint($: EngineInterface, judged: Judged): Promise<void> {
   await record($, judged.decision)
 }
@@ -293,12 +294,22 @@ async function onRow($: EngineInterface, cfg: Config, e: SessionAppendInput): Pr
   // The row is held while the question is out: this ask is the only wait here.
   const result = await ask(ioOf($), cfg, { state: plan.ask.state, questions: midrunQuestions() }, cfg.midrunTimeoutMs)
   const at = await $.clock.now()
-  const judged = settleCheckpoint(result, { turn: plan.turn, kind, current: plan.ask.current, cfg, id: decisionId(at), at })
+  const asked = plan.ask.current
+  const judged = settleCheckpoint(result, { turn: plan.turn, kind, current: asked, cfg, id: decisionId(at), at })
   const shift = judged.shift
-  // Written before the row goes on: the next step reads the level from the turn.
-  if (shift !== null) await update($, TURN, (cur) => (cur !== null && cur.turnId === plan.turn.turnId ? applyShift(cur, shift) : cur))
-  await afterCheckpoint($, judged)
-  return shift !== null && shift.note !== null ? withNote(e, shift.note) : e
+  // Checked again on the turn as it is now (applyShift), and written before the row goes on: the next step reads
+  // the level from the turn. Only a shift that was really made gets its note.
+  const made = { yes: false }
+  if (shift !== null) {
+    const locked = (await read($, SESSION)).lock !== null
+    await update($, TURN, (cur) => {
+      const next = cur !== null && cur.turnId === plan.turn.turnId ? applyShift(cur, shift, { asked, cfg, locked }) : null
+      made.yes = next !== null
+      return next ?? cur
+    })
+  }
+  await afterCheckpoint($, { decision: { ...judged.decision, applied: made.yes }, shift: made.yes ? shift : null })
+  return made.yes && shift !== null && shift.note !== null ? withNote(e, shift.note) : e
 }
 
 export const register: Register = (on, options) => {

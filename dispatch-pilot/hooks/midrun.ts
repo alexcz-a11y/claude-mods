@@ -37,9 +37,36 @@ export function notesLeft(m: MidrunCounters, cfg: Config): number {
   return Math.max(0, cfg.midrunMaxNotes - m.notes)
 }
 
-/** The rows a note can ride: results a request carries (E6). Not a delivery row (E13), not a call inside a script (E7). */
+/**
+ * How a shift made on a row of this kind reaches the request; the one place this is decided (design 3.2).
+ * - 'row': a note on this row. The results a request carries (E6): Poll's result, REPL's receipt, a tool result.
+ * - 'queue': a note queued for the next 'row'. A delivery row cannot carry a shift (E13: a level changed after it
+ *   arrives is not sent, and text added to it is neither kept nor sent), whether it brings a script's result or
+ *   other input; it counts against the notes like any note.
+ * - 'input': the person's prompt row. The step after it carries input and sends the new level with no note (the
+ *   types' TurnStepInput.effort: a level on a step with input stays); nothing is counted. Whether input arriving any
+ *   other way does the same is not measured (design 9), so only the prompt door is taken for it.
+ * - null: no shift is made on this kind of row (it is never a checkpoint).
+ */
+export function carrierOf(kind: RowKind): 'row' | 'queue' | 'input' | null {
+  switch (kind) {
+    case 'receipt':
+    case 'script-result-poll':
+    case 'tool-result':
+      return 'row'
+    case 'script-result-delivery':
+    case 'delivered-input':
+      return 'queue'
+    case 'new-input':
+      return 'input'
+    default:
+      return null
+  }
+}
+
+/** The rows a note can ride (carrierOf 'row'). Not a delivery row (E13), not a call inside a script (E7). */
 export function carriesNote(kind: RowKind): boolean {
-  return kind === 'script-result-poll' || kind === 'receipt' || kind === 'tool-result'
+  return carrierOf(kind) === 'row'
 }
 
 /** One line of fact in English, with no command in it (design 5.4). */
@@ -54,10 +81,12 @@ export function withNote<E extends { message: { content: readonly unknown[] } }>
 
 /** Whether a question is due on this row (design 5.4). `j`: the journal after the row; `m`: the counters before it. */
 export function isCheckpoint(kind: RowKind, j: TurnJournal, m: MidrunCounters, cfg: Config, codeMode: boolean): boolean {
-  // A step after input sends a new level without a note, so notes used up do not matter here.
-  if (kind === 'new-input') return true
-  // A shift on a result goes out only with a note: with none left, asking would hold the row for nothing.
+  // The person's input: its shift needs no note, so notes used up do not matter here.
+  if (carrierOf(kind) === 'input') return true
+  // Every other shift goes out only with a note: with none left, asking would hold the row for nothing.
   if (notesLeft(m, cfg) === 0) return false
+  // Input that came by delivery, in either kind of session.
+  if (kind === 'delivered-input') return true
   if (codeMode) {
     if (kind !== 'script-result-poll' && kind !== 'script-result-delivery') return false
     return cfg.midrunEveryScripts > 0 && m.scriptsSinceCheck + 1 >= cfg.midrunEveryScripts
@@ -75,10 +104,25 @@ export type RowPlan = {
   ask: { current: Level; state: Record<string, unknown> } | null
 }
 
+const NONCE_LINE = /^<system>authentic event nonces for this delivery:.*<\/system>$/
+
+// What an input says, without a delivery's own wrapping: the <system-reminder> around it and the line about the
+// delivery's event nonces.
+function inputText(text: string): string {
+  const inner = text.trim().replace(/^<system-reminder>\s*/, '').replace(/\s*<\/system-reminder>$/, '')
+  return inner
+    .split('\n')
+    .filter((line) => !NONCE_LINE.test(line.trim()))
+    .join('\n')
+    .trim()
+}
+
 // What the question is about: the steps so far, oldest first, and the latest. On new input the latest is the
 // input itself, the one thing that changed since the last result.
 function evidenceOf(kind: RowKind, row: Row, j: TurnJournal): { recent: StepRecord[]; latest: StepRecord } | null {
-  if (kind === 'new-input') return { recent: j.steps, latest: { did: 'new input', tools: [], ok: true, result: row.text } }
+  if (kind === 'new-input' || kind === 'delivered-input') {
+    return { recent: j.steps, latest: { did: 'new input', tools: [], ok: true, result: inputText(row.text) } }
+  }
   const latest = j.steps.at(-1)
   return latest === undefined ? null : { recent: j.steps.slice(0, -1), latest }
 }
@@ -90,9 +134,9 @@ function evidenceOf(kind: RowKind, row: Row, j: TurnJournal): { recent: StepReco
 export function planRow(turn: TurnState, row: Row, kind: RowKind, c: { cfg: Config; codeMode: boolean; judging: boolean }): RowPlan {
   const journal = applyRow(turn.journal, row, kind)
   const m = turn.midrun
-  // A queued note goes on the first row that can carry it, while mid-run shifts are still made (a lock since then
-  // sends its own level, which the note would misstate). That row is not asked about: a shift on it would fall
-  // within the gap anyway.
+  // A queued note goes on the first row that can carry it, while mid-run shifts are still made: a lock since then
+  // sends its own level, which the note would misstate, so the note stays queued and goes on the first such row
+  // after an unlock in the same turn. That row is not asked about: a shift on it would fall within the gap anyway.
   const note = c.judging && turn.pendingNote !== null && carriesNote(kind) ? turn.pendingNote : null
   // The level being judged; none on a model that takes no effort, and then nothing is asked.
   const current = turn.wanted ?? turn.base
@@ -127,22 +171,22 @@ export type Judged = { decision: Decision; shift: Shift | null }
 
 type CheckpointContext = { turn: TurnState; kind: RowKind; current: Level; cfg: Config; id: string; at: number }
 
-// A new level is written only when it differs, the gap allows it, the mod applies what it decides, and the row has
-// a way to carry it.
+// A new level is proposed only when it differs, the gap allows it, the mod applies what it decides, and the row
+// has a way to carry it (carrierOf). applyShift checks it again when it is written.
 function shiftFor(v: Verdict, c: CheckpointContext): Shift | null {
   const m = c.turn.midrun
-  if (v.level === c.current || !gapOk(m, c.turn.journal) || c.cfg.mode !== 'apply') return null
-  if (c.kind === 'new-input') return { to: v.level, note: null, queued: null }
+  const carrier = carrierOf(c.kind)
+  if (carrier === null || v.level === c.current || !gapOk(m, c.turn.journal) || c.cfg.mode !== 'apply') return null
+  if (carrier === 'input') return { to: v.level, note: null, queued: null }
   if (notesLeft(m, c.cfg) === 0) return null
   const text = noteText(v.level, v.reason)
-  if (carriesNote(c.kind)) return { to: v.level, note: text, queued: null }
-  if (c.kind === 'script-result-delivery') return { to: v.level, note: null, queued: text }
-  return null
+  return carrier === 'row' ? { to: v.level, note: text, queued: null } : { to: v.level, note: null, queued: text }
 }
 
 /**
- * The answer at a checkpoint: the Decision to record and the shift to make, if any. `turn` is planRow's turn
- * (after the row), `current` the level judged.
+ * The answer at a checkpoint: the Decision to record and the shift it calls for, if any. `turn` is planRow's turn
+ * (after the row), `current` the level judged. The decision's `applied` says the shift was proposed; the caller
+ * sets it to whether applyShift really made it.
  */
 export function settleCheckpoint(r: AskResult, c: CheckpointContext): Judged {
   const common = { id: c.id, at: c.at, kind: 'midrun' as const, backend: r.backend, ms: r.ms, from: c.current, turnId: c.turn.turnId, step: c.turn.journal.workSteps, sent: null }
@@ -163,9 +207,17 @@ export function settleCheckpoint(r: AskResult, c: CheckpointContext): Judged {
   return { decision, shift }
 }
 
-/** The turn with a shift made: the new level, the work step it was made at, one more note when it took one. */
-export function applyShift(turn: TurnState, s: Shift): TurnState {
+/**
+ * The turn with a shift made (the new level, the work step it was made at, one more note when it took one), or null
+ * when the turn as it is at the write no longer allows it. The answer comes back up to midrunTimeoutMs after the plan,
+ * and the result rows of one step may be appended side by side (the test kit runs two such appends concurrently;
+ * the engine is not measured), so another row may have shifted meanwhile: the level must still be the one asked
+ * about, the gap and the notes must still allow it, and no lock may have come.
+ */
+export function applyShift(turn: TurnState, s: Shift, c: { asked: Level; cfg: Config; locked: boolean }): TurnState | null {
   const noted = s.note !== null || s.queued !== null
+  if (c.locked || (turn.wanted ?? turn.base) !== c.asked || !gapOk(turn.midrun, turn.journal)) return null
+  if (noted && notesLeft(turn.midrun, c.cfg) === 0) return null
   return {
     ...turn,
     wanted: s.to,

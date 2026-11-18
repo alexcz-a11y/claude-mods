@@ -21,7 +21,17 @@ export type Row = {
   toolUses: { name: string; description: string }[]
 }
 
-export type RowKind = 'receipt' | 'script-result-poll' | 'script-result-delivery' | 'inner-call' | 'tool-result' | 'new-input' | 'assistant' | 'other'
+/** new-input: a prompt row (the person's message) during a turn; delivered-input: other input that came on a delivery row. */
+export type RowKind =
+  | 'receipt'
+  | 'script-result-poll'
+  | 'script-result-delivery'
+  | 'inner-call'
+  | 'tool-result'
+  | 'new-input'
+  | 'delivered-input'
+  | 'assistant'
+  | 'other'
 
 const STEPS_KEEP = 6
 const STATED_NEXT_TOKENS = 200
@@ -95,7 +105,8 @@ export function kindOf(row: Row): RowKind {
       if (scriptResult(row.text) !== null) return 'script-result-delivery'
       // A script's events with no result (a status, late output) are no input either.
       if (SCRIPT_EVENT.test(row.text) || STATUS_EVENT.test(row.text)) return 'other'
-      return row.text.trim() !== '' ? 'new-input' : 'other'
+      // Input, but told apart from a prompt row: a delivery row cannot carry a shift (design E13).
+      return row.text.trim() !== '' ? 'delivered-input' : 'other'
     case 'prompt':
       return 'new-input'
     default:

@@ -250,7 +250,7 @@ test('queue 行、新输入、脚本内部调用的回复行都不改记录', ()
   // The response row of a call inside a script has no role: it opens no step of the main loop.
   expect(kind(innerToolUse('Read', { file_path: '/a' }))).toBe('other')
   const notice: SessionAppendInput = { ...emptyDelivery(), message: { type: 'attachment', role: 'user', isMeta: true, content: [{ type: 'text', text: '<task-notification>agent done</task-notification>' }] } }
-  expect(kind(notice)).toBe('new-input')
+  expect(kind(notice)).toBe('delivered-input')
   const k = feed([innerToolUse('Read', { file_path: '/a' }), queueRow(1, 'x'), promptRow('also the docs'), notice], j)
   expect(k).toEqual(j)
 })
@@ -318,7 +318,9 @@ test('real-rows.md 的行：delivery 是 poll_events 附件，Poll 结果可带 
 
   // A delivery holding only a repl-status event is no input; one holding anything else is.
   expect(kind(deliveryEvent('repl-status', '#1 still running'))).toBe('other')
-  expect(kind(deliveryEvent('task-notification', 'agent-1 finished: 3 files changed'))).toBe('new-input')
+  // Input on a delivery row is told apart from the person's prompt row: it cannot carry a shift itself (design E13).
+  expect(kind(deliveryEvent('task-notification', 'agent-1 finished: 3 files changed'))).toBe('delivered-input')
+  expect(kind(promptRow('also the docs'))).toBe('new-input')
   // The same row classed twice gives the same kind (no regex state carried between calls).
   expect([kind(polled), kind(polled), kind(delivered), kind(delivered)]).toEqual(['script-result-poll', 'script-result-poll', 'script-result-delivery', 'script-result-delivery'])
 })

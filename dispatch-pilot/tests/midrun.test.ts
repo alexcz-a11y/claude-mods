@@ -7,7 +7,7 @@ import { START } from '../hooks/decide.ts'
 import { emptyJournal } from '../hooks/journal.ts'
 import type { TurnJournal } from '../hooks/journal.ts'
 import type { Decision } from '../hooks/log.ts'
-import { carriesNote, emptyCounters, gapOk, isCheckpoint, noteText, notesLeft, withNote } from '../hooks/midrun.ts'
+import { carrierOf, carriesNote, emptyCounters, gapOk, isCheckpoint, noteText, notesLeft, withNote } from '../hooks/midrun.ts'
 import type { MidrunCounters } from '../hooks/midrun.ts'
 import type { SessionState, TurnState } from '../hooks/state.ts'
 import {
@@ -331,6 +331,72 @@ test('新输入的行：换挡但不加说明', { options: KEYS }, async ($, on)
   expect(turnState(w)).toMatchObject({ wanted: 'high', pendingNote: null, midrun: { notes: 0, lastShiftAt: 1 } })
 })
 
+test('经 delivery 行来的新输入：照常判断，换挡的说明排到下一条能带它的行上，占一条说明；发出的文字去掉外壳和 nonce 行', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (s) => (s.latest.did === 'new input' ? CONTRADICTS : HOLD)) })
+  await begin($)
+  await appendAll($, scriptByPoll(1, 'read the uploader', 'upload.ts: 3 retries'))
+  await stepT1($, 1)
+  const notice = deliveryEvent('task-notification', 'agent-1 finished: the server rejects retries after 2', 7)
+  await append($, notice)
+
+  // The delivery row cannot carry the shift (design E13): it goes on as it came, and the note waits.
+  expect(reached(w, notice)).toEqual(notice)
+  expect(asked(w)).toHaveLength(2)
+  expect(asked(w)[1]!.body.state.latest).toEqual({
+    did: 'new input',
+    tools: [],
+    outcome: 'ok',
+    result: '<event nonce="N7" kind="task-notification" at="2026-11-18T12:56:20.570Z">\nagent-1 finished: the server rejects retries after 2\n</event>',
+  })
+  const CONTRADICTS_NOTE = '[dispatch-pilot] effort is now high: a result contradicts the plan.'
+  expect(midruns(w)[1]).toMatchObject({ from: 'medium', to: 'high', reason: 'contradicts-plan', applied: true, step: 1 })
+  expect(turnState(w)).toMatchObject({ wanted: 'high', pendingNote: CONTRADICTS_NOTE, midrun: { notes: 1, lastShiftAt: 1 } })
+
+  await stepT1($, 2)
+  const next = scriptByPoll(2, 'cap the retries at 2', 'ok')
+  await appendAll($, next)
+  const receipt = next.find((r) => r.origin.kind === 'tool' && r.origin.tool === 'REPL')!
+  expect(reached(w, receipt)!.message.content).toEqual([receipt.message.content[0], noteBlock(CONTRADICTS_NOTE)])
+  expect(turnState(w)).toMatchObject({ pendingNote: null, midrun: { notes: 1 } })
+})
+
+test('同一步的两条结果行，两个请求同时在途：写入时再核对一次，只有一条换挡、一条说明', { options: { ...KEYS, midrunEverySteps: 1 } }, async ($, on) => {
+  const late: { clock: MockClock | null } = { clock: null }
+  const w = world(on, {
+    onSubmit: turns($),
+    answer: async ({ body }) => {
+      if (!('same_failure' in body.questions)) return drexOk(SUBMIT_HOLD)
+      await late.clock!.sleep(500)
+      return drexOk(SAME_FAILURE)
+    },
+  })
+  late.clock = w.clock
+  await begin($)
+  await appendAll($, [assistantToolUse('Bash', { command: 'npm test -- upload' }), assistantToolUse('Bash', { command: 'npm test -- download' })])
+  const upload = toolResult('Bash', 'FAIL test_upload', { error: true })
+  const download = toolResult('Bash', 'FAIL test_download', { error: true })
+  // Both rows are appended before either answer comes back.
+  const first = append($, upload)
+  const second = append($, download)
+  await w.clock.settle()
+  expect(asked(w)).toHaveLength(2)
+  await w.clock.advance(500)
+  await Promise.all([first, second])
+  await stepT1($, 1)
+
+  // Both were asked about medium and both answers say high; only the first write finds the turn still at medium.
+  const noted = [upload, download].filter((r) => reached(w, r)!.message.content.length === 2)
+  expect(noted).toHaveLength(1)
+  expect(reached(w, noted[0]!)!.message.content.at(-1)).toEqual(noteBlock(NOTE_HIGH))
+  expect(midruns(w).map((d) => [d.from, d.to])).toEqual([
+    ['medium', 'high'],
+    ['medium', 'high'],
+  ])
+  expect(midruns(w).map((d) => d.applied).sort()).toEqual([false, true])
+  expect(turnState(w)).toMatchObject({ wanted: 'high', midrun: { notes: 1 } })
+  expect(efforts(w)).toEqual(['medium', 'high'])
+})
+
 test('时限到了：行原样放行', { options: KEYS }, async ($, on) => {
   const late: { clock: MockClock | null } = { clock: null }
   const w = world(on, {
@@ -459,6 +525,16 @@ test('说明排着时锁定了：不再加它，每步是锁定的档', { option
   expect(asked(w)).toHaveLength(1)
   expect(efforts(w)).toEqual(['medium', 'low', 'low'])
   expect(turnState(w)).toMatchObject({ pendingNote: NOTE_HIGH, journal: { workSteps: 2 }, midrun: { notes: 1 } })
+
+  // Kept while locked: after an unlock in the same turn, the next row that can carry it does.
+  expect(await dp($, 'unlock')).toContain('已解锁')
+  const after = scriptByPoll(3, 'rerun', '3 passed')
+  await appendAll($, after)
+  await stepT1($, 3)
+  const receipt = after.find((r) => r.origin.kind === 'tool' && r.origin.tool === 'REPL')!
+  expect(reached(w, receipt)!.message.content).toEqual([receipt.message.content[0], noteBlock(NOTE_HIGH)])
+  expect(turnState(w)).toMatchObject({ pendingNote: null, wanted: 'high', midrun: { notes: 1 } })
+  expect(efforts(w)).toEqual(['medium', 'low', 'low', 'high'])
 })
 
 test('计数：到检查点清零，没到时数工作步和脚本结果', { options: { ...KEYS, midrunEverySteps: 3 } }, async ($, on) => {
@@ -554,7 +630,7 @@ test('这一轮自己的 prompt 行在 turn.start 之前到：不算新输入', 
   expect(asked(w)[1]!.body.state).toMatchObject({ request: 'Now the downloader', latest: { did: 'new input', result: 'and the docs' } })
 })
 
-test('说明用完之后：脚本结果不发请求，新输入照样发，换挡不加说明', { options: { ...KEYS, midrunMaxNotes: 1 } }, async ($, on) => {
+test('说明用完之后：脚本结果和经 delivery 来的输入不发请求，prompt 行的新输入照样发，换挡不加说明', { options: { ...KEYS, midrunMaxNotes: 1 } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (s) => (s.current_level === 'medium' ? SAME_FAILURE : CAUSE_FOUND)) })
   await begin($)
   for (let n = 1; n <= 4; n++) {
@@ -562,12 +638,17 @@ test('说明用完之后：脚本结果不发请求，新输入照样发，换�
     await stepT1($, n)
   }
   expect(asked(w)).toHaveLength(1)
+  // Input by delivery would need a note too: with none left it is no checkpoint.
   const notice = deliveryEvent('task-notification', 'agent-1 finished: the backoff is already configurable')
   await append($, notice)
+  expect(asked(w)).toHaveLength(1)
+  expect(reached(w, notice)).toEqual(notice)
+  const typed = promptRow('The backoff is already configurable, just wire it up')
+  await append($, typed)
   await stepT1($, 5)
 
   expect(asked(w)).toHaveLength(2)
-  expect(reached(w, notice)).toEqual(notice)
+  expect(reached(w, typed)).toEqual(typed)
   expect(midruns(w).map((d) => [d.step, d.from, d.to, d.reason, d.applied])).toEqual([
     [1, 'medium', 'high', 'same-failure', true],
     [4, 'high', 'medium', 'cause-found', true],
@@ -683,8 +764,9 @@ test('gapOk、notesLeft、carriesNote', () => {
   expect([gapOk(m({}), j(0)), gapOk(m({ lastShiftAt: 2 }), j(4)), gapOk(m({ lastShiftAt: 2 }), j(5))]).toEqual([true, false, true])
   const cfg = readConfig({ midrunMaxNotes: 4 })
   expect([notesLeft(m({ notes: 1 }), cfg), notesLeft(m({ notes: 4 }), cfg), notesLeft(m({ notes: 6 }), cfg)]).toEqual([3, 0, 0])
-  const kinds = ['receipt', 'script-result-poll', 'script-result-delivery', 'inner-call', 'tool-result', 'new-input', 'assistant', 'other'] as const
+  const kinds = ['receipt', 'script-result-poll', 'script-result-delivery', 'inner-call', 'tool-result', 'new-input', 'delivered-input', 'assistant', 'other'] as const
   expect(kinds.filter(carriesNote)).toEqual(['receipt', 'script-result-poll', 'tool-result'])
+  expect(kinds.map(carrierOf)).toEqual(['row', 'row', 'queue', null, 'row', 'input', 'queue', null, null])
 })
 
 test('isCheckpoint：0 关掉按数的检查，失败成簇照样算；Code Mode 里普通结果行不算；说明用完只剩新输入', () => {
@@ -707,4 +789,7 @@ test('isCheckpoint：0 关掉按数的检查，失败成簇照样算；Code Mode
   expect(isCheckpoint('tool-result', j({ consecutiveFailures: 2 }), spent, on, false)).toBe(false)
   expect(isCheckpoint('new-input', j(), spent, on, true)).toBe(true)
   expect(isCheckpoint('new-input', j(), spent, off, false)).toBe(true)
+  // Input by delivery is a checkpoint in both kinds of session, but needs a note like a result does.
+  expect([isCheckpoint('delivered-input', j(), fresh, off, true), isCheckpoint('delivered-input', j(), fresh, off, false)]).toEqual([true, true])
+  expect(isCheckpoint('delivered-input', j(), spent, on, true)).toBe(false)
 })
