@@ -38,6 +38,12 @@ export type WorldOptions = {
   surfaces?: string[]
   /** $ calls to answer with { deny }, so the mod's call rejects: ui.status, store.get, store.set, command.register, session.surfaces. */
   refuse?: string[]
+  /**
+   * Runs inside the engine's prompt.submit, before it answers. The engine starts a message's turn there
+   * (turn.start inside prompt.submit's next(e), with the text that reached it; measured on 2.1.327), so a
+   * test raises turn.start from here. Returning { drop } refuses the prompt.
+   */
+  onSubmit?: (e: { text: string; turnId: string | undefined }) => unknown
 }
 
 export type SentStep = { turnId: string; index: number; effort: unknown; model: string; agentId: string | undefined }
@@ -132,8 +138,10 @@ export function world(on: On, o: WorldOptions = {}) {
 
   // The engine events, at the bottom of each chain: what arrives here is what the mod passed on.
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
-  on('prompt.submit', (_$, e) => {
+  on('prompt.submit', async (_$, e) => {
     submitted.push({ text: e.text, context: e.context, origin: e.origin })
+    const r = await o.onSubmit?.({ text: e.text, turnId: e.turnId })
+    if (r !== null && typeof r === 'object' && 'drop' in r && typeof r.drop === 'string') return { drop: r.drop }
     return { text: e.text, context: e.context }
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
@@ -182,8 +190,9 @@ export function start($: Engine) {
   return $.session.start({ cwd: '/work', surface: 'terminal', isInteractive: true })
 }
 
-export function submit($: Engine, text: string, origin: PromptOrigin = { kind: 'composer' }) {
-  return $.prompt.submit({ text, wait: false, origin })
+/** turnId: the running turn a prompt typed over it is delivered into. */
+export function submit($: Engine, text: string, origin: PromptOrigin = { kind: 'composer' }, o: { turnId?: string } = {}) {
+  return $.prompt.submit({ text, wait: false, origin, ...(o.turnId === undefined ? {} : { turnId: o.turnId }) })
 }
 
 export function turnStart($: Engine, turnId: string, text: string, agentId?: string) {

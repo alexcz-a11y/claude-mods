@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import type { MockClock } from 'claude-code/testing'
+import type { Engine, MockClock } from 'claude-code/testing'
 
 import { DREX_URL } from '../hooks/backend.ts'
 import { START } from '../hooks/decide.ts'
@@ -29,16 +29,24 @@ const answering =
   ({ body }: { body: any }) =>
     drexOk('continues' in body.questions ? { ...a, continues: noul(continues) } : a)
 
+// The engine starts a message's turn inside prompt.submit's next(e), with the text that reached the
+// bottom (measured on 2.1.327). A world given onSubmit: turns($) does the same: each prompt that reaches
+// its prompt.submit raises turn.start there, as t1, t2, … in order; one delivered into a running turn
+// (turnId set) starts none.
+function turns($: Engine) {
+  let n = 0
+  return (e: { text: string; turnId: string | undefined }) => (e.turnId === undefined ? turnStart($, `t${++n}`, e.text) : undefined)
+}
+
 const TASK = 'Fix the flaky retry in the uploader'
 const OPUS = 'claude-opus-5-5'
 
 // The brief's nine.
 
 test('人发的消息：发一个请求，之后每一步都是决定的档，模型不变', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   for (const index of [0, 1, 2]) await step($, { turnId: 't1', index, effort: 'medium' })
 
   expect(w.fetched).toHaveLength(1)
@@ -79,14 +87,12 @@ test('人发的消息：发一个请求，之后每一步都是决定的档，�
 })
 
 test('task-notification、peer 开始的轮不判断', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
   await start($)
   await submit($, 'Background task finished', { kind: 'task-notification' })
-  await turnStart($, 't1', 'Background task finished')
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   await complete($, 't1')
   await submit($, 'Another session says hello', { kind: 'peer' })
-  await turnStart($, 't2', 'Another session says hello')
   await step($, { turnId: 't2', index: 0, effort: 'low' })
 
   expect(w.fetched).toHaveLength(0)
@@ -96,10 +102,9 @@ test('task-notification、peer 开始的轮不判断', { options: KEYS }, async 
 })
 
 test('没有密钥：不发请求，effort 不变（Review Focus 1）', { options: {} }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   await step($, { turnId: 't1', index: 1, effort: 'medium' })
 
@@ -111,10 +116,9 @@ test('没有密钥：不发请求，effort 不变（Review Focus 1）', { option
 })
 
 test('回答缺题：effort 不变，记录里 failure 是 bad-answer（Review Focus 2）', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk({ open: RAISE.open, mechanical: RAISE.mechanical }) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk({ open: RAISE.open, mechanical: RAISE.mechanical }) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   await step($, { turnId: 't1', index: 1, effort: 'medium' })
 
@@ -127,15 +131,13 @@ test('回答缺题：effort 不变，记录里 failure 是 bad-answer（Review F
 })
 
 test('e.effort 缺省或是数字：原样放行（Review Focus 3）', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: answering(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: answering(RAISE) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0 })
   await step($, { turnId: 't1', index: 1, effort: 31999 })
   await complete($, 't1')
   await submit($, 'Now the downloader')
-  await turnStart($, 't2', 'Now the downloader')
   await step($, { turnId: 't2', index: 0, effort: 31999 })
   await step($, { turnId: 't2', index: 1 })
 
@@ -154,6 +156,7 @@ test('e.effort 缺省或是数字：原样放行（Review Focus 3）', { options
 test('到时限放行', { options: KEYS }, async ($, on) => {
   const late: { clock: MockClock | null } = { clock: null }
   const w = world(on, {
+    onSubmit: turns($),
     answer: async () => {
       await late.clock!.sleep(60_000)
       return drexOk(RAISE)
@@ -165,7 +168,6 @@ test('到时限放行', { options: KEYS }, async ($, on) => {
   await w.clock.settle()
   await w.clock.advance(4000)
   await sent
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   await step($, { turnId: 't1', index: 1, effort: 'medium' })
 
@@ -179,10 +181,9 @@ test('到时限放行', { options: KEYS }, async ($, on) => {
 })
 
 test('shadow：发请求、记一条，但 effort 不变', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   await step($, { turnId: 't1', index: 1, effort: 'medium' })
 
@@ -193,14 +194,12 @@ test('shadow：发请求、记一条，但 effort 不变', { options: { ...KEYS,
 })
 
 test('续做：上一轮定在 xhigh，这一条 continues 为是，从 xhigh 起算', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: ({ body }) => drexOk('continues' in body.questions ? { ...HOLD, continues: noul(0.9) } : TO_XHIGH) })
+  const w = world(on, { onSubmit: turns($), answer: ({ body }) => drexOk('continues' in body.questions ? { ...HOLD, continues: noul(0.9) } : TO_XHIGH) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   await complete($, 't1', { answer: 'I found the race in the retry loop. Shall I apply the fix?' })
   await submit($, 'yes, go on')
-  await turnStart($, 't2', 'yes, go on')
   await step($, { turnId: 't2', index: 0, effort: 'medium' })
   await step($, { turnId: 't2', index: 1, effort: 'medium' })
 
@@ -222,15 +221,13 @@ test('续做：上一轮定在 xhigh，这一条 continues 为是，从 xhigh �
 })
 
 test('一轮被打断后，下一轮不带着上一轮的档位', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: ({ body }) => drexOk('continues' in body.questions ? { ...HOLD, continues: noul(0.1) } : TO_XHIGH) })
+  const w = world(on, { onSubmit: turns($), answer: ({ body }) => drexOk('continues' in body.questions ? { ...HOLD, continues: noul(0.1) } : TO_XHIGH) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   await step($, { turnId: 't1', index: 1, effort: 'medium' })
   await complete($, 't1', { isAborted: true })
   await submit($, 'Stop that, look at the logs instead')
-  await turnStart($, 't2', 'Stop that, look at the logs instead')
   await step($, { turnId: 't2', index: 0, effort: 'medium' })
   await step($, { turnId: 't2', index: 1, effort: 'medium' })
 
@@ -245,14 +242,12 @@ test('一轮被打断后，下一轮不带着上一轮的档位', { options: KEY
 // What the nine do not reach.
 
 test('sdk 和 bridge 发来的消息照样判断', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: answering(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: answering(RAISE) })
   await start($)
   await submit($, TASK, { kind: 'sdk' })
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   await complete($, 't1')
   await submit($, 'Now the downloader', { kind: 'bridge' })
-  await turnStart($, 't2', 'Now the downloader')
   await step($, { turnId: 't2', index: 0, effort: 'medium' })
 
   expect(w.fetched).toHaveLength(2)
@@ -262,10 +257,9 @@ test('sdk 和 bridge 发来的消息照样判断', { options: KEYS }, async ($, 
 })
 
 test('enabled 关着：不发请求，effort 不变', { options: { ...KEYS, enabled: false } }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   expect(w.submitted.map((s) => s.text)).toEqual([TASK])
   expect(w.fetched).toHaveLength(0)
@@ -274,10 +268,9 @@ test('enabled 关着：不发请求，effort 不变', { options: { ...KEYS, enab
 })
 
 test('submitShift 关着：不发请求，effort 不变', { options: { ...KEYS, submitShift: false } }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   expect(w.submitted.map((s) => s.text)).toEqual([TASK])
   expect(w.fetched).toHaveLength(0)
@@ -286,11 +279,10 @@ test('submitShift 关着：不发请求，effort 不变', { options: { ...KEYS, 
 })
 
 test('锁定时不判断，每步是锁定的档', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
   await start($)
   await dp($, 'lock low')
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   await step($, { turnId: 't1', index: 1, effort: 'medium' })
   expect(w.fetched).toHaveLength(0)
@@ -299,15 +291,13 @@ test('锁定时不判断，每步是锁定的档', { options: KEYS }, async ($, 
 })
 
 test('判断结果只用一次：下一轮没有新判断时不沿用', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   await complete($, 't1')
   // A turn no person started: nothing is asked, and the last decision is not taken up again.
   await submit($, 'Background task finished', { kind: 'task-notification' })
-  await turnStart($, 't2', 'Background task finished')
   await step($, { turnId: 't2', index: 0, effort: 'medium' })
   await step($, { turnId: 't2', index: 1, effort: 'medium' })
 
@@ -318,10 +308,9 @@ test('判断结果只用一次：下一轮没有新判断时不沿用', { option
 })
 
 test('agent 的轮不碰主循环的 turn 和 previous', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   const before = w.stateWrites.length
   await turnStart($, 'a1', 'Read the uploader and list its retries', 'agent-1')
@@ -341,7 +330,7 @@ test('agent 的轮不碰主循环的 turn 和 previous', { options: KEYS }, asyn
 })
 
 test('turn.complete：每种结束方式记下的上一轮', { options: KEYS }, async ($, on) => {
-  const w = world(on)
+  const w = world(on, { onSubmit: turns($) })
   await start($)
   const endings = [
     [{ reason: 'answer' }, 'answered'],
@@ -350,9 +339,8 @@ test('turn.complete：每种结束方式记下的上一轮', { options: KEYS }, 
     [{ reason: 'refusal' }, 'error'],
   ] as const
   for (const [i, [how, ended]] of endings.entries()) {
-    const id = `t${i}`
+    const id = `t${i + 1}`
     await submit($, `message ${i}`, { kind: 'peer' })
-    await turnStart($, id, `message ${i}`)
     await step($, { turnId: id, index: 0, effort: 'medium' })
     await complete($, id, { answer: `reply ${i}`, ...how })
     expect(session(w).previous).toEqual({ request: `message ${i}`, lastReply: `reply ${i}`, ended, level: null })
@@ -363,10 +351,9 @@ test('turn.complete：每种结束方式记下的上一轮', { options: KEYS }, 
 })
 
 test('turn.complete：上一轮的回答只留 300 token', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   const long = 'The retry loop reads the stale socket. '.repeat(200) + 'Shall I fix it?'
   await complete($, 't1', { answer: long })
@@ -377,10 +364,9 @@ test('turn.complete：上一轮的回答只留 300 token', { options: KEYS }, as
 })
 
 test('一轮中间再来一次 session.start（热重载）：决定的档照旧', { options: KEYS }, async ($, on) => {
-  const w = world(on, { answer: () => drexOk(RAISE) })
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
   await start($)
   await submit($, TASK)
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   await start($)
   await step($, { turnId: 't1', index: 1, effort: 'medium' })
@@ -392,6 +378,7 @@ test('一轮中间再来一次 session.start（热重载）：决定的档照旧
 test('判断还在等回答时 /dp lock：锁定和判断结果都留下', { options: KEYS }, async ($, on) => {
   const late: { clock: MockClock | null } = { clock: null }
   const w = world(on, {
+    onSubmit: turns($),
     answer: async () => {
       await late.clock!.sleep(1000)
       return drexOk(RAISE)
@@ -405,7 +392,6 @@ test('判断还在等回答时 /dp lock：锁定和判断结果都留下', { opt
   await w.clock.advance(1000)
   await sent
   expect(session(w)).toMatchObject({ lock: 'xhigh', pending: { request: TASK, result: { ok: true } } })
-  await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   // The lock wins over the decision, which is recorded as not applied.
   expect(efforts(w)).toEqual(['xhigh'])
@@ -421,4 +407,78 @@ test('hook 出错时放行，并在 debug 日志里写一行（只有 hook 名�
   expect(w.debugLogs[0]).toContain('session.start')
   expect(w.debugLogs[0]).toContain('refused by the test')
   expect(w.logs).toEqual(w.debugLogs)
+})
+
+// A decision belongs to the turn its own message started (controller ruling after Task 6's first review).
+
+test('被丢掉的消息不留判断：下一轮（别的文字开始的）按会话的档走，不记决策', { options: KEYS }, async ($, on) => {
+  const next = turns($)
+  const w = world(on, {
+    answer: () => drexOk(RAISE),
+    onSubmit: (e) => (e.text === TASK ? { drop: 'blocked by a hook below' } : next(e)),
+  })
+  await start($)
+  const r = await submit($, TASK)
+  expect(r).toMatchObject({ drop: 'blocked by a hook below' })
+  // It was asked, and the pending it left is gone once the drop came back.
+  expect(w.fetched).toHaveLength(1)
+  expect(session(w).pending).toBeNull()
+  await submit($, 'Background task finished', { kind: 'task-notification' })
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  await step($, { turnId: 't1', index: 1, effort: 'medium' })
+
+  expect(w.submitted.map((s) => s.text)).toEqual([TASK, 'Background task finished'])
+  expect(efforts(w)).toEqual(['medium', 'medium'])
+  expect(logged(w)).toHaveLength(0)
+})
+
+test('开始这一轮的文字和判断时的消息不同：清掉判断，不用它', { options: KEYS }, async ($, on) => {
+  const w = world(on, {
+    answer: () => drexOk(RAISE),
+    // A hook below rewrote the text: the turn that starts is not the message that was judged.
+    onSubmit: (e) => turnStart($, 't1', e.text + ' (rewritten below)'),
+  })
+  await start($)
+  await submit($, TASK)
+  expect(w.fetched).toHaveLength(1)
+  expect(session(w).pending).toBeNull()
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  await step($, { turnId: 't1', index: 1, effort: 'medium' })
+
+  expect(efforts(w)).toEqual(['medium', 'medium'])
+  expect(logged(w)).toHaveLength(0)
+  // The turn itself is kept, with the text it started with.
+  expect(w.stateWrites.filter((s) => s.key === 'turn' && s.isSet).at(-1)?.value).toMatchObject({ turnId: 't1', request: TASK + ' (rewritten below)', wanted: null })
+})
+
+test('第 0 步的轮没见过 turn.start：判断丢掉，不套到这一轮上', { options: KEYS }, async ($, on) => {
+  // No onSubmit: nothing raises turn.start, so the step's turn is not the one the message started.
+  const w = world(on, { answer: () => drexOk(RAISE) })
+  await start($)
+  await submit($, TASK)
+  expect(session(w).pending).toMatchObject({ request: TASK })
+  await step($, { turnId: 't9', index: 0, effort: 'medium' })
+  await step($, { turnId: 't9', index: 1, effort: 'medium' })
+
+  expect(efforts(w)).toEqual(['medium', 'medium'])
+  expect(logged(w)).toHaveLength(0)
+  expect(session(w).pending).toBeNull()
+})
+
+test('送进正在跑的一轮的消息（e.turnId 有值）：不发请求，不留判断', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  const writes = w.stateWrites.length
+  // Delivered into t1, so no turn starts for it: the mid-run check covers such input, not this hook.
+  await submit($, 'also check the docs', { kind: 'composer' }, { turnId: 't1' })
+  expect(w.submitted.map((s) => s.text)).toEqual([TASK, 'also check the docs'])
+  expect(w.fetched).toHaveLength(1)
+  expect(w.stateWrites.slice(writes)).toEqual([])
+  await step($, { turnId: 't1', index: 1, effort: 'medium' })
+
+  // The running turn keeps the level its own message decided.
+  expect(efforts(w)).toEqual(['high', 'high'])
+  expect(logged(w).map((d) => d.turnId)).toEqual(['t1'])
 })

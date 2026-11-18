@@ -127,8 +127,11 @@ async function answerDp($: EngineInterface, cfg: Config, args: string): Promise<
 
 // The judgement when a person sends a message. The level itself is settled at the turn's first step,
 // which is the first place the session's own effort can be read.
-async function judgeMessage($: EngineInterface, cfg: Config, text: string, origin: string | undefined): Promise<null> {
-  if (!cfg.enabled || !cfg.submitShift || origin === undefined || !PERSON.includes(origin)) return null
+async function judgeMessage($: EngineInterface, cfg: Config, m: { text: string; origin: string | undefined; turnId: string | undefined }): Promise<null> {
+  if (!cfg.enabled || !cfg.submitShift || m.origin === undefined || !PERSON.includes(m.origin)) return null
+  // A prompt delivered into a running turn starts no turn of its own: the mid-run check covers it.
+  if (m.turnId !== undefined) return null
+  const text = m.text
   const session = await read($, SESSION)
   if (session.lock !== null) return null
   // Every question this message is asked goes into the one map and the one request; each part then
@@ -137,6 +140,22 @@ async function judgeMessage($: EngineInterface, cfg: Config, text: string, origi
   const state = submitState({ request: text, previous: session.previous })
   const result = await ask(ioOf($), cfg, { state, questions }, cfg.submitTimeoutMs)
   await update($, SESSION, (s) => ({ ...s, pending: { request: text, result } }))
+  return null
+}
+
+// A message that did not go in starts no turn, so its decision goes with it.
+async function dropPending($: EngineInterface): Promise<null> {
+  await update($, SESSION, (s) => ({ ...s, pending: null }))
+  return null
+}
+
+// A main-loop turn begins. The engine raises turn.start inside prompt.submit's next(e), with the text
+// prompt.submit passed down (measured on 2.1.327): the pending decision is kept only for the turn its own
+// message starts, and dropped for any other.
+async function startTurn($: EngineInterface, turnId: string, text: string): Promise<null> {
+  const { pending } = await read($, SESSION)
+  if (pending !== null && pending.request !== text) await update($, SESSION, (s) => ({ ...s, pending: null }))
+  await update($, TURN, () => newTurn(turnId, text))
   return null
 }
 
@@ -192,10 +211,12 @@ async function takePending($: EngineInterface, cfg: Config, e: TurnStepInput, se
   const pending = session.pending
   if (pending === null) return own
   await update($, SESSION, (s) => ({ ...s, pending: null }))
+  // Only the turn the message started takes its decision; one that cannot be bound to it is dropped.
+  if (own === null || own.request !== pending.request) return own
   const at = await $.clock.now()
   const writes = cfg.enabled && cfg.mode === 'apply' && session.lock === null
   const s = settle(pending.result, { effort: e.effort, previousLevel: session.previous?.level ?? null, writes, turnId: e.turnId, id: decisionId(at), at })
-  const turn: TurnState = { ...(own ?? newTurn(e.turnId, pending.request)), base: s.base, wanted: s.wanted }
+  const turn: TurnState = { ...own, base: s.base, wanted: s.wanted }
   await update($, TURN, () => turn)
   await record($, s.decision)
   return turn
@@ -249,19 +270,21 @@ export const register: Register = (on, options) => {
     return answer ?? next(e)
   })
 
-  // The person is waiting for the message to go in: the one ask() is the only wait here.
+  // The person is waiting for the message to go in: the one ask() is the only wait here. The pending
+  // decision is written before next(e), inside which the engine starts the message's turn.
   on('prompt.submit', async ($, e, next) => {
-    await failOpen($, 'prompt.submit', null, () => judgeMessage($, cfg, e.text, e.origin?.kind))
-    return next(e)
+    await failOpen($, 'prompt.submit', null, () => judgeMessage($, cfg, { text: e.text, origin: e.origin?.kind, turnId: e.turnId }))
+    const r = await next(e)
+    if (r.drop !== undefined) await failOpen($, 'prompt.submit', null, () => dropPending($))
+    return r
   })
 
   on('turn.start', async ($, e, next) => {
     await failOpen($, 'turn.start', null, async () => {
       // A subagent's turns are its own: the main loop's turn is not touched by them.
       if (e.agentId !== undefined) return null
-      // The message's decision stays pending: the first step takes it, once the effort is known.
-      await update($, TURN, () => newTurn(e.turnId, e.text))
-      return null
+      // A decision that stays pending is taken by this turn's first step, once the effort is known.
+      return startTurn($, e.turnId, e.text)
     })
     return next(e)
   })
