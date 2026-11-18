@@ -1,6 +1,6 @@
 # dispatch-pilot 重写：原生适配 Code Mode（设计）
 
-日期：2026-11-17　分支：`dp/rewrite`　Claude Code：2.1.327　修订：2026-11-18（两次）
+日期：2026-11-17　分支：`dp/rewrite`　Claude Code：2.1.327　修订：2026-11-18
 
 ## 1. 意图
 
@@ -27,6 +27,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 - 给脚本内部的工具调用加等待。
 - 换主 agent 的模型，或以别的方式让主 agent 的 prompt cache 失效。
 - 决策模型不可用时卡住用户的消息。
+- 打开 OpenTelemetry，或把会话内容、请求内容发到两家决策模型接口以外的任何地方。
 
 ## 3. 约束
 
@@ -34,15 +35,15 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 
 - Code Mode 是实验功能，只在有 TUI 的交互终端里可用，`claude -p` 这类方式不生效。
 - 2.1.326 及以前，它不和挂了 `tool.call`、`agent.spawn` 等事件的 mod 一起开。2.1.327 起不再因此拒绝启动（release note："Changed Code Mode to no longer refuse to start when an installed mod hooks tool calls"）；实测见 3.2 节 E10 到 E12。本 mod 因此要求 2.1.327 及以上。
-- 打开 OpenTelemetry（`CLAUDE_CODE_ENABLE_TELEMETRY`）的会话里 Code Mode 不可用，引擎改用普通工具（2.1.327 启动提示）。这种会话按普通会话处理。
+- 不论普通会话还是 Code Mode 会话，都不打开 OpenTelemetry（用户 2026-11-18 的要求，避免泄漏隐私）。mod 自己不开，测试和校准也不开。另一个事实：开了它的会话里 Code Mode 不可用（2.1.327 启动提示）。
 - 本设计仍不注册 `tool.call` 一类的事件，也不用 `$.tool.register`：依据从结果行读（5.4 节），脚本内部的调用上不挂任何 hook，也就不会给它们加等待。
 - Anthropic 没有专讲 Claude Code Code Mode 的博客，官方只有文档页（https://code.claude.com/docs/en/code-mode ）和 changelog。收益来自更少的固定工具说明和不进上下文的中间结果。本设计按第 2 节的反目标来保护它。
 
-### 3.2 引擎行为（E1 到 E9：2.1.326，2026-11-17；E6 和 E10 到 E17：2.1.327，2026-11-18。都用一次性探针在 tmux 里的交互会话实测，探针不进仓库）
+### 3.2 引擎行为（E1 到 E9：2.1.326，2026-11-17；E6 和 E10 到 E18：2.1.327，2026-11-18。都用一次性探针在 tmux 里的交互会话实测，探针不进仓库）
 
 | # | 行为 | 普通会话 | Code Mode 会话 |
 |---|---|---|---|
-| E1 | 挂了 5.1 节全部九个事件的 mod 不挡 Code Mode；`prompt.submit`、`prompt.attachment`（`skill_listing`）、`turn.start`、`turn.step`、`session.append`、`turn.complete`、`command.run` 在 Code Mode 会话里都实际触发过，`skill.prompt` 只验证了注册不挡 | — | 已测 |
+| E1 | 只挂 `session.start`、`command.run`、`prompt.submit`、`prompt.attachment`（`skill_listing`）、`skill.prompt`、`turn.start`、`turn.step`、`session.append`、`turn.complete` 这九个事件的 mod 不挡 Code Mode（2.1.326）。除 `skill.prompt` 只验证了注册不挡以外，都在 Code Mode 会话里实际触发过 | — | 已测 |
 | E2 | agent 的 `turn.start` 上 `e.text` 是派出时的任务原文，`e.agentId` 是它的 id | 已测 | 已测 |
 | E3 | agent 的 `turn.step` 上 `next({ ...e, model })` 生效：`$.agent.list()` 的 `lastRequest.model` 是改后的模型（Sonnet 5.5 改 Haiku 5.5）。改写只管一步，每步都要重写 | 已测 | 未单独测（同一引擎路径） |
 | E4 | 在只带工具结果的步上改 `effort` 不发出：`lastRequest.effort` 仍是原档 | 已测（agent 循环） | — |
@@ -56,8 +57,8 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 | E12 | Code Mode 下脚本内部的每次调用各触发一次 `tool.call`（`Read`、`Agent`，以及 agent 自己的 `Bash`）；外层的 `REPL` 没有触发 | — | 已测 |
 | E13 | Code Mode 下一次脚本的顺序：`REPL` 的结果行立刻回来，内容只是 `(dispatched #N)`；脚本结束后，结果作为一个事件到达。模型这一步没有同时调 `Poll` 时，结果在 `delivery` 行里（一条 attachment）；调了 `Poll` 时，结果在 `Poll` 的结果行里，`delivery` 行是空的。之后才有下一个 `turn.step`。`delivery` 行带不了换挡：它到达后改的档位不发出，往它里面加的文字（新加一块或接在原有文字后面）也不会存下、不会发出 | — | 已测 |
 | E14 | 请求带上了新档，不等于模型的做法跟着变。读数确认请求已从 `low` 变成 `xhigh` 之后，每步的输出量仍接近一直是 `low` 的基线，低于从头就是 `xhigh` 的基线。只测了一道逐步重复的算术题、Sonnet 5.5、每种各一次；输出量本身也不是可靠的指标，效果要用任务结果来验（第 8 节） | 已测 | 已测 |
-| E15 | 每次请求实际带的档位有三种读法，实测逐次一致。(1) mod 挂 `http.fetch`：引擎每发一次模型请求都触发它（类型文件："Every model request the engine sends raises this event too, with `next.origin.plugin` \"engine\", once per send"），`e.init.body` 是发出去的请求体，读其中顶层的 `output_config.effort`；凭据头对 hook 显示为 `[redacted]`。这是线上的值，也是有文档的做法；组织的守卫插件加载时，只有组织自己的 mod 看得到引擎请求。(2) 会话记录文件里 `type` 为 `api-request` 的行的 `params.output_config.effort`：没有文档，格式是内部的。(3) OpenTelemetry `api_request` 事件的 `effort`：有文档，但只能用在普通会话（E16） | 已测 | 已测（前两种） |
-| E16 | 走不通的读数：打开 OpenTelemetry 会关掉 Code Mode；已安装的 mod 不能挂 `anthropic` 遥测流；`$.model.fork` 返回的 `effort` 是会话的档位，不反映 hook 的改写；`CLAUDE_EFFORT` 同样不反映（E9） | 已测 | 已测 |
+| E15 | 每次请求实际带的档位，由 mod 挂 `http.fetch` 来读：引擎每发一次模型请求都触发它（类型文件："Every model request the engine sends raises this event too, with `next.origin.plugin` \"engine\", once per send"），`e.init.body` 是发出去的请求体，读其中顶层的 `output_config.effort`。凭据头对 hook 显示为 `[redacted]`。挂它不挡 Code Mode。组织的守卫插件加载时，只有组织自己的 mod 看得到引擎请求。会话记录文件里 `type` 为 `api-request` 的行也带 `params.output_config.effort`，逐次和它一致，但那是没有文档的内部格式，只作旁证 | 已测（会话记录） | 已测（两种都测了） |
+| E16 | 不能用的读数：`$.model.fork` 返回的 `effort` 是会话的档位，不反映 hook 的改写；`CLAUDE_EFFORT` 同样不反映（E9）；`$.agent.list()` 的 `lastRequest` 只有 agent 有，主循环没有。OpenTelemetry 的 `api_request` 事件带 `effort`，2026-11-18 的探针用它对照过一次（数据只发到本机的监听器，抓到的文件已删除），按 3.1 节以后不再使用 | 已测 | 已测 |
 | E17 | 中途换档不丢缓存：换档前后每次请求读到的缓存量连续增长，没有重写整段对话（Sonnet 5.5，订阅登录） | 已测 | 已测 |
 | E18 | 本机三个真实的 Code Mode 会话（Fable 5.2）里，脚本结果有 307 次在 `Poll` 的结果行里到达，9 次在 `delivery` 行里到达 | — | 统计自会话记录 |
 
@@ -68,7 +69,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 ### 3.3 缓存
 
 - 官方文档：在 Fable 5.1 及以后、Opus 5.5、Sonnet 5.5、Haiku 5.5 上用 API key 或订阅时，换 effort 不丢缓存；换模型会丢。Bedrock、Google Cloud、网关上换 effort 也会丢。
-- 主 agent 的模型永不改写。agent 的模型只在它第一步之前定一次，之后每步写同一个值。
+- 主 agent 的模型永不改写。agent 的模型只在派出时定一次（`agent.spawn`），之后不再改。
 - skill 列表的替换文字是固定的一句，回答稳定，只在第一次请求时改变一次前缀。
 
 ### 3.4 决策模型官方文档
@@ -166,6 +167,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 | `turn.step` | 每步写 effort；agent 每步写派出时定下的 effort |
 | `session.append` | 读每步的结果行作为依据；到检查点时判断，要换挡就在结果行上加说明 |
 | `turn.complete` | 收尾：清这一轮的计数 |
+| `http.fetch` | 读引擎每次模型请求实际带的档位（5.12 节），只读不改 |
 | `command.run`（`command: 'dp'`） | `/dp` |
 
 不注册 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send` 和 `classic.*`，不调用 `$.tool.register`。
@@ -200,7 +202,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 - 依据来自 `session.append` 的行：这一轮里每步用了哪些工具、是否报错、结果文字的开头（Code Mode 下是带着脚本结果的那一行的文字，也就是 `Poll` 的结果行或 `delivery` 行，以及脚本内部调用行的工具名和报错标记，见 E7 和 E13）。
 - 判断的时机是一份结果到了模型手里、模型还没发下一次请求的那一刻，不在脚本运行中途。脚本是一个整体：模型要等结果回来才会发下一次请求，effort 也只在那次请求上起作用，中途换了也要等整个脚本跑完才用得上（E13）。
 - 检查点（到了才问决策模型）：
-  - Code Mode 会话：每当一次脚本的结果到达，就是一个检查点。`REPL` 那条只写着 `(dispatched #N)` 的结果行不是检查点。脚本里的失败已经写在脚本的结果里，不另外数。
+  - Code Mode 会话：每到达 N 次脚本结果是一个检查点（`midrunEveryScripts`，默认 1，也就是每次都判断；0 为关闭）。`REPL` 那条只写着 `(dispatched #N)` 的结果行不算。脚本里的失败已经写在脚本的结果里，不另外数。
     - 结果在 `Poll` 的结果行里（绝大多数情况，E18）：在这一行上判断，要换挡就把说明加在这一行，下一次请求就是新档。
     - 结果在 `delivery` 行里（模型这一步没调 `Poll`）：这一行带不了换挡（E13）。照常判断并记下结果，说明加在之后第一条 `REPL` 或 `Poll` 的结果行上，所以新档晚一次请求生效。
   - 普通会话：代码数到失败成簇（同一处报错在一次修改之后再次出现，或连续两步报错），或距离上一个检查点满 N 个工作步（`midrunEverySteps`，默认 8，0 为关闭）。
@@ -236,7 +238,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 - 核对回答：Drex 回答里的 `model` 和 `drexModel` 不一致时，这次调用记为错误并按失败处理（Nace skill）。Jev 用的是别名，不做这条核对，只记下实际版本（第 8 节）。每道题都要带着要求的类型回来，缺题或类型不对按失败处理。失败记录带上 `request_id`，不记密钥，也不记可能回显 state 的错误正文。
 - 每次判断有总时限，到时放行：发消息 4 秒，中途检查点 2 秒，agent 3 秒，可配置。这比 Nace 建议的 60 秒客户端超时短，是有意的：用户在等。Nace 的 skill 对等不起的请求路径写的是 "a shorter total budget wins over the 60-second floor"，到时按失败处理。超时的请求不重试。
 - 发给决策模型的内容：用户的消息、近况和最近几步的摘要（含工具结果文字的开头），按 5.2 节的上限截断，不脱敏。这沿用用户此前对脚本结果的决定。除两家决策模型的接口外不向任何地方发送。
-- 每条决策记录写下：时间、哪一项换挡、题的原始回答（分布和 noul 值）、门槛、结果、回答里的 `model` 字段、耗时、是否放行。存进 `$.store`，只留最近 200 条。
+- 每条决策记录写下：时间、哪一项换挡、题的原始回答（分布和 noul 值）、门槛、结果、回答里的 `model` 字段、耗时、是否放行，以及之后那次请求实际带的档位（5.12 节）。存进 `$.store`，只留最近 200 条。
 
 ### 5.8 状态
 
@@ -246,32 +248,44 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 
 ### 5.9 界面和命令
 
-- `$.ui.status` 一行：当前档位，以及最近一次换挡的方向和原因。
-- `/dp`：当前档位、锁定状态、后端、最近 5 条决策。
+- `$.ui.status` 一行：当前档位（取最近一次主循环请求实际带的档位，5.12 节），以及最近一次换挡的方向和原因。
+- `/dp`：mod 要的档位和实际发出的档位、锁定状态、后端、最近 5 条决策。
 - `/dp lock <level>` 和 `/dp unlock`：本会话锁定或解锁档位，锁定时三项 effort 判断都不做。
 - `/dp log [n]`：最近 n 条决策记录，含原始回答。
 - 不做看板 band 和依据面板。
 
 ### 5.10 配置（`userConfig`）
 
-`enabled`、`mode`（`apply` 或 `shadow`，后者只判断和记录、不改任何东西；默认 `apply`）、`backend`、`fallback`（默认开）、`drexApiKey`、`jevApiKey`（sensitive）、`drexModel`、`jevModel`、`midrunEverySteps`、`midrunMaxNotes`、`agentModels`、`fableAgents`（默认关）、三个时限，以及四个布尔开关 `submitShift`、`midrunShift`、`agentShift`、`skills`，分别开关发消息定档、中途换挡、agent 定档和 skill 一组功能，默认都开。没有密钥的后端视为不可用；两个都没有时 mod 什么也不做，并在 `/dp` 里说明。
+`enabled`、`mode`（`apply` 或 `shadow`，后者只判断和记录、不改任何东西；默认 `apply`）、`backend`、`fallback`（默认开）、`drexApiKey`、`jevApiKey`（sensitive）、`drexModel`、`jevModel`、`midrunEverySteps`（普通会话，默认 8）、`midrunEveryScripts`（Code Mode 会话，默认 1）、`midrunMaxNotes`、`verifyEffort`（默认开）、`agentModels`、`fableAgents`（默认关）、三个时限，以及四个布尔开关 `submitShift`、`midrunShift`、`agentShift`、`skills`，分别开关发消息定档、中途换挡、agent 定档和 skill 一组功能，默认都开。没有密钥的后端视为不可用；两个都没有时 mod 什么也不做，并在 `/dp` 里说明。
 
 ### 5.11 放行规则
 
 以下情况一律放行（不改 effort、不改模型、不加说明、不换 skill 列表以外的任何东西），并记一条记录：请求失败、超时、回答缺字段或题的类型不对、Drex 回答的 `model` 和固定版本不一致、模型不接受 effort（`e.effort` 缺省）、`mode` 为 `shadow`。hook 自己抛错时引擎会跳过它，所以每个 hook 的主体都包在一层兜底里，保证总是走到 `next(e)`。
 
+### 5.12 实际发出的档位（运行时读数）
+
+由 `verifyEffort` 控制，默认开；关掉后不注册这个 hook。
+
+- mod 挂 `http.fetch`（E15）。hook 只看 `next.origin.plugin` 为 `engine`、发往 Messages 接口的请求，从请求体里取顶层的 `output_config.effort` 这一个值，然后原样 `next(e)`。请求不改、不拦、不重发；hook 的主体包在兜底里，出错也照样放行。
+- 隐私：请求体只在进程内读，留下的只有档位这一个词。请求体的其他内容不记录、不存储、不发送。凭据头对 hook 本来就是 `[redacted]`。
+- 每次换挡（发消息时定的、中途换的）之后，把主循环下一次请求实际带的档位记进那条决策记录。和 mod 要的档位不一致时记为「未发出」，状态行显示实际的档位。只记录，不重试。
+- 状态行和 `/dp` 里的当前档位取最近一次主循环请求实际带的档位；读不到时显示 mod 要的档位，并标明未核对。
+- agent 用有文档的读数：`$.agent.list()` 里它的 `lastRequest.model` 和 `lastRequest.effort`，在它第一步之后读一次，记进那条决策记录。
+- 读不到的情况：组织的守卫插件加载时 mod 看不到引擎请求；请求体不是文本，或取不出这个字段。这时记为「未核对」，其余功能照常。
+- 开销：每个模型请求多过一道 hook。请求体可能有几百 KB，取值的做法不能明显拖慢请求。
+
 ## 6. 仓库里的变化
 
 - `dispatch-pilot/` 原地替换成新实现，plugin 名不变，版本 `1.0.0`，`engines["claude-code"]` 写 `>=2.1.327`。
 - 删除 `dispatch-pilot-extras/`，同时从 `.claude-plugin/marketplace.json` 去掉它，并更新 dispatch-pilot 的说明。
-- 新写一条 ADR 记这次重写和它取代的旧决定；旧 ADR 保留不动。更新 `GLOSSARY.md` 和 `CLAUDE.md` 里提到两个 plugin 的段落。 `CLAUDE.md` 里讲 Code Mode 事件限制的那一条也按 2.1.327 改。
+- 新写一条 ADR 记这次重写和它取代的旧决定；旧 ADR 保留不动。更新 `GLOSSARY.md` 和 `CLAUDE.md` 里提到两个 plugin 的段落。 `CLAUDE.md` 里讲 Code Mode 事件限制的那一条也按 2.1.327 改，并加一条：任何会话、任何测试都不打开 OpenTelemetry。
 - README 写给使用者：功能、配置、Code Mode 下的行为、测试用的 Claude Code 版本。DEVELOPMENT.md 记第 3.2 节的实测。
 
 ## 7. 测试
 
-- `claude plugin test`：每个 hook 的行为、`decide` 的各种分布、两个后端的请求体和回答解析、放行规则、限制（说明条数、间隔、上限）。`http.fetch` 全部打桩，不联网。
+- `claude plugin test`：每个 hook 的行为、`decide` 的各种分布、两个后端的请求体和回答解析、放行规则、限制（说明条数、间隔、上限）、5.12 节的读数（给 hook 一个来源为 `engine` 的请求，看它记下的档位，并确认请求原样放行）。发往决策模型的 `$.http.fetch` 全部打桩，不联网。
 - 一条静态检查：hooks 模块里没有 `tool.call`、`tool.check`、`tool.run`、`tool.judge`，也没有 `$.tool.register`，以保证不给脚本内部的调用加等待。接进 `scripts/check.sh`。
-- 实机：普通会话和 Code Mode 会话各跑一遍三项换挡和 skill 推荐，记进 DEVELOPMENT.md。换挡有没有发出去，用一个只在测试时加载的小 mod 挂 `http.fetch` 读请求体里的 `output_config.effort`（E15），不用输出量或思考量来推断。
+- 实机：普通会话和 Code Mode 会话各跑一遍三项换挡和 skill 推荐，记进 DEVELOPMENT.md。换挡有没有发出去，看 mod 自己记下的实际档位（5.12 节，`/dp log`），不用输出量或思考量来推断。实机测试不开 OpenTelemetry。
 
 ## 8. 校准（照 3.4 节两家的说法）
 
@@ -296,7 +310,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 - 门槛从保守的初值起步。在调整集上画出概率和正确率的关系，按每种动作出错的代价定（升档、降档、换模型、推荐 skill 各自一张表），再到留出集上核对。一段很宽的门槛范围结果相同时取保守的一端。
 - 不做的事：criteria 里点名用例或为每个失败用例加一句；为解释某次怪回答加说明；让门槛贴着个别用例；测试里断言精确概率（单元测试只用打桩的回答）；用代码悄悄改写回答。回答看着不对时按这个顺序查：实际发出的请求、state、选项、题的范围、措辞。
 - 稳定性：skill 的 Choice 把选项顺序打乱再问一遍，结果变了的用例单独列出；同一请求重复问，看决定会不会变。
-- 中途换挡的验收分两层。发没发出去：读线上请求体里每次请求的档位（E15），这是确定的。有没有用：在真实任务上比较换挡和不换挡两种情况下这一轮的结果（做对没有、用了多少步和多少 token），不用单步的输出量或思考量来判断（E14）。看不出效果时如实写进校准记录并告诉用户，这项功能留不留由用户定。
+- 中途换挡的验收分两层。发没发出去：看 mod 记下的每次请求实际带的档位（5.12 节），这是确定的。有没有用：在真实任务上比较换挡和不换挡两种情况下这一轮的结果（做对没有、用了多少步和多少 token），不用单步的输出量或思考量来判断（E14）。看不出效果时如实写进校准记录并告诉用户，这项功能留不留由用户定。
 
 **版本**
 
@@ -305,6 +319,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 **发真实请求之前**
 
 - 先向用户说明并取得同意：预算、会发送哪些会话内容、用的是用户自己的 Drex 和 Jev 密钥。
+- 校准和实机测试都不打开 OpenTelemetry。
 
 **上线**
 
@@ -314,8 +329,9 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 
 - 各题的具体措辞、各档情形的文字、条件题的最终清单和代码里那张表的具体内容，以校准结果为准；约束见 5.2 节和第 8 节。
 - 一步里有多个并行工具调用时说明加在哪一条结果行上（实测每个结果各有一行）。
-- 一轮中途进来的新输入（用户插话、后台任务通知）那一步改的档位发不发出，还没单独测；按引擎规则应当发出，实施时用 E15 的读数补测。
+- 一轮中途进来的新输入（用户插话、后台任务通知）那一步改的档位发不发出，还没单独测；按引擎规则应当发出，实施时用 5.12 节的读数补测。
 - `agent.spawn` 的 `next` 返回 `agentId` 之后才能按 id 记下 effort。实测它比 agent 的第一个 `turn.step` 早约 70 ms（E11）；实施时要处理万一倒过来的情况。
+- 5.12 节的读数：怎么从引擎的请求里认出主循环的那一次（同一时间还有 agent 的请求和标题、提示建议一类的旁路请求），以及怎么取值才不拖慢请求。实测的线索，都没有文档，不能只靠它们：主循环的请求在它的 `turn.step` 开始后几到二十毫秒内发出；它的请求体带 `thread` 字段，旁路请求不带。认不准时记为「未核对」，不要记错。
 - 主 agent 的中途换挡是必须保留的功能：第 8 节的效果验收不通过时，停下来告诉用户，不要自行降级成做法二。
 - `$.http.fetch` 在 2.1.327 的超时和取消方式，以及时限怎么和 hook 的 10 秒预算配合。
 - 说明行在终端里的显示（E8）要不要改写法。
@@ -326,7 +342,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 1. Drex 作默认，Jev 作另一个后端并在 Drex 失败时接手；接手做成开关 `fallback`，默认开（Nace 的 skill 要求换提供方出自人选定的开关）。核心版没有看图功能，所以没有「带图给 Jev」这条。
 2. `jev-latest` 按用户要求用别名；每条记录写实际版本，和校准时的版本不一致就提示重新校准。TypeSafe 文档的建议是固定版本，可以用 `jevModel` 改。
 3. 题目只问工作本身，档位和模型由代码里的表算出。2026-11-18 对照现行文档核对过：TypeSafe 的 skill（0.6.2 是最新版，这一节是它新加的）和现行文档都这样写；Nace 不反对，但它的例题直接问动作。所以默认不变，校准时拿「直接选档位」的写法作对照。`score` 题只量问题有多开放，不量工作量（TypeSafe：一题一个维度）。门槛初值取 0.7/0.3 的起步值，高档更严，发布前校准；Drex 的门槛不照搬 TypeSafe 的数。
-4. 中途检查点：Code Mode 会话里是每次脚本结果到达时（用户 2026-11-18 的要求），普通会话里是失败成簇和每 8 个工作步，两种会话都算新输入。「每次脚本结果都判断，不再另设间隔」是我对用户要求的理解。一轮最多 4 条说明；中途不升到 `max`。
+4. 中途检查点：Code Mode 会话里每到达 N 次脚本结果判断一次，`midrunEveryScripts` 默认 1（用户 2026-11-18 定）；普通会话里是失败成簇和每 8 个工作步；两种会话都算新输入。一轮最多 4 条说明；中途不升到 `max`。
 5. agent 的模型只往下换、只在把握大时才换，层级 `haiku` < `sonnet` < `opus` < `fable`，不高于主 agent。`fableAgents` 关着时（默认），没有明写模型的 agent 最高到 `opus`；派出时明写的值不改，包括明写的 `fable`。判断在 `agent.spawn` 上做，最多等 3 秒（用户 2026-11-18 同意）。
 6. 时限 4 秒、2 秒、3 秒，短于 Nace 建议的 60 秒（Nace 的 skill 允许等不起的路径用更短的总时限），超时不重试。
 7. 只留状态行和 `/dp`，不做 band 和面板。配置从 40 项减到十几项，加了 `shadow` 模式。
@@ -337,3 +353,5 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 12. 主循环中途换挡若效果验收不通过，停下来问，不自行降级。档位有没有发出去已在两种会话的主循环上直接测到（E6、E15）；一次测试里档位发出去后模型的做法没有明显变化（E14），已告诉用户。
 13. Drex 回答的 `model` 和固定版本不一致时按失败处理并放行（照 Nace 的 skill）；Jev 用别名，只记版本并提示重新校准。
 14. 最低版本提到 2.1.327。不注册 `tool.call`，依据只从结果行读。
+15. 运行时读实际发出的档位，`verifyEffort` 默认开（用户 2026-11-18 定）。我定的细节：只记录和显示，不一致时不重试；状态行显示实际的档位；agent 用 `lastRequest` 读一次；读不到时记「未核对」。
+16. 任何会话都不打开 OpenTelemetry，测试和校准也不开（用户 2026-11-18 定）。
