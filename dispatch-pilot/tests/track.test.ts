@@ -1,7 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 
-import { TRACK_KEEP } from '../hooks/board/model.ts'
+import { TRACK_KEEP, boardModel } from '../hooks/board/model.ts'
+import { readConfig } from '../hooks/config.ts'
 import { openStep, readout } from '../hooks/flows/readout.ts'
 import type { SessionState, TrackCell, TurnState } from '../hooks/state.ts'
 import { assistantToolUse, deliveryResult, replReceipt, scriptByPoll, toolResult } from './support/rows.ts'
@@ -117,9 +118,11 @@ test('模型不收 effort：不开格', { options: KEYS }, async ($, on) => {
   await step($, { turnId: 't1', index: 1 })
   await bash($)
   await step($, { turnId: 't1', index: 2, effort: 31999 })
-  // The turn's rows were read (two work steps), but no step carried a level: no cell, and no level of the session.
-  expect(turnState(w)).toMatchObject({ stepNo: 0, track: [], journal: { workSteps: 2 } })
+  // The work steps are counted (stepNo), but no step carried a level: no cell, and no level of the session.
+  expect(turnState(w)).toMatchObject({ stepNo: 3, track: [], journal: { workSteps: 2 } })
   expect(session(w)).toMatchObject({ turnNo: 1, sessionLevel: null })
+  const m = boardModel(readConfig(KEYS), { session: session(w), turn: turnState(w), recent: [], skills: [] })
+  expect([m.where, m.status.kind, m.next.main]).toEqual(['第 1 轮 · 第 3 步', 'none', '不评估'])
   expect(efforts(w)).toEqual([undefined, undefined, 31999])
 })
 
@@ -181,6 +184,15 @@ test('shadow 模式：想换挡的评估没有执行，下一格记 hold，档�
   expect(judged).toEqual([['submit', 'medium', 'high', false], ['midrun', 'high', 'xhigh', false]])
   expect(cells(w)).toEqual([['medium', 'hold'], ['medium', 'hold']])
   expect(efforts(w)).toEqual(['medium', 'medium'])
+  // The board, once step 1's request is read: the level the steps go at is the engine's, as sent.
+  const f = standIn(seedOf(w))
+  await sendIn(f, { turnId: 't1', index: 1 }, ['medium'])
+  // The turn holds the level the message's evaluation would have set; the board does not show it as the level.
+  expect(f.turn()).toMatchObject({ base: 'medium', wanted: 'high' })
+  const m = boardModel(readConfig({ ...KEYS, mode: 'shadow' }), { session: f.session(), turn: f.turn(), recent: f.recent(), skills: [] })
+  expect([m.wanted, m.sent, m.level, m.status]).toEqual(['medium', 'medium', 'medium', { kind: 'sent', text: '已发出' }])
+  expect(m.last).toMatchObject({ mark: 'hold', text: '想升到 xhigh，未执行' })
+  expect(m.track.at(-1)).toEqual({ level: 'medium', sent: 'medium', mark: 'hold' })
 })
 
 test('verifyEffort 关着：格子照开，sent 一直是 null', { options: { ...KEYS, verifyEffort: false } }, async ($, on) => {

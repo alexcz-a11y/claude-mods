@@ -5,11 +5,12 @@ import { canAsk } from '../backend.ts'
 import type { Backend, Failure } from '../backend.ts'
 import type { Config } from '../config.ts'
 import { START, margins, readNoul } from '../decide.ts'
-import type { Reason } from '../decide.ts'
+import type { Reason, Thresholds } from '../decide.ts'
 import { LEVELS, isLevel } from '../levels.ts'
 import type { Level } from '../levels.ts'
 import type { Decision } from '../log.ts'
 import { notesLeft } from '../midrun.ts'
+import { writtenLevel } from '../submit.ts'
 import type { Skill } from '../skills.ts'
 import type { Mark, SessionState, TrackCell, TurnState } from '../state.ts'
 
@@ -83,13 +84,15 @@ export function markOf(d: Decision): Mark {
 }
 
 /**
- * The turn once a main-loop step goes out at `level` (design 5.14): a new cell when the step starts a work step that has
- * none yet, marked with the evaluation made before it; unchanged for a later step of the work step under way.
+ * The turn once a main-loop step goes out at `level` (design 5.14), when the step starts a work step not counted yet:
+ * stepNo moves on, and a step with a level gets a new cell, marked with the evaluation made before it (a step with none,
+ * on a model that takes no effort, gets no cell and its mark is dropped). Unchanged for a later step of the work step
+ * under way.
  */
-export function openCell(turn: TurnState, level: Level): TurnState {
+export function takeStep(turn: TurnState, level: Level | null): TurnState {
   const done = turn.journal.workSteps
   if (turn.stepNo > done) return turn
-  const track = [...turn.track, { level, sent: null, mark: turn.pendingMark }].slice(-TRACK_KEEP)
+  const track = level === null ? turn.track : [...turn.track, { level, sent: null, mark: turn.pendingMark }].slice(-TRACK_KEEP)
   return { ...turn, track, pendingMark: null, stepNo: done + 1 }
 }
 
@@ -133,10 +136,10 @@ function probsOf(d: Decision): number[] | null {
   return open?.type === 'score' && Array.isArray(open.probabilities) ? [...open.probabilities] : null
 }
 
-function lastOf(cfg: Config, d: Decision): NonNullable<BoardModel['last']> {
+function lastOf(cfg: Config, d: Decision, prefix: string): NonNullable<BoardModel['last']> {
   const mark = markOf(d)
   const name = backendName(d.backend ?? cfg.backend)
-  const at = atStep(d.step)
+  const at = prefix + atStep(d.step)
   if (d.failure !== null) {
     const why = FAILURE_ZH[d.failure] ?? d.failure
     return { at, mark, text: '评估失败，档位不变', probs: null, nouls: [], rules: [`评估失败：${why}，按规则放行`], by: `${name} ${why}` }
@@ -148,13 +151,40 @@ function lastOf(cfg: Config, d: Decision): NonNullable<BoardModel['last']> {
   for (const [id, a] of Object.entries(d.raw ?? {})) {
     if (a?.type === 'noul') nouls.push({ label: NOUL_ZH[id] ?? id, value: a.noul, reading: readNoul(a.noul, bars) })
   }
-  const rules: string[] = []
-  if (probs !== null && isLevel(d.from)) {
-    const m = margins(d.from, probs, bars, d.kind === 'midrun' ? 'xhigh' : 'max')
-    if (m.up !== null) rules.push(`再升一档要上方合计 ≥ ${two(m.up.bar)}，现在 ${two(m.up.sum)}`)
-    if (m.down !== null) rules.push(`降一档要下方合计 ≥ ${two(m.down.bar)}，现在 ${two(m.down.sum)}`)
+  return { at, mark, text: changeText(d, mark), probs, nouls, rules: rulesOf(d, mark, probs, bars), by: `${name} · ${d.ms} ms` }
+}
+
+// How far the rules got (controller ruling, after the prototype). A shift made: the margin for one more level the same
+// way, from the new level, then why this level was reached (the bar the last hop passed, when the open question moved
+// it; else the reason). A hold, or an evaluation not applied: the margins either way from the level it started at.
+function rulesOf(d: Decision, mark: Mark, probs: number[] | null, bars: Thresholds): string[] {
+  if (probs === null || !isLevel(d.from)) return []
+  const cap: Level = d.kind === 'midrun' ? 'xhigh' : 'max'
+  const byOpen = d.reason === 'more-open' || d.reason === 'less-open'
+  const why = d.reason === null ? null : (REASON_ZH[d.reason] ?? d.reason)
+  const out: string[] = []
+  if (mark === 'up' && isLevel(d.to)) {
+    const further = margins(d.to, probs, bars, cap).up
+    if (further !== null) out.push(`再升一档要上方合计 ≥ ${two(further.bar)}，现在 ${two(further.sum)}`)
+    const below = LEVELS[rank(d.to) - 1]
+    const hop = byOpen && below !== undefined ? margins(below, probs, bars, cap).up : null
+    if (hop !== null) out.push(`升到这一档：上方合计 ${two(hop.sum)}，过了 ${two(hop.bar)}`)
+    else if (why !== null) out.push(`升到这一档：${why}`)
+    return out
   }
-  return { at, mark, text: changeText(d, mark), probs, nouls, rules, by: `${name} · ${d.ms} ms` }
+  if (mark === 'down' && isLevel(d.to)) {
+    const further = margins(d.to, probs, bars, cap).down
+    if (further !== null) out.push(`再降一档要下方合计 ≥ ${two(further.bar)}，现在 ${two(further.sum)}`)
+    const above = LEVELS[rank(d.to) + 1]
+    const hop = byOpen && above !== undefined ? margins(above, probs, bars, cap).down : null
+    if (hop !== null) out.push(`降到这一档：下方合计 ${two(hop.sum)}，过了 ${two(hop.bar)}`)
+    else if (why !== null) out.push(`降到这一档：${why}`)
+    return out
+  }
+  const m = margins(d.from, probs, bars, cap)
+  if (m.up !== null) out.push(`再升一档要上方合计 ≥ ${two(m.up.bar)}，现在 ${two(m.up.sum)}`)
+  if (m.down !== null) out.push(`降一档要下方合计 ≥ ${two(m.down.bar)}，现在 ${two(m.down.sum)}`)
+  return out
 }
 
 // What the evaluation did to the level; one that wanted another level but was not applied says so.
@@ -167,12 +197,18 @@ function changeText(d: Decision, mark: Mark): string {
 
 function nextOf(cfg: Config, s: { session: SessionState; turn: TurnState | null; locked: boolean; ask: boolean; wanted: Level | null }): BoardModel['next'] {
   const { session, turn } = s
-  if (turn === null) {
-    const level = session.previous?.level ?? null
-    return { main: '发出下一条消息时', sub: level === null ? '' : `说「继续」这类话会从上一轮的 ${level} 起算`, ahead: 0 }
-  }
   if (!cfg.enabled) return { main: '不评估', sub: 'dispatch-pilot 已关闭', ahead: 0 }
   if (s.locked) return { main: '不评估', sub: '/dp unlock 解锁后恢复', ahead: 0 }
+  // Between turns: what the next message will really meet.
+  if (turn === null) {
+    if (!s.ask) return { main: '不评估', sub: '没有可用的后端', ahead: 0 }
+    if (cfg.submitShift) {
+      const level = session.previous?.level ?? null
+      return { main: '发出下一条消息时', sub: level === null ? '' : `说「继续」这类话会从上一轮的 ${level} 起算`, ahead: 0 }
+    }
+    if (cfg.midrunShift) return { main: '下一轮中途', sub: '发消息定档关着', ahead: 0 }
+    return { main: '不评估', sub: '发消息定档和中途换挡都关着', ahead: 0 }
+  }
   // No level to judge: the mid-run check asks nothing.
   if (s.wanted === null) return { main: '不评估', sub: '这个模型不收 effort', ahead: 0 }
   if (!cfg.midrunShift || !s.ask) return { main: '本轮不再评估', sub: cfg.midrunShift ? '没有可用的后端' : '中途换挡关着', ahead: 0 }
@@ -234,22 +270,23 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   const isIdle = turn === null
   const locked = session.lock !== null
   const ask = canAsk(cfg)
-  // Between turns only a lock says the level the next turn runs at.
-  const wanted = session.lock ?? (turn === null ? null : (turn.wanted ?? turn.base))
+  // The level the mod writes on the steps (between turns: only a lock's), so the two cannot disagree.
+  const wanted = writtenLevel(cfg, session, turn)
   const sent = session.lastSent
   const thisTurn = turn === null ? [] : recent.filter((d) => d.turnId === turn.turnId)
   const agents = thisTurn.filter((d) => d.kind === 'agent')
-  const judged = recent.findLast(isJudged)
+  // Inside a turn its own last evaluation (none yet: null); between turns the last turn's.
+  const judged = turn === null ? recent.findLast(isJudged) : thisTurn.findLast(isJudged)
   return {
     isIdle,
     where: turn === null ? '空闲' : `第 ${session.turnNo} 轮 · 第 ${turn.stepNo} 步`,
-    level: turn === null ? (session.lock ?? session.sessionLevel) : (sent ?? wanted),
+    level: turn === null ? (wanted ?? session.sessionLevel) : (sent ?? wanted),
     wanted,
     sent,
     status: statusOf(locked, isIdle, wanted, sent),
     track: turn === null ? [] : turn.track,
     shifts: shiftsOf(thisTurn),
-    last: locked || judged === undefined ? null : lastOf(cfg, judged),
+    last: locked || judged === undefined ? null : lastOf(cfg, judged, turn === null ? '上一轮 · ' : ''),
     next: nextOf(cfg, { session, turn, locked, ask, wanted }),
     features: featuresOf(cfg, { ...s, locked, ask, agents: agents.length }),
     backend: backendOf(cfg, recent),

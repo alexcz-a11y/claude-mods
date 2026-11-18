@@ -107,14 +107,14 @@ test('六个场景：其余各项', () => {
 
   const start = of('start')
   expect(start.where).toBe('第 7 轮 · 第 1 步')
-  expect(start.shifts).toEqual([{ at: '发消息时', from: 'medium', to: 'high', why: '要先查明一个原因未知的问题', isSent: true }])
+  expect(start.shifts).toEqual([{ at: '发消息时', from: 'medium', to: 'high', why: '问题比原先估计的更开放', isSent: true }])
   expect(start.last?.nouls).toEqual([
     { label: '机械重复', value: 0.04, reading: 'no' },
     { label: '原因未知', value: 0.81, reading: 'yes' },
     { label: '只是续做', value: 0.06, reading: 'no' },
   ])
-  // A submit decision is weighed from the level it started at, up to max.
-  expect(start.last?.rules).toEqual(['再升一档要上方合计 ≥ 0.70，现在 0.90', '降一档要下方合计 ≥ 0.70，现在 0.02'])
+  // A shift made: one more level from the new one, then the bar the hop passed (the prototype's SC texts).
+  expect(start.last?.rules).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.65', '升到这一档：上方合计 0.90，过了 0.70'])
   expect(start.next).toEqual({ main: '下一份脚本结果到达时', sub: '每 1 份脚本结果评估一次 · 本轮还可换挡 4 次', ahead: 1 })
   expect(start.agents).toEqual([])
 
@@ -131,15 +131,15 @@ test('六个场景：其余各项', () => {
     { at: '第 3 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', isSent: true },
     { at: '第 7 步后', from: 'high', to: 'xhigh', why: '最新结果和原计划矛盾', isSent: false },
   ])
-  // Mid-run the cap is xhigh: from high one more level up is xhigh, with the stricter bar.
-  expect(notsent.last).toMatchObject({ at: '第 7 步后', mark: 'up', text: '升到 xhigh', rules: ['再升一档要上方合计 ≥ 0.80，现在 0.80', '降一档要下方合计 ≥ 0.70，现在 0.05'] })
+  // Mid-run the cap is xhigh, so no level further up; the shift came from a flag, so its reason says why.
+  expect(notsent.last).toMatchObject({ at: '第 7 步后', mark: 'up', text: '升到 xhigh', rules: ['升到这一档：最新结果和原计划矛盾'] })
   expect(notsent.next).toMatchObject({ sub: '每 1 份脚本结果评估一次 · 本轮还可换挡 2 次' })
 
   const idle = of('idle')
   expect([idle.where, idle.wanted, idle.sent, idle.shifts, idle.agents, idle.skill]).toEqual(['空闲', null, 'high', [], [], null])
   expect(idle.status).toEqual({ kind: 'idle', text: '空闲' })
   // Between turns the last check is the last turn's last.
-  expect(idle.last).toMatchObject({ at: '第 13 步后', mark: 'hold', by: 'Drex · 301 ms' })
+  expect(idle.last).toMatchObject({ at: '上一轮 · 第 13 步后', mark: 'hold', by: 'Drex · 301 ms' })
   expect(idle.next.ahead).toBe(0)
   expect(idle.features[4]).toEqual({ label: '档位核对', state: 'active', note: '' })
 
@@ -255,7 +255,9 @@ test('markOf：失败、不变、升、降；没执行的是不变', () => {
 test('shadow 模式里想升档的决策：记号是不变，不算换挡，写「想升到 X，未执行」', () => {
   const s = scenes.start
   const wished = s.recent.map((d) => (d.kind === 'submit' ? { ...d, applied: false, sent: null } : d))
-  const m = boardModel(readConfig({ drexApiKey: 'k', mode: 'shadow' }), { ...s, recent: wished })
+  // In shadow the turn still holds the level it would have set (wanted high); the steps go at the engine's own.
+  const m = boardModel(readConfig({ drexApiKey: 'k', mode: 'shadow' }), { ...s, session: { ...s.session, lastSent: 'medium' }, recent: wished })
+  expect([m.wanted, m.level, m.status]).toEqual(['medium', 'medium', { kind: 'sent', text: '已发出' }])
   expect(m.shifts).toEqual([])
   // The evaluation itself is shown as any other: its distribution, answers and rules.
   expect(m.last).toMatchObject({ at: '发消息时', mark: 'hold', text: '想升到 high，未执行', probs: [0.02, 0.08, 0.25, 0.55, 0.1], by: 'Drex · 412 ms' })
@@ -283,8 +285,8 @@ test('mod 关着：不评估，六行都是关', () => {
   const m = of('up', { enabled: false })
   expect(m.next).toEqual({ main: '不评估', sub: 'dispatch-pilot 已关闭', ahead: 0 })
   expect(m.features.map((f) => f.state)).toEqual(['off', 'off', 'off', 'off', 'off', 'off'])
-  // Idle stays idle: the next message is still when anything could happen.
-  expect(of('idle', { enabled: false }).next.main).toBe('发出下一条消息时')
+  // Between turns too: the next message meets nothing either.
+  expect(of('idle', { enabled: false }).next).toEqual({ main: '不评估', sub: 'dispatch-pilot 已关闭', ahead: 0 })
 })
 
 test('空闲且锁定：档位是锁定的档，状态是已锁定', () => {
@@ -293,4 +295,53 @@ test('空闲且锁定：档位是锁定的档，状态是已锁定', () => {
   expect([m.isIdle, m.level, m.wanted, m.status]).toEqual([true, 'xhigh', 'xhigh', { kind: 'locked', text: '已锁定' }])
   // Without a lock: the session's own level, nothing wanted.
   expect([of('idle').level, of('idle').wanted]).toEqual(['medium', null])
+  // Locked but only watching: the lock is not written, so the session's own level.
+  const watching = boardModel(readConfig({ drexApiKey: 'k', mode: 'shadow' }), { ...s, session: { ...s.session, lock: 'xhigh' } })
+  expect([watching.level, watching.wanted, watching.status.kind]).toEqual(['medium', null, 'locked'])
+})
+
+// Second round of rulings.
+
+test('下次评估：关着和锁定先于空闲；空闲时按下一条消息真会遇到的写', () => {
+  const s = scenes.idle
+  const at = (options: Record<string, unknown>, session: Partial<BoardState['session']> = {}) => boardModel(readConfig(options), { ...s, session: { ...s.session, ...session } }).next
+  expect(at({ drexApiKey: 'k' }, { lock: 'high' })).toEqual({ main: '不评估', sub: '/dp unlock 解锁后恢复', ahead: 0 })
+  expect(at({ drexApiKey: 'k', enabled: false }, { lock: 'high' })).toEqual({ main: '不评估', sub: 'dispatch-pilot 已关闭', ahead: 0 })
+  expect(at({})).toEqual({ main: '不评估', sub: '没有可用的后端', ahead: 0 })
+  expect(at({ drexApiKey: 'k', submitShift: false })).toEqual({ main: '下一轮中途', sub: '发消息定档关着', ahead: 0 })
+  expect(at({ drexApiKey: 'k', submitShift: false, midrunShift: false })).toEqual({ main: '不评估', sub: '发消息定档和中途换挡都关着', ahead: 0 })
+  expect(at({ drexApiKey: 'k', midrunShift: false })).toEqual({ main: '发出下一条消息时', sub: '说「继续」这类话会从上一轮的 high 起算', ahead: 0 })
+  // Inside a turn the mod off comes first as well, and a lock before a model without effort.
+  const u = scenes.up
+  const noEffort = { ...u, session: { ...u.session, lock: 'high' as const }, turn: { ...u.turn!, wanted: null, base: null } }
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), noEffort).next.sub).toBe('/dp unlock 解锁后恢复')
+  expect(boardModel(readConfig({ drexApiKey: 'k', enabled: false }), noEffort).next.sub).toBe('dispatch-pilot 已关闭')
+})
+
+test('上次评估：这一轮还没有评估时是 null；空闲时是上一轮的最后一次', () => {
+  const s = scenes.up
+  const earlier = scenes.idle.recent
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: earlier }).last).toBe(null)
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn: null, recent: earlier }).last).toMatchObject({ at: '上一轮 · 第 13 步后', mark: 'hold' })
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn: null, recent: [earlier[0]!] }).last).toMatchObject({ at: '上一轮 · 发消息时' })
+})
+
+test('换挡之后的规则：从新档再走一档要多少，再写为什么到了这一档', () => {
+  const s = scenes.up
+  const cfg = readConfig({ drexApiKey: 'k' })
+  const base = { ...s.recent.at(-1)!, applied: true }
+  const rules = (d: Decision) => boardModel(cfg, { ...s, recent: [d] }).last?.rules
+  // Down by a flag: one more level down from the new one, then the reason.
+  const found: Decision = { ...base, from: 'high', to: 'medium', reason: 'cause-found', raw: { open: { type: 'score', score: 0.95, probabilities: [0.1, 0.8, 0.05, 0.05, 0] } } }
+  expect(rules(found)).toEqual(['再降一档要下方合计 ≥ 0.70，现在 0.10', '降到这一档：原因已查明，剩下的是常规工作'])
+  // Down by the open question: the bar the hop from high passed.
+  const lessOpen: Decision = { ...base, kind: 'submit', from: 'high', to: 'medium', reason: 'less-open', raw: { open: { type: 'score', score: 1.25, probabilities: [0.1, 0.65, 0.15, 0.1, 0] } } }
+  expect(rules(lessOpen)).toEqual(['再降一档要下方合计 ≥ 0.70，现在 0.10', '降到这一档：下方合计 0.75，过了 0.70'])
+  // Down to low: no level further down.
+  expect(rules({ ...lessOpen, to: 'low', from: 'medium' })).toEqual(['降到这一档：下方合计 0.10，过了 0.70'])
+  // Up mid-run by the open question, from medium to high.
+  const moreOpen: Decision = { ...base, from: 'medium', to: 'high', reason: 'more-open', raw: { open: { type: 'score', score: 2.4, probabilities: [0.02, 0.08, 0.4, 0.4, 0.1] } } }
+  expect(rules(moreOpen)).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.50', '升到这一档：上方合计 0.90，过了 0.70'])
+  // A hold keeps the margins either way from its level.
+  expect(rules({ ...moreOpen, from: 'high', to: 'high', reason: 'hold' })).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.50', '降一档要下方合计 ≥ 0.70，现在 0.10'])
 })

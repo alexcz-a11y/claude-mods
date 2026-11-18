@@ -238,13 +238,14 @@ export const SCENES = {
     ],
     skills: SKILLS,
   },
-  // Code Mode, the message just sent: the cause is unknown, so it went up to high; a skill came with it.
+  // Code Mode, the message just sent: the open question took it up to high (the reason submitLevel gives these
+  // numbers, and the one the prototype's rules describe); a skill came with it.
   start: {
     session: session({ codeMode: true, turnNo: 7, lastSent: 'high', previous: 'medium' }),
     turn: turn({ turnId: 't7', base: 'medium', wanted: 'high', journal: journal(0, { scripts: true }), midrun: { notes: 0, lastShiftAt: null }, track: track(['high'], { 0: 'up' }) }),
     recent: [
       skill('t7', 'superpowers:systematic-debugging'),
-      judged({ id: 't7-s', kind: 'submit', turnId: 't7', step: 0, from: 'medium', to: 'high', reason: 'unknown-cause', probs: [0.02, 0.08, 0.25, 0.55, 0.1], nouls: [0.04, 0.81, 0.06], ms: 412 }),
+      judged({ id: 't7-s', kind: 'submit', turnId: 't7', step: 0, from: 'medium', to: 'high', reason: 'more-open', probs: [0.02, 0.08, 0.25, 0.55, 0.1], nouls: [0.04, 0.81, 0.06], ms: 412 }),
     ],
     skills: SKILLS,
   },

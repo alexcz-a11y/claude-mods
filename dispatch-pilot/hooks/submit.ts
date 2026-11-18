@@ -3,13 +3,27 @@
 // hook reads the pending decision, calls settleSubmit and writes the turn.
 import { noulOf, scoreOf } from './backend.ts'
 import type { AskResult } from './backend.ts'
+import type { Config } from './config.ts'
 import { readNoul, submitLevel, thresholdsFor } from './decide.ts'
 import { isLevel } from './levels.ts'
 import type { Level } from './levels.ts'
 import { failureText } from './log.ts'
 import type { Decision } from './log.ts'
+import type { SessionState, TurnState } from './state.ts'
 
 const NO_LEVEL = 'effort 缺省或是数字，没有改'
+
+/**
+ * The level the main loop's steps go at: the one choice the step's rewrite and the board both read, so they cannot
+ * disagree. While the mod writes (enabled, apply): a lock, else the level decided, else the one the turn started from.
+ * Off or shadow, nothing is written: the engine's own level (the last step's, session.sessionLevel), for a turn that has
+ * one at all (base, set at step 0). Not turn.base itself: in shadow a "go on" message's base is the last turn's level,
+ * which no step carries. Null: nothing to write, or a model that takes no effort.
+ */
+export function writtenLevel(cfg: Config, session: SessionState, turn: TurnState | null): Level | null {
+  if (!cfg.enabled || cfg.mode === 'shadow') return turn === null || turn.base === null ? null : (session.sessionLevel ?? turn.base)
+  return session.lock ?? turn?.wanted ?? turn?.base ?? null
+}
 
 export type Settled = { base: Level | null; wanted: Level | null; decision: Decision }
 

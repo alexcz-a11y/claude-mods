@@ -4,7 +4,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, TurnCompleteInput, TurnStepInput } from 'claude-code'
 
 import { ask, canAsk, partOf } from '../backend.ts'
-import { openCell } from '../board/model.ts'
+import { takeStep } from '../board/model.ts'
 import type { Config } from '../config.ts'
 import { isLevel } from '../levels.ts'
 import type { Level } from '../levels.ts'
@@ -18,7 +18,7 @@ import { emptySession, newTurn } from '../state.ts'
 import type { SessionState, TurnState } from '../state.ts'
 import { clip, submitState } from '../statebuild.ts'
 import type { PreviousTurn } from '../statebuild.ts'
-import { settleSubmit } from '../submit.ts'
+import { settleSubmit, writtenLevel } from '../submit.ts'
 import { suggestSkill } from './skills.ts'
 
 // The state atoms this file reads and writes, one line each and alike in every file that declares them: the module
@@ -131,24 +131,27 @@ export async function mainStep($: EngineInterface, cfg: Config, e: TurnStepInput
   if (e.index === 0) turn = await takePending($, cfg, e, session, turn)
   if (e.index === 0 && turn !== null && turn.base === null && isLevel(e.effort)) turn = await takeBase($, turn, e.effort)
   const out = stepOut(cfg, session, turn, e)
-  const level = out.effort
-  if (turn !== null && isLevel(level) && openCell(turn, level) !== turn) {
-    const turnId = turn.turnId
+  if (turn !== null) {
+    const held = turn
+    const level = isLevel(out.effort) ? out.effort : null
+    // The board's count of work steps and its cell: a write that fails costs the board, never the step.
     await failOpen($, 'turn.step', null, async () => {
-      await update($, TURN, (cur) => (cur !== null && cur.turnId === turnId ? openCell(cur, level) : cur))
+      if (takeStep(held, level) === held) return null
+      await update($, TURN, (cur) => (cur !== null && cur.turnId === held.turnId ? takeStep(cur, level) : cur))
       return null
     })
   }
   return out
 }
 
-// The step as it goes on. A step whose effort is absent (the model takes none) or a number (the session uses numeric
-// effort) passes as it came; so does every step while the mod is off or only watching.
+// The step as it goes on, at writtenLevel's level. A step whose effort is absent (the model takes none) or a number (the
+// session uses numeric effort) passes as it came; so does every step while the mod is off or only watching (writtenLevel
+// gives this step's own level then).
 function stepOut(cfg: Config, session: SessionState, turn: TurnState | null, e: TurnStepInput): TurnStepInput {
-  if (!isLevel(e.effort) || !cfg.enabled || cfg.mode === 'shadow') return e
+  if (!isLevel(e.effort)) return e
   // Only effort is written: the main loop's model is never changed (it would break the prompt cache).
-  const level = session.lock ?? turn?.wanted ?? null
-  return level === null ? e : { ...e, effort: level }
+  const level = writtenLevel(cfg, { ...session, sessionLevel: e.effort }, turn)
+  return level === null || level === e.effort ? e : { ...e, effort: level }
 }
 
 function endedOf(e: { reason: string; isAborted: boolean }): PreviousTurn['ended'] {
