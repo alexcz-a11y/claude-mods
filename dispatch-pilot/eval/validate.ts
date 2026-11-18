@@ -3,7 +3,9 @@
 // module's source text, matcher or not), so keep them out of every file under hooks/.
 // The module scan takes a state atom only as a const of the file that reads or writes through it, so each file declares
 // the atoms it uses: every declaration of one key must be the same line, or the copies could drift apart.
-import { readdirSync, readFileSync } from 'node:fs'
+// The board-scenes probe (docs/research/board-scenes) shows the tests' scenes from its own copy of them: the copy must
+// be the file itself, byte for byte.
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -50,8 +52,14 @@ for (const name of files) {
 
 if (files.length === 0) found.push('no .ts file under hooks/: the check is looking in the wrong place')
 
+const scenes = fileURLToPath(new URL('../tests/support/scenes.ts', import.meta.url))
+const scenesCopy = fileURLToPath(new URL('../../docs/research/board-scenes/hooks/scenes-data.ts', import.meta.url))
+if (!existsSync(scenesCopy) || readFileSync(scenesCopy, 'utf8') !== readFileSync(scenes, 'utf8')) {
+  found.push('docs/research/board-scenes/hooks/scenes-data.ts is not a copy of dispatch-pilot/tests/support/scenes.ts; from the repository root run:\n  cp dispatch-pilot/tests/support/scenes.ts docs/research/board-scenes/hooks/scenes-data.ts')
+}
+
 if (found.length > 0) {
   console.error(found.join('\n'))
   process.exit(1)
 }
-console.log(`dispatch-pilot: ${files.length} hook files, none registers an event that blocks Code Mode; ${atoms.size} atom keys, each declared alike`)
+console.log(`dispatch-pilot: ${files.length} hook files, none registers an event that blocks Code Mode; ${atoms.size} atom keys, each declared alike; the probe's scenes are the tests' own`)

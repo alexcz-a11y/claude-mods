@@ -138,7 +138,7 @@ export async function mainStep($: EngineInterface, cfg: Config, e: TurnStepInput
     await failOpen($, 'turn.step', null, async () => {
       if (takeStep(stepped, level) === stepped) return null
       await update($, TURN, (cur) => (cur !== null && cur.turnId === stepped.turnId ? takeStep(cur, level) : cur))
-      redraw($)
+      await redraw($)
       return null
     })
   }
@@ -174,6 +174,6 @@ export async function endTurn($: EngineInterface, e: TurnCompleteInput): Promise
   await update($, SESSION, (s) => ({ ...s, previous }))
   await update($, TURN, (cur) => (cur !== null && cur.turnId === e.turnId ? null : cur))
   // The board folds to its one row between turns.
-  redraw($)
+  await redraw($)
   return null
 }

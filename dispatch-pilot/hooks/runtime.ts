@@ -4,7 +4,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { Io } from './backend.ts'
-import { markOf } from './board/model.ts'
+import { boardModel, markOf } from './board/model.ts'
+import { desktopStatus } from './board/view.ts'
 import type { Config } from './config.ts'
 import { RECENT_KEEP, pushLog, readLog } from './log.ts'
 import type { Decision } from './log.ts'
@@ -20,19 +21,42 @@ import { emptySession } from './state.ts'
 const SESSION = atom({ plugin: 'dispatch-pilot', key: 'session' } as const, emptySession())
 const RECENT = atom({ plugin: 'dispatch-pilot', key: 'recent' } as const, [])
 const TURN = atom({ plugin: 'dispatch-pilot', key: 'turn' } as const, null)
+const SKILLS = atom({ plugin: 'dispatch-pilot', key: 'skills' } as const, [])
 
 /** $.store key of the decision log, shared by every session on this machine. */
 export const LOG = 'log'
 
+// The config the board runs with, null while cfg.board is off (no board, no status line either). registerBoard sets it
+// on every register; a hot reload runs register again before any hook, so losing it costs nothing.
+let board: Config | null = null
+
+/** registerBoard's word to redraw: the config the Desktop's status line is built with, or none while the board is off. */
+export function holdBoard(cfg: Config): void {
+  board = cfg.board ? cfg : null
+}
+
 /**
- * Asks the engine to draw the board again (design 5.14). Never throws: a redraw that fails costs the board a moment,
- * never the hook that asked for it.
+ * Asks the engine to draw the board again (design 5.14), and writes the Desktop's status line from the same state.
+ * Never throws: a redraw that fails costs the board a moment, never the hook that asked for it.
  */
-export function redraw($: EngineInterface): void {
+export async function redraw($: EngineInterface): Promise<void> {
   try {
     $.ui.invalidate('ui.render')
   } catch (err) {
     trace($, 'redraw', err)
+  }
+  if (board !== null) await keepStatus($, board)
+}
+
+// The Desktop's status line (design 5.14): written only where a desktop is attached, so a terminal session pays one
+// surfaces call per redraw and writes nothing (a terminal would draw the line with a ⚠ before it).
+async function keepStatus($: EngineInterface, cfg: Config): Promise<void> {
+  try {
+    if (!(await $.session.surfaces()).includes('desktop')) return
+    const m = boardModel(cfg, { session: await read($, SESSION), turn: await read($, TURN), recent: await read($, RECENT), skills: await read($, SKILLS) })
+    $.ui.status(desktopStatus(m))
+  } catch (err) {
+    trace($, 'status', err)
   }
 }
 
@@ -110,7 +134,7 @@ export async function record($: EngineInterface, d: Decision): Promise<void> {
   }
   if (d.kind === 'submit' || d.kind === 'midrun') await keepMark($, d)
   await inOrder(() => appendLog($, d))
-  redraw($)
+  await redraw($)
 }
 
 async function keepMark($: EngineInterface, d: Decision): Promise<void> {
@@ -136,23 +160,29 @@ async function storeSent($: EngineInterface, id: string, sent: Decision['sent'])
 
 /**
  * Writes a recorded Decision's sent, in recent and in $.store's log (after every record queued before it); withSent
- * says when. Then the board is drawn again. Never throws.
+ * says when. The board, which reads recent, is drawn again when recent changed. Never throws.
  */
 export async function amendSent($: EngineInterface, id: string, sent: Decision['sent']): Promise<void> {
+  let wrote = false
   try {
     // Read first: update() writes whatever its callback returns, and a repeated unsure reading changes nothing.
-    if (withSent(await read($, RECENT), id, sent) !== null) await update($, RECENT, (list) => withSent(list, id, sent) ?? list)
+    if (withSent(await read($, RECENT), id, sent) !== null) {
+      await update($, RECENT, (list) => withSent(list, id, sent) ?? list)
+      wrote = true
+    }
   } catch (err) {
     trace($, 'amend', err)
   }
   await inOrder(() => storeSent($, id, sent))
-  redraw($)
+  if (wrote) await redraw($)
 }
 
-// session.start's refresh: only the surfaces (the session state belongs to no one feature).
+// session.start's refresh: only the surfaces (the session state belongs to no one feature). With a desktop attached,
+// the board is drawn once now, so its status line shows before the first turn.
 export async function keepSurfaces($: EngineInterface): Promise<null> {
   const surfaces = [...(await $.session.surfaces())]
   // Only the surfaces are refreshed: a reload keeps the lock and everything else.
   await update($, SESSION, (s) => ({ ...s, surfaces }))
+  if (surfaces.includes('desktop')) await redraw($)
   return null
 }

@@ -11,7 +11,7 @@ export type Tone = 'plain' | 'dim' | 'ok' | 'warn' | 'err' | 'info' | 'accent' |
 export type Part =
   | { t: 'text'; text: string; tone?: Tone; bold?: boolean }
   | { t: 'pips'; level: Level }
-  | { t: 'track'; cells: readonly TrackCell[]; ahead: number }
+  | { t: 'track'; cells: readonly TrackCell[]; ahead: number; per?: number }
   | { t: 'marks'; cells: readonly TrackCell[] }
   | { t: 'bar'; value: number; tone: Tone; isStrong: boolean }
 
@@ -218,8 +218,8 @@ function noEvaluation(m: BoardModel): string {
   return m.isIdle ? '还没有评估' : '本轮还没有评估'
 }
 
-/** The track's room: the brief's columns less 34, and never under 10 cells. */
-const trackRoom = (columns: number): number => Math.max(10, columns - 34)
+/** The track's room: the brief's columns less 34, and never under 10 cells; at most maxCells where a surface sets one. */
+const trackRoom = (columns: number, maxCells = Infinity): number => Math.min(maxCells, Math.max(10, columns - 34))
 
 function nowRow(m: BoardModel): Row {
   return { id: 'now', parts: [...levelParts(m), text(`  ${statusText(m)}`, STATUS[m.status.kind].tone), text(`   ${m.where}`, 'dim')] }
@@ -231,8 +231,8 @@ function nextParts(m: BoardModel): Part[] {
 
 // The scale goes right after the track: a row too narrow for everything keeps it before the next evaluation, since
 // the cells cannot be read without it.
-function trackRows(m: BoardModel, columns: number): Row[] {
-  const fit = fitTrack(m.track, trackRoom(columns))
+function trackRows(m: BoardModel, columns: number, maxCells?: number): Row[] {
+  const fit = fitTrack(m.track, trackRoom(columns, maxCells))
   const scale = fit.per > 1 ? [text(`  每格 ${fit.per} 步`, 'dim')] : []
   const shift = m.shifts.at(-1)
   const shiftParts: Part[] =
@@ -244,7 +244,7 @@ function trackRows(m: BoardModel, columns: number): Row[] {
           ...(shift.why === '' ? [] : [text(` · ${shift.why}`, 'dim')]),
         ]
   return [
-    { id: 'track', parts: [text('步 ', 'dim'), { t: 'track', cells: fit.cells, ahead: m.next.ahead }, ...scale, ...nextParts(m)] },
+    { id: 'track', parts: [text('步 ', 'dim'), { t: 'track', cells: fit.cells, ahead: m.next.ahead, per: fit.per }, ...scale, ...nextParts(m)] },
     { id: 'marks', parts: [text('评 ', 'dim'), { t: 'marks', cells: fit.cells }, ...shiftParts] },
   ]
 }
@@ -282,12 +282,17 @@ function featuresRow(m: BoardModel): Row {
 // Between turns, one row: the level the session is set at, the one the last turn ended at, and the next evaluation.
 function idleRow(m: BoardModel): Row {
   const ended = m.sent === null ? [] : [text(`   上一轮结束在 ${m.sent}`, 'dim')]
-  return { id: 'idle', parts: [...levelParts(m), text(`  ${statusText(m)}`, STATUS[m.status.kind].tone), ...ended, ...nextParts(m)] }
+  // Why, where there is room: between turns the row is all the timeline shows (a group of its own, dropped first).
+  const why = m.next.sub === '' ? [] : [text(` · ${m.next.sub}`, 'dim')]
+  return { id: 'idle', parts: [...levelParts(m), text(`  ${statusText(m)}`, STATUS[m.status.kind].tone), ...ended, ...nextParts(m), ...why] }
 }
 
-/** The timeline's rows in their columns (design 5.14). With the pane open, only the first three: it shows the rest. */
-export function timelineRows(m: BoardModel, o: { columns: number; isPaneOpen: boolean }): Row[] {
-  const rows = m.isIdle ? [idleRow(m)] : [nowRow(m), ...trackRows(m, o.columns), ...(o.isPaneOpen ? [] : [lastRow(m), featuresRow(m)])]
+/**
+ * The timeline's rows in their columns (design 5.14). With the pane open, only the first three: it shows the rest.
+ * maxCells caps the track's cells below what the columns allow (the Desktop's drawing holds at most TRACK_SVG_CELLS).
+ */
+export function timelineRows(m: BoardModel, o: { columns: number; isPaneOpen: boolean; maxCells?: number }): Row[] {
+  const rows = m.isIdle ? [idleRow(m)] : [nowRow(m), ...trackRows(m, o.columns, o.maxCells), ...(o.isPaneOpen ? [] : [lastRow(m), featuresRow(m)])]
   return rows.map((r) => fitRow(r, o.columns))
 }
 
@@ -403,8 +408,161 @@ export function paneSections(m: BoardModel): Section[] {
   return out
 }
 
+const footerMark = (m: BoardModel): string => (m.status.kind === 'sent' || m.status.kind === 'mismatch' || m.status.kind === 'locked' ? STATUS[m.status.kind].mark : '–')
+
 /** The footer's label: dp, the level (a dash when none is known), the status's mark. */
 export function footerLabel(m: BoardModel): string {
-  const mark = m.status.kind === 'sent' || m.status.kind === 'mismatch' || m.status.kind === 'locked' ? STATUS[m.status.kind].mark : '–'
-  return `dp ${m.level ?? '—'} ${mark}`
+  return `dp ${m.level ?? '—'} ${footerMark(m)}`
+}
+
+// The Desktop (design 5.14): the same rows and sections, with three kinds of part drawn as one Svg each instead of
+// characters. Literal colours appear only inside these drawings; text keeps its theme keys (board.tsx).
+
+/** Each level's colour, cold to warm: on drawings only, never on text. */
+export const LEVEL_HEX: Record<Level, string> = { low: '#7c8aa0', medium: '#3fb5b0', high: '#e0b23c', xhigh: '#ee8a3c', max: '#e2557a' }
+// The next evaluation's diamond and a failed evaluation's cross, as the prototype draws them.
+const ACCENT_HEX = '#d97757'
+const FAIL_HEX = '#e8697a'
+
+/** An Svg's source and how it is laid out: alt says in words what it shows, since the drawing holds no text. */
+export type Drawing = { source: string; alt: string; width: number; height: number }
+
+/** The most cells a track drawing holds: more steps share a cell (fitTrack), so its size stays bounded. */
+export const TRACK_SVG_CELLS = 60
+const CELL_W = 13
+const CELL_H = 12
+const PITCH = CELL_W + 1
+/** The marks' row under the cells. */
+const MARK_TOP = CELL_H + 3
+const MARK_H = 8
+const TRACK_H = MARK_TOP + MARK_H + 3
+
+const svg = (width: number, height: number, body: string): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`
+
+const px = (n: number): string => String(Math.round(n * 10) / 10)
+
+// One evaluation's mark under its cell: a shift is a triangle in the cell's colour, a failure a cross, a hold a dot
+// in the text colour.
+function markSvg(c: TrackCell, i: number): string {
+  const x = i * PITCH
+  const mid = x + CELL_W / 2
+  const top = MARK_TOP
+  const bottom = MARK_TOP + MARK_H
+  switch (c.mark) {
+    case 'up':
+      return `<polygon class="mark-up" points="${px(mid)},${top} ${px(x + 2)},${bottom} ${px(x + CELL_W - 2)},${bottom}" fill="${LEVEL_HEX[c.sent ?? c.level]}"/>`
+    case 'down':
+      return `<polygon class="mark-down" points="${px(x + 2)},${top} ${px(x + CELL_W - 2)},${top} ${px(mid)},${bottom}" fill="${LEVEL_HEX[c.sent ?? c.level]}"/>`
+    case 'fail':
+      return `<path class="mark-fail" d="M${px(x + 3)} ${top + 1}L${px(x + CELL_W - 3)} ${bottom - 1}M${px(x + CELL_W - 3)} ${top + 1}L${px(x + 3)} ${bottom - 1}" stroke="${FAIL_HEX}" stroke-width="1.6" stroke-linecap="round" fill="none"/>`
+    case 'hold':
+      return `<circle class="mark-hold" cx="${px(mid)}" cy="${top + MARK_H / 2}" r="1.5" fill="currentColor"/>`
+    default:
+      return ''
+  }
+}
+
+// How many cells each level holds, in the order the levels first appear.
+function levelCounts(cells: readonly TrackCell[], unit: string): string {
+  const counts = new Map<Level, number>()
+  for (const c of cells) counts.set(c.sent ?? c.level, (counts.get(c.sent ?? c.level) ?? 0) + 1)
+  return [...counts].map(([level, n]) => `${level} ${n} ${unit}`).join('，')
+}
+
+/**
+ * The timeline's track as one drawing: a cell per step (13 by 12, one apart) in the level its request carried, the
+ * evaluations' marks under them, then a dashed run and a hollow diamond for the next evaluation (none when ahead is
+ * 0). More than TRACK_SVG_CELLS cells are merged first; per says how many steps each cell given here already holds.
+ */
+export function trackSvg(cells: readonly TrackCell[], ahead: number, per = 1): Drawing {
+  const fit = fitTrack(cells, TRACK_SVG_CELLS)
+  const shown = fit.cells
+  const each = per * fit.per
+  const trackW = shown.length === 0 ? 0 : shown.length * PITCH - 1
+  const parts: string[] = []
+  if (shown.length > 0) parts.push(`<clipPath id="ends"><rect width="${trackW}" height="${CELL_H}" rx="${CELL_H / 2}"/></clipPath>`)
+  parts.push(`<g clip-path="url(#ends)">${shown.map((c, i) => `<rect class="cell" x="${i * PITCH}" y="0" width="${CELL_W}" height="${CELL_H}" fill="${LEVEL_HEX[c.sent ?? c.level]}"/>`).join('')}</g>`)
+  parts.push(shown.map(markSvg).join(''))
+  let width = Math.max(1, trackW)
+  if (ahead > 0) {
+    const from = trackW + 3
+    const to = from + Math.min(ahead, AHEAD_MAX) * PITCH
+    const mid = CELL_H / 2
+    const cx = to + 3 + 5
+    parts.push(`<line class="ahead" x1="${from}" y1="${mid}" x2="${to}" y2="${mid}" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" opacity="0.45"/>`)
+    parts.push(`<polygon class="next" points="${cx},${mid - 5} ${cx + 5},${mid} ${cx},${mid + 5} ${cx - 5},${mid}" fill="none" stroke="${ACCENT_HEX}" stroke-width="2"/>`)
+    width = cx + 5 + 1
+  }
+  const unit = each > 1 ? '格' : '步'
+  const head = shown.length === 0 ? '还没有步' : each > 1 ? `${shown.length} 格，每格 ${each} 步：${levelCounts(shown, unit)}` : `${shown.length} 步：${levelCounts(shown, unit)}`
+  const alt = ahead > 0 ? `${head}；下次评估在 ${ahead} 步后` : head
+  return { source: svg(width, TRACK_H, parts.join('')), alt, width, height: TRACK_H }
+}
+
+const BAR_H = 9
+
+/**
+ * One level's probability bar, width pixels long at 1, never shorter than 2 (a sliver, as the terminal's ▏). The
+ * current level's is drawn full, the others a little faded.
+ */
+export function barSvg(value: number, level: Level, isStrong: boolean, width: number): Drawing {
+  const v = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
+  const length = Math.min(width, Math.max(2, Math.round(v * width)))
+  const body = `<rect class="bar" x="0" y="0" width="${length}" height="${BAR_H}" rx="3" fill="${LEVEL_HEX[level]}" opacity="${isStrong ? 1 : 0.8}"/>`
+  return { source: svg(width, BAR_H, body), alt: `${level} ${v.toFixed(2)}${isStrong ? '（现在）' : ''}`, width, height: BAR_H }
+}
+
+/** The pane's bar length for its columns: 18 cells' worth at most, as the terminal draws it, less where it is narrow. */
+export function barPixels(columns: number): number {
+  return Math.max(24, Math.min(BAR_CELLS * 8, (columns - 22) * 8))
+}
+
+const PIP_W = 9
+const PIP_H = 15
+const PIP_GAP = 3
+
+/** The five pips: lit up to the level in its colour, the rest in the text colour, faint. */
+export function pipsSvg(level: Level): Drawing {
+  const n = LEVELS.indexOf(level) + 1
+  const width = LEVELS.length * (PIP_W + PIP_GAP) - PIP_GAP
+  const body = LEVELS.map((_, i) => {
+    const look = i < n ? `fill="${LEVEL_HEX[level]}"` : 'fill="currentColor" opacity="0.2"'
+    return `<rect class="pip" x="${i * (PIP_W + PIP_GAP)}" y="0" width="${PIP_W}" height="${PIP_H}" rx="2" ${look}/>`
+  }).join('')
+  return { source: svg(width, PIP_H, body), alt: `档位 ${level}，五档中的第 ${n} 档`, width, height: PIP_H }
+}
+
+/**
+ * The status line the Desktop shows under the prompt: the level and its latest shift, or what holds it (a lock,
+ * the time between turns); a mismatch alone, since it already names both levels.
+ */
+export function desktopStatus(m: BoardModel): string {
+  const lead = m.level === null ? '' : `${m.level} · `
+  if (m.status.kind === 'locked') return `${lead}已锁定`
+  if (m.isIdle) return `${lead}空闲，${m.next.main === '发出下一条消息时' ? '下一条消息时定档' : m.next.main}`
+  if (m.status.kind === 'mismatch') return m.status.text
+  const shift = m.shifts.at(-1)
+  if (shift === undefined) return `${lead}${m.status.text}`
+  const isUp = LEVELS.indexOf(shift.to) > LEVELS.indexOf(shift.from)
+  return `${lead}${isUp ? '↑' : '↓'} ${shift.at}由 ${shift.from} ${isUp ? '升到' : '降到'} ${shift.to}`
+}
+
+/** The Desktop footer's label: as the terminal's, with a separator its proportional type needs. At most 13 characters. */
+export function desktopLabel(m: BoardModel): string {
+  return `dp · ${m.level ?? '—'} ${footerMark(m)}`
+}
+
+/**
+ * The timeline's rows as the Desktop draws them: the track's drawing holds the marks, so the marks row keeps only
+ * its words (the shift), under the track; neither keeps the label that named a row of characters.
+ */
+export function desktopRows(rows: readonly Row[]): Row[] {
+  return rows.flatMap((row) => {
+    if (row.id !== 'track' && row.id !== 'marks') return [row]
+    const parts = row.parts.slice(1).filter((p) => p.t !== 'marks')
+    const [first, ...rest] = parts
+    if (first === undefined) return []
+    return [{ ...row, parts: first.t === 'text' ? [{ ...first, text: first.text.trimStart() }, ...rest] : parts }]
+  })
 }

@@ -60,6 +60,22 @@ test('fitTrack：一格里有几次评估时留最要紧的记号', () => {
   expect(fitTrack(cells, 10).per).toBe(1)
 })
 
+test('fitTrack：一格里既有升又有降时留后来的那个', () => {
+  const upThenDown = [
+    { level: 'medium', sent: 'medium', mark: 'up' },
+    { level: 'medium', sent: 'medium', mark: 'down' },
+  ] as const
+  const downThenUp = [
+    { level: 'high', sent: 'high', mark: 'down' },
+    { level: 'high', sent: 'high', mark: 'up' },
+  ] as const
+  expect(fitTrack(upThenDown, 1).cells.map((c) => c.mark)).toEqual(['down'])
+  expect(fitTrack(downThenUp, 1).cells.map((c) => c.mark)).toEqual(['up'])
+  // A hold after a shift does not hide it, and a failure before one still wins.
+  expect(fitTrack([...upThenDown, { level: 'medium', sent: 'medium', mark: 'hold' }], 1).cells.map((c) => c.mark)).toEqual(['down'])
+  expect(fitTrack([{ level: 'low', sent: 'low', mark: 'fail' }, ...downThenUp], 1).cells.map((c) => c.mark)).toEqual(['fail'])
+})
+
 test('面板的分区和顺序；没有 agent 和 skill 时不出现那两区', () => {
   expect(paneSections(up).map((s) => s.id)).toEqual(['now', 'shifts', 'last', 'next', 'features', 'agents'])
   expect(paneSections(start).map((s) => s.id)).toEqual(['now', 'shifts', 'last', 'next', 'features', 'skill'])
@@ -117,9 +133,20 @@ test('各 part 的字符：五格、轨道、记号、概率条', () => {
 
 test('空闲的一行：会话设定的档位、上一轮结束在哪一档、下次评估在什么时候', () => {
   const [row] = timelineRows(idle, { columns: 120, isPaneOpen: false })
-  expect(rowText(row!)).toBe('▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 发出下一条消息时')
+  expect(rowText(row!)).toBe('▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 发出下一条消息时 · 说「继续」这类话会从上一轮的 high 起算')
   // The pane being open changes nothing between turns: the row is one already.
   expect(timelineRows(idle, { columns: 120, isPaneOpen: true }).map(rowText)).toEqual([rowText(row!)])
+  // Where the reason does not fit, it goes whole and the next evaluation stays.
+  expect(timelineRows(idle, { columns: 80, isPaneOpen: false }).map(rowText)).toEqual(['▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 发出下一条消息时'])
+})
+
+test('空闲时不评估：时间轴的一行也写出原因', () => {
+  const noKey = boardModel(readConfig({}), SCENES.idle)
+  expect(noKey.next).toEqual({ main: '不评估', sub: '没有可用的后端', ahead: 0 })
+  expect(timelineRows(noKey, { columns: 120, isPaneOpen: false }).map(rowText)).toEqual(['▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 不评估 · 没有可用的后端'])
+  // With no reason to give, the row ends at the next evaluation.
+  const fresh = boardModel(CFG, { ...SCENES.idle, session: { ...SCENES.idle.session, previous: null } })
+  expect(timelineRows(fresh, { columns: 120, isPaneOpen: false }).map(rowText)).toEqual(['▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 发出下一条消息时'])
 })
 
 test('一轮里还没有评估（没锁定）：上次评估那一行和面板都写「本轮还没有评估」', () => {

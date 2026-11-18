@@ -66,7 +66,7 @@ async function keepReading($: EngineInterface, r: Reading, open: OpenStep | null
     const effort = r.effort
     const level = await failOpen($, 'http.fetch', false, () => keepLevel($, effort))
     const cell = await failOpen($, 'http.fetch', false, () => keepCell($, effort, open))
-    if (level || cell) redraw($)
+    if (level || cell) await redraw($)
   }
   await failOpen($, 'http.fetch', null, () => settleCheck($, r, open))
   return null

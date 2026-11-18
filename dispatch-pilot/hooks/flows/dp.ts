@@ -45,7 +45,7 @@ async function togglePane($: EngineInterface, cfg: Config): Promise<string> {
   }
   const opened = await $.ui.open({ id: PANE_ID, title: 'Dispatch Pilot' })
   if (opened.isPlaced) {
-    redraw($)
+    await redraw($)
     return '面板已打开。'
   }
   await $.ui.close({ id: PANE_ID })
@@ -61,13 +61,13 @@ export async function answerDp($: EngineInterface, cfg: Config, args: string): P
   }
   if (c.kind === 'lock') {
     await update($, SESSION, (s) => ({ ...s, lock: c.level }))
-    redraw($)
+    await redraw($)
     return shown(lockReply(c.level, cfg))
   }
   if (c.kind === 'unlock') {
     const was = (await read($, SESSION)).lock
     if (was !== null) await update($, SESSION, (s) => ({ ...s, lock: null }))
-    redraw($)
+    await redraw($)
     return shown(unlockReply(was))
   }
   if (c.kind === 'log') {

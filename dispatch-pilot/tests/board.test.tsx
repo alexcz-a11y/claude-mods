@@ -312,10 +312,51 @@ test('重画：record、写入 sent、读数写进格子之后', async () => {
   expect(g.invalidated).toEqual(['ui.render'])
 })
 
+test('重画：写入 sent 没有改动时不重画', async () => {
+  const f = standIn()
+  await record(f.$, decision())
+  await amendSent(f.$, 'd1', 'high')
+  expect(f.invalidated).toEqual(['ui.render', 'ui.render'])
+  // The same reading again, an unsure one after a level, and a Decision not in recent: nothing is written, nothing redrawn.
+  await amendSent(f.$, 'd1', 'high')
+  await amendSent(f.$, 'd1', 'unverified')
+  await amendSent(f.$, 'gone', 'high')
+  expect(f.invalidated).toEqual(['ui.render', 'ui.render'])
+  expect(f.recent().map((d) => d.sent)).toEqual(['high'])
+  // A change is drawn again.
+  await amendSent(f.$, 'd1', 'not-sent')
+  expect(f.invalidated).toEqual(['ui.render', 'ui.render', 'ui.render'])
+})
+
+test('一直出错的渲染 hook 只写一行调试日志，每个 hook 一行', { options: KEYS }, async ($, on) => {
+  const w = world(on, { refuse: ['state.get'] })
+  await start($)
+  const lines = () => w.debugLogs.filter((l) => l.startsWith('ui.render failed open:'))
+  for (let i = 0; i < 3; i++) {
+    const ui = await $.ui.mount(BAND)
+    expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+    await ui.unmount()
+  }
+  expect(lines()).toHaveLength(1)
+  for (let i = 0; i < 3; i++) {
+    const ui = await $.ui.mount(PANE)
+    expect(await ui.drawn()).toMatchObject({ type: 'engine' })
+    await ui.unmount()
+  }
+  expect(lines()).toHaveLength(2)
+  for (let i = 0; i < 3; i++) {
+    const ui = await $.ui.mount(FOOTER)
+    await ui.unmount()
+  }
+  expect(w.footers).toEqual([['focus'], ['focus'], ['focus']])
+  expect(lines()).toHaveLength(3)
+})
+
 test('重画出错不连累调用它的 hook', { options: KEYS }, async ($, on) => {
   // A redraw that throws: the record still lands in both copies, and the debug log has a line.
   const f = standIn({}, { refuseInvalidate: true })
-  expect(() => redraw(f.$)).not.toThrow()
+  // Resolves, never rejects.
+  await redraw(f.$)
   await record(f.$, decision({ id: 'x' }))
   expect(f.recent().map((d) => d.id)).toEqual(['x'])
   expect(f.log().map((d) => d.id)).toEqual(['x'])

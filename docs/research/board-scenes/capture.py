@@ -1,18 +1,22 @@
 """Switch the probe's scene in a running Claude Code and save the screen, plain and in colour.
 
-usage: python3 docs/research/board-scenes/capture.py herdr <pane_id> <out_dir> <suffix> <scene> [<scene> ...]
-       python3 docs/research/board-scenes/capture.py tmux <session> <out_dir> <suffix> <scene> [<scene> ...]
+usage: python3 docs/research/board-scenes/capture.py herdr <pane_id> <out_dir> <suffix> [<scene> ...]
+       python3 docs/research/board-scenes/capture.py tmux <session> <out_dir> <suffix> [<scene> ...]
+
+With no scene named, all six are captured: up, start, ordinary, notsent, idle, locked.
 """
 import subprocess
 import sys
 import time
+
+SCENES = ['up', 'start', 'ordinary', 'notsent', 'idle', 'locked']
 
 mode, target, out, suffix, *scenes = sys.argv[1:]
 
 def run(*args: str) -> str:
     return subprocess.run(args, check=True, capture_output=True, text=True).stdout
 
-for scene in scenes:
+for scene in scenes or SCENES:
     if mode == 'herdr':
         run('herdr', 'pane', 'send-text', target, f'/dpscene {scene}')
         run('herdr', 'pane', 'send-keys', target, 'enter')
