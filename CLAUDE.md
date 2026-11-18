@@ -49,7 +49,7 @@ settings hook 是 settings 文件里配置的 shell 命令、HTTP 请求或 prom
 - 没有构建步骤，Claude Code 直接加载 `.js`、`.mjs`、`.ts`、`.tsx` 等文件，`.tsx` 和 `.jsx` 支持 JSX。
 - `.claude-plugin/types/` 是 Claude Code 每次通过 `--plugin-dir` 加载 mod 时生成的类型和 tsconfig。它是当前版本事件和 `$` API 的权威来源，比网页文档更准，但不提交（已写入 `.gitignore`）。目录里自带一个内容为 `*` 的 `.gitignore`，所以 Grep 和 Glob 搜不到它：搜它用 `cat <mod>/.claude-plugin/types/claude-code/index.d.ts | grep -n <词>`。
 - 如果 mod 自己没有 `tsconfig.json`，Claude Code 会在 mod 根目录生成一个。这个文件依赖已被忽略的 `.claude-plugin/types/`，所以不要提交；playground 里的 mod 也都不提交它。没有把它写进 `.gitignore`，是为了避免以后手写的 tsconfig 被悄悄忽略。
-- 热重载会重新执行 `register`，`session.start` 也会再触发一次，模块级变量会被重置。要跨热重载保留的值放进 `$.state`；只在相邻两个事件之间传递、丢了代价很小的值（例如 dispatch-pilot 的投票箱和命令轮的命令记录）可以放模块级变量，在注释里写明丢了的代价；跨会话共享的放进 `$.store`，它本机共享、总上限 4 MiB，存放在 `~/.claude/plugins/store/`。
+- 热重载会重新执行 `register`，`session.start` 也会再触发一次，入口和它导入的模块的模块级变量都会被重置；只保存一个被导入的模块可能不触发重载，要再保存一次入口文件（2.1.327 实测）。要跨热重载保留的值放进 `$.state`；只在相邻两个事件之间传递、丢了代价很小的值（例如 dispatch-pilot 读数用的 `openMain`、进展记录的在途调用）可以放模块级变量，在注释里写明丢了的代价；跨会话共享的放进 `$.store`，它本机共享、总上限 4 MiB，存放在 `~/.claude/plugins/store/`。
 
 ## 常用命令（在仓库根目录执行，`<mod>` 换成子目录名）
 
@@ -62,9 +62,9 @@ tsc -p ./<mod>                                       # 用生成的 tsconfig.jso
 claude -p "/<command>" --plugin-dir ./<mod>          # 非交互地验证 mod 注册的命令
 claude --debug-file ./mod-debug.log --plugin-dir ./<mod>   # 调试；日志里出现 "hooks module <mod>@inline loaded" 说明加载成功
 scripts/check.sh [<mod>]                             # 提交前的全部检查：test、validate --strict、tsc、<mod>/eval/validate.ts、marketplace 清单，再用 Claude Desktop 自带的 Claude Code 跑一遍 validate（低于 mod 的最低版本时只记 note）
-scripts/test-one.sh <mod> <file.test.ts>...          # 只跑指定的测试文件（其余临时移走，退出时放回）
+scripts/test-one.sh <mod> <file.test.ts(x)>...       # 只跑指定的测试文件（其余的 .test.ts 和 .test.tsx 临时移走，退出时放回；不能同时跑两个）
 docs/research/event-probe/run.sh "<prompt>"          # 实测引擎在某种输入下发哪些事件、什么顺序
-claude --plugin-dir ./dispatch-pilot --plugin-dir ./docs/research/board-scenes   # 用固定场景目测 dispatch-pilot 的看板和依据面板（herdr 里的做法见它的 README）
+claude --plugin-dir ./dispatch-pilot --plugin-dir ./docs/research/board-scenes   # 用六个固定场景目测 dispatch-pilot 的时间轴、分区面板和脚部标签（要传的密钥选项和 herdr 里的做法见它的 README）
 ```
 
 pre-commit 和 pre-merge-commit hook 都跑 `scripts/check.sh`（无冲突的合并只触发后者），每个 clone 用 `git config core.hooksPath .githooks` 打开一次。
@@ -94,8 +94,10 @@ pre-commit 和 pre-merge-commit hook 都跑 `scripts/check.sh`（无冲突的合
 validate 通过并不代表以下几条也满足，它们需要自己留意：
 
 - 运行时限制：每个 hook 有 10 秒超时（`prompt.edit` 只有 50 ms）。command、tool 和 pane 的名字只能用字母、数字、`_`、`-`，最长 64 个字符。
-- Code Mode（实验功能，2.1.323 起）不和挂了以下事件的 mod 一起开：`tool.call`、`tool.check`、`agent.offer`、`agent.spawn`、`session.send`，以及 `classic.PreToolUse`、`classic.PermissionRequest`、`classic.PermissionDenied`、`classic.PostToolUse`、`classic.PostToolUseFailure`、`classic.TaskCreated`、`classic.TaskCompleted`、`classic.Elicitation`、`classic.ElicitationResult`、`classic.WorktreeCreate`（2.1.325 实测，引擎按 hooks 模块的静态扫描判定，matcher 不看）。dispatch-pilot 本体不注册它们：这类 hook 的主体写在本体里，由 dispatch-pilot-extras 经 `$.dispatchPilot` 调过来（ADR 0028，`dispatch-pilot/hooks/core/bridge.ts`），`dispatch-pilot/eval/validate.ts` 会检查。
-- `$` 只能交给文件顶层声明的函数（或从本 mod 的文件导入的这类函数），不能交给局部函数或按名字查出来的函数；`engine.create` 里 `next(e)` 的结果不能当参数传出去。
+- Code Mode（实验功能）：2.1.327 起，挂了 `tool.call`、`agent.spawn`、`agent.offer`、`session.send` 这类事件的 mod 不再挡它启动（2.1.326 及以前会挡，实测）。dispatch-pilot 仍然不挂 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send` 和 `classic.*`，也不调 `$.tool.register`：这些 hook 会给脚本内部的每次调用加等待，抵消 Code Mode 的收益。`dispatch-pilot/eval/validate.ts` 会检查（ADR 0030）。
+- `$` 只能交给文件顶层声明的函数，从本 mod 的文件导入的顶层函数也可以（validate 列成 `(via <函数名>)`），不能交给局部函数或按名字查出来的函数；`engine.create` 里 `next(e)` 的结果不能当参数传出去。
+- `$.state` 的 atom 要在用它的那个文件里声明（`const X = atom({ plugin, key } as const, 默认值)`）：从别的文件导入的 atom 会让模块加载失败（2.1.327 实测）。同一个 key 在几个文件里各声明一次没有问题，dispatch-pilot 的 `eval/validate.ts` 检查这些声明逐字相同。
+- 任何会话、任何测试都不打开 OpenTelemetry：不设 `CLAUDE_CODE_ENABLE_TELEMETRY`、`ENABLE_BETA_TRACING_DETAILED`。
 - 仓库约定（沿用 playground）：目录名用 kebab-case，与 `plugin.json` 中的 `name` 一致，同样不能带上面那些保留前缀。
 
 ## 把 Claude 写的 mod 收进本仓库

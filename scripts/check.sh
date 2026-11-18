@@ -44,6 +44,14 @@ step() {
   fi
 }
 
+# A mod that passes Desktop's validate still does not run there while Desktop's Claude Code is older than it asks for.
+desktop_too_old() {
+  local mod=$1 min=$2
+  [[ -n $min ]] && ! is-at-least "$min" "$desktop_version" &&
+    print -r -- "note  $mod: Desktop's Claude Code $desktop_version is older than the $min it needs; it runs in Desktop once Desktop updates"
+  return 0
+}
+
 # The mod as Claude Desktop's own Claude Code loads it.
 desktop_check() {
   local mod=$1 out tally min=${MIN_CLAUDE_CODE[$1]:-}
@@ -53,9 +61,11 @@ desktop_check() {
   fi
   if out=$("$desktop_claude" plugin validate "./$mod" --strict 2>&1); then
     print -r -- "ok    $mod: validate on Desktop's Claude Code $desktop_version"
+    desktop_too_old "$mod" "$min"
   elif tally=$(only_ts5097 "$desktop_claude" "$mod"); then
     print -r -- "ok    $mod: validate on Desktop's Claude Code $desktop_version"
     print -r -- "note  $mod: $tally imports end in .ts, which Desktop's validator warns of as well (TS5097, see only_ts5097 below)"
+    desktop_too_old "$mod" "$min"
   elif [[ -n $min ]] && ! is-at-least "$min" "$desktop_version"; then
     print -r -- "note  $mod: Desktop's Claude Code $desktop_version is older than the $min it needs, and refuses it; it runs in Desktop once Desktop updates"
     print -r -- "$out" | awk '/Found [0-9]+ error/ { found = 1; next } found && /❯/ { print; exit }' | cut -c1-240
@@ -107,7 +117,7 @@ strict_validate() {
 
 step "marketplace manifest" command claude plugin validate .
 for mod in $mods; do
-  # A mod with no test file of its own (dispatch-pilot-extras: dispatch-pilot's tests load a copy of its hooks) has nothing to run.
+  # A mod with no test file of its own has nothing to run.
   tests=($mod/tests/*.test.ts(N) $mod/tests/*.test.tsx(N))
   if (( $#tests > 0 )); then
     step "$mod: tests" command claude plugin test "./$mod"

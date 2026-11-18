@@ -40,7 +40,7 @@
     "fallback": {
       "type": "boolean",
       "title": "请求失败时改问另一个后端",
-      "description": "默认后端请求失败或超时时，同一次判断改问另一个后端，只改问一次。需要配置了两个密钥。Jev 尚未校准，所以默认关。",
+      "description": "默认后端请求失败或超时时，同一次判断改问另一个后端，只改问一次。需要配置了两个密钥。开着时第一个后端只用时限的 60%，剩下的留给改问，总时限不变。Jev 尚未校准，所以默认关。",
       "default": false
     },
     "drexApiKey": {
@@ -72,7 +72,7 @@
     "submitShift": {
       "type": "boolean",
       "title": "发消息时定档",
-      "description": "你每次发消息时判断主 agent 这一轮用的 effort（agent 交回的报告开始一轮时也一样）。",
+      "description": "你每次发消息时判断主 agent 这一轮用的 effort。后台通知、agent 交回的报告这类开始的一轮不判断。",
       "default": true
     },
     "midrunShift": {

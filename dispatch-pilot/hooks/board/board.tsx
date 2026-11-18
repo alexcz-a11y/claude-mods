@@ -201,7 +201,7 @@ export function registerBoard(on: On, cfg: Config): void {
   })
 
   // However the pane closes (/dp, the person's close key or mark), the timeline is drawn again at once, back to its
-  // five rows: with the pane gone, the last evaluation and the features would otherwise show nowhere. The close goes
+  // full rows: with the pane gone, the last evaluation and the features would otherwise show nowhere. The close goes
   // on as it came.
   on('ui.close', { id: PANE_ID }, async ($, e, next) => {
     const r = await next(e)
