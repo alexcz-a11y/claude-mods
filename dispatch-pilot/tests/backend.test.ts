@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { readConfig } from '../hooks/config.ts'
 import type { Config } from '../hooks/config.ts'
-import { DREX_URL, FIRST_SHARE, JEV_URL, ask } from '../hooks/backend.ts'
+import { DREX_URL, FIRST_SHARE, JEV_URL, ask, canAsk, partOf } from '../hooks/backend.ts'
 import type { Io } from '../hooks/backend.ts'
 import type { Question } from '../hooks/questions.ts'
 import { STATE_BUDGET, estimateTokens } from '../hooks/statebuild.ts'
@@ -364,4 +364,25 @@ test('发出的 state 不超预算：引号和换行转义后也不超', async (
   await ask(io, drexOnly, { state, questions: QUESTIONS }, 4000)
   const sent = JSON.parse(calls[0]!.body) as { state: unknown }
   expect(estimateTokens(JSON.stringify(sent.state))).toBeLessThanOrEqual(STATE_BUDGET)
+})
+
+test('partial：缺一道题时其余的照样作数，partOf 按部分拆开', async () => {
+  const { mechanical: _gone, ...rest } = goodAnswers()
+  const { io } = fakeIo([{ body: drexBody({ answers: rest }) }])
+  const r = await ask(io, drexOnly, { ...REQ, partial: true }, 4000)
+  expect(r.ok).toBe(true)
+  if (!r.ok) return
+  expect(Object.keys(r.answers)).toEqual(['open', 'pick'])
+  expect(partOf(r, ['pick'])).toMatchObject({ ok: true, answers: { pick: { type: 'choice', choice: 'b' } } })
+  expect(partOf(r, ['open', 'mechanical'])).toEqual({ ok: false, reason: 'bad-answer', backend: 'drex', ms: r.ms })
+  // Without partial the same answer fails whole.
+  const whole = await ask(fakeIo([{ body: drexBody({ answers: rest }) }]).io, drexOnly, REQ, 4000)
+  expect(whole).toMatchObject({ ok: false, reason: 'bad-answer' })
+  // partial with nothing usable still fails.
+  const none = await ask(fakeIo([{ body: drexBody({ answers: {} }) }]).io, drexOnly, { ...REQ, partial: true }, 4000)
+  expect(none).toMatchObject({ ok: false, reason: 'bad-answer' })
+  // A failure passes through partOf as it is.
+  expect(partOf(none, ['open'])).toBe(none)
+  expect(canAsk(drexOnly)).toBe(true)
+  expect(canAsk(readConfig({ jevApiKey: 'k' }))).toBe(false)
 })

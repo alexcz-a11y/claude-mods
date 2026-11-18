@@ -75,16 +75,18 @@ function readAnswer(a: unknown, q: Question): Answer | null {
   return { type: 'choice', choice: a.choice, probabilities: p }
 }
 
-// Every question asked must come back with its type; answers to questions not asked are dropped.
-function readAnswers(v: unknown, questions: Record<string, Question>): Record<string, Answer> | null {
+// Every question asked must come back with its type; answers to questions not asked are dropped. partial: a
+// missing or mistyped answer is left out instead, and only an answer with none usable fails (the caller splits it
+// with partOf, so one part of a combined request stands when the other is unusable).
+function readAnswers(v: unknown, questions: Record<string, Question>, partial: boolean): Record<string, Answer> | null {
   if (!isRecord(v)) return null
   const out: Record<string, Answer> = {}
   for (const [id, q] of Object.entries(questions)) {
     const a = readAnswer(v[id], q)
-    if (!a) return null
-    out[id] = a
+    if (a) out[id] = a
+    else if (!partial) return null
   }
-  return out
+  return Object.keys(out).length === 0 && Object.keys(questions).length > 0 ? null : out
 }
 
 function parse(text: string): unknown {
@@ -111,7 +113,7 @@ function miss(reason: Failure, backend: Backend, status?: number, requestId?: st
 
 type Raced = { kind: 'reply'; reply: Awaited<ReturnType<Io['fetch']>> } | { kind: 'network' } | { kind: 'timeout' }
 
-async function attempt(io: Io, cfg: Config, backend: Backend, req: { state: unknown; questions: Record<string, Question> }, endAt: number): Promise<Got | Miss> {
+async function attempt(io: Io, cfg: Config, backend: Backend, req: { state: unknown; questions: Record<string, Question>; partial: boolean }, endAt: number): Promise<Got | Miss> {
   const left = endAt - (await io.now())
   if (left <= 0) return miss('timeout', backend)
   const model = backend === 'drex' ? cfg.drexModel : cfg.jevModel
@@ -145,7 +147,7 @@ async function attempt(io: Io, cfg: Config, backend: Backend, req: { state: unkn
   if (!isRecord(body) || typeof body.model !== 'string') return miss('bad-answer', backend, undefined, requestId)
   // Drex is pinned to a fixed version; Jev is asked by alias and answers with the version it resolved to.
   if (backend === 'drex' && body.model !== cfg.drexModel) return miss('model-mismatch', backend, undefined, requestId)
-  const answers = readAnswers(body.answers, req.questions)
+  const answers = readAnswers(body.answers, req.questions, req.partial)
   if (!answers) return miss('bad-answer', backend, undefined, requestId)
   return { answers, model: body.model }
 }
@@ -154,7 +156,8 @@ async function attempt(io: Io, cfg: Config, backend: Backend, req: { state: unkn
 // (the most common failure) still leaves time to ask the other one.
 export const FIRST_SHARE = 0.6
 
-export async function ask(io: Io, cfg: Config, req: { state: unknown; questions: Record<string, Question> }, deadlineMs: number): Promise<AskResult> {
+/** partial: the answer stands with the questions that came back usable (see readAnswers); split it with partOf. */
+export async function ask(io: Io, cfg: Config, req: { state: unknown; questions: Record<string, Question>; partial?: boolean }, deadlineMs: number): Promise<AskResult> {
   const first = cfg.backend
   let start: number | undefined
   try {
@@ -166,7 +169,7 @@ export async function ask(io: Io, cfg: Config, req: { state: unknown; questions:
     const other: Backend = first === 'drex' ? 'jev' : 'drex'
     // The other backend is asked once, only when both keys are set (design 5.7).
     const canFallBack = cfg.fallback && keyOf(cfg, other) !== ''
-    const sendable = { state: fitState(req.state), questions: req.questions }
+    const sendable = { state: fitState(req.state), questions: req.questions, partial: req.partial === true }
     const a = await attempt(io, cfg, first, sendable, canFallBack ? t0 + Math.floor(deadlineMs * FIRST_SHARE) : endAt)
     if ('answers' in a) return { ok: true, ...a, backend: first, ms: await since() }
     if (!canFallBack || (await io.now()) >= endAt) return { ok: false, ...a, ms: await since() }
@@ -186,4 +189,19 @@ export async function ask(io: Io, cfg: Config, req: { state: unknown; questions:
     }
     return { ok: false, ...miss('network', first), ms }
   }
+}
+
+/** The chosen backend has a key: without one ask() sends nothing and fails with no-key. */
+export function canAsk(cfg: Config): boolean {
+  return keyOf(cfg, cfg.backend) !== ''
+}
+
+/** One part of a partial answer: the answers to these questions, or bad-answer when one of them did not come back. */
+export function partOf(r: AskResult, ids: readonly string[]): AskResult {
+  if (!r.ok) return r
+  if (!ids.every((id) => r.answers[id] !== undefined)) {
+    const failed: AskResult = { ok: false, reason: 'bad-answer', backend: r.backend, ms: r.ms }
+    return r.firstFailure === undefined ? failed : { ...failed, firstFailure: r.firstFailure }
+  }
+  return { ...r, answers: Object.fromEntries(ids.map((id) => [id, r.answers[id]!])) }
 }

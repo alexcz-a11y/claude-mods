@@ -84,6 +84,26 @@ export function midrunQuestions(): Record<string, Question> {
   }
 }
 
+// The skill suggestion, in the words of TypeSafe's skill_suggestion cookbook (verbatim; ADR 0018, 0021).
+// skills.ts builds the questions from these; the cookbook gives the four nouls no criteria of their own.
+
+export const SKILL_CHOICE = "Which of these skills, if any, is the right one to load to help with the user's latest request?"
+export const SKILL_RERANK = "Exactly one of these skills is the right one to load for the user's latest request. Which one? Read what each actually does, not just its name."
+export const SKILL_NOUL_CRITERIA = { true: 'Yes.', false: 'No.' } as const
+
+/** The three action nouls (prose_suffices counts the other way round) and the named one, by question id. */
+export const SKILL_GATES = {
+  acts_on_user_system: 'Is the assistant being asked to act on the user\'s files, accounts, devices, or online services, rather than only to explain or advise?',
+  would_follow_documented_procedure: 'Would a careful expert answering this consult a specific documented procedure or set of commands, rather than answering from general understanding?',
+  prose_suffices: 'Could a knowledgeable generalist fully satisfy this request in prose, with no tools, no documentation, and no access to the user\'s files or accounts?',
+  named: 'Does the request ask for a specific named tool, format, template, or method to be used, rather than for general help?',
+} as const
+
+/** A skill the listing gives no description is said to have none, so the sentence still ends in words. */
+export function skillFits(name: string, description: string): string {
+  return `Does the skill '${name}' do the specific thing the user's request asks for? It is described as: ${description || '(no description)'}`
+}
+
 export function agentQuestions(): Record<string, Question> {
   return {
     open: open('How open is the problem that `task` asks to solve?'),

@@ -56,6 +56,8 @@ export type WorldOptions = {
    * `deny` or `model` answers with that instead (no agentId unless it gives one).
    */
   onSpawn?: (e: AgentSpawnInput, agentId: string) => unknown
+  /** The text the engine's prompt.attachment answers with; the attachment's own text when left out (null leaves it out). */
+  attachmentText?: (e: PromptAttachmentInput) => string | null
 }
 
 export type SentStep = { turnId: string; index: number; effort: unknown; model: string; agentId: string | undefined }
@@ -183,7 +185,7 @@ export function world(on: On, o: WorldOptions = {}) {
   })
   on('prompt.attachment', (_$, e) => {
     attachments.push(e)
-    return { text: e.text }
+    return { text: o.attachmentText ? o.attachmentText(e) : e.text }
   })
   on('skill.prompt', (_$, e) => ({ text: e.text }))
 

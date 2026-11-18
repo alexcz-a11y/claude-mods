@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentSpawnInput, CommandRunResult, EngineInterface, Register, SessionAppendInput, TurnCompleteInput, TurnStepInput } from 'claude-code'
+import type { AgentSpawnInput, CommandRunResult, EngineInterface, PromptAttachmentResult, Register, SessionAppendInput, TurnCompleteInput, TurnStepInput } from 'claude-code'
 
 import { settleSpawn } from './agents.ts'
 import type { Spawned } from './agents.ts'
-import { ask } from './backend.ts'
-import type { Io } from './backend.ts'
+import { ask, canAsk, partOf } from './backend.ts'
+import type { AskResult, Io } from './backend.ts'
 import { readConfig } from './config.ts'
 import type { Config } from './config.ts'
 import { kindOf, rowOf } from './journal.ts'
@@ -15,11 +15,12 @@ import type { Decision } from './log.ts'
 import { applyShift, planRow, settleCheckpoint, withNote } from './midrun.ts'
 import type { Judged, RowPlan } from './midrun.ts'
 import { agentQuestions, midrunQuestions, submitQuestions } from './questions.ts'
-import type { Question } from './questions.ts'
 import { emptySession, newTurn } from './state.ts'
 import type { SessionState, TurnState } from './state.ts'
 import { agentState, clip, submitState } from './statebuild.ts'
 import type { PreviousTurn } from './statebuild.ts'
+import { LISTING_NOTE, SECOND_LATE, SECOND_MIN_MS, findSkillReply, isFindSkill, parseListing, pickMany, queryOf, readStageOne, readStageTwo, shortlist, skillDecision, stageOne, stageTwo, suggestionBlock } from './skills.ts'
+import type { Skill, SkillOutcome } from './skills.ts'
 import { settleSubmit } from './submit.ts'
 
 // $.state, through the state library: a read of a key never written gives the initial, and update()
@@ -29,6 +30,7 @@ import { settleSubmit } from './submit.ts'
 const SESSION = atom({ plugin: 'dispatch-pilot', key: 'session' } as const, emptySession())
 const TURN = atom({ plugin: 'dispatch-pilot', key: 'turn' } as const, null)
 const RECENT = atom({ plugin: 'dispatch-pilot', key: 'recent' } as const, [])
+const SKILLS = atom({ plugin: 'dispatch-pilot', key: 'skills' } as const, [])
 
 // The agents family (by agentId) is addressed with a literal reference at each read and write, which the module
 // scan requires; an agent the mod did not handle at its spawn has no entry.
@@ -133,22 +135,84 @@ async function answerDp($: EngineInterface, cfg: Config, args: string): Promise<
   return shown(DP_USAGE)
 }
 
-// The judgement when a person sends a message. The level itself is settled at the turn's first step,
-// which is the first place the session's own effort can be read.
-async function judgeMessage($: EngineInterface, cfg: Config, m: { text: string; origin: string | undefined; turnId: string | undefined }): Promise<null> {
-  if (!cfg.enabled || !cfg.submitShift || m.origin === undefined || !PERSON.includes(m.origin)) return null
+// The judgement when a person sends a message: the effort questions and the skill questions in one request. The
+// effort's level is settled at the turn's first step, the first place the session's own effort can be read; the
+// skill is settled here, since its suggestion goes down with the message. Null: nothing was asked.
+async function judgeMessage($: EngineInterface, cfg: Config, m: { text: string; origin: string | undefined; turnId: string | undefined }): Promise<SkillOutcome | null> {
+  if (!cfg.enabled || m.origin === undefined || !PERSON.includes(m.origin)) return null
   // A prompt delivered into a running turn starts no turn of its own: the mid-run check covers it.
   if (m.turnId !== undefined) return null
   const text = m.text
   const session = await read($, SESSION)
-  if (session.lock !== null) return null
-  // Every question this message is asked goes into the one map and the one request; each part then
-  // reads the answers it needs from the one result (the effort: open, mechanical, unknown_cause, continues).
-  const questions: Record<string, Question> = { ...submitQuestions(session.previous !== null) }
+  const effortAsked = cfg.submitShift && session.lock === null
+  const skills = cfg.skills && canAsk(cfg) ? await read($, SKILLS) : []
+  if (!effortAsked && skills.length === 0) return null
+  // Every question this message is asked goes into the one map and the one request; each part then reads the
+  // answers it needs (the effort: open, mechanical, unknown_cause, continues; the skill: skill_<n> and the gate).
+  const effortQuestions = effortAsked ? submitQuestions(session.previous !== null) : {}
+  const skillQuestions = skills.length > 0 ? stageOne(skills, cfg.backend, true) : {}
   const state = submitState({ request: text, previous: session.previous })
-  const result = await ask(ioOf($), cfg, { state, questions }, cfg.submitTimeoutMs)
-  await update($, SESSION, (s) => ({ ...s, pending: { request: text, result } }))
+  const t0 = await $.clock.now()
+  // Read part by part, so an unusable effort part leaves the skill part standing, and the other way round.
+  const result = await ask(ioOf($), cfg, { state, questions: { ...effortQuestions, ...skillQuestions }, partial: skills.length > 0 }, cfg.submitTimeoutMs)
+  if (effortAsked) {
+    const own = partOf(result, Object.keys(effortQuestions))
+    await update($, SESSION, (s) => ({ ...s, pending: { request: text, result: own } }))
+  }
+  if (skills.length === 0) return null
+  return suggestSkill($, cfg, { skills, state, first: result, asked: Object.keys(skillQuestions), t0 })
+}
+
+// The second request, on the shortlist, with what is left of submitTimeoutMs.
+async function suggestSkill($: EngineInterface, cfg: Config, c: { skills: Skill[]; state: unknown; first: AskResult; asked: string[]; t0: number }): Promise<SkillOutcome> {
+  const none = { first: c.first, asked: c.asked, second: null, skill: null }
+  const one = readStageOne(c.skills, c.first, true)
+  if ('detail' in one) return { ...none, detail: one.detail }
+  const left = cfg.submitTimeoutMs - ((await $.clock.now()) - c.t0)
+  if (left < SECOND_MIN_MS) return { ...none, detail: SECOND_LATE }
+  const second = await ask(ioOf($), cfg, { state: c.state, questions: stageTwo(one.short, cfg.backend) }, left)
+  return { ...none, second, ...readStageTwo(one.short, second) }
+}
+
+// A message's skill judgement, from its prompt.submit to the turn.start its next(e) raises with the same text, where
+// the turn's id is known (prompt.submit's own reads cannot see that turn: one dispatch reads one moment). The Decision
+// is recorded there, or after next(e) with no turn when none started. Module level: a hot reload in between loses
+// that one Decision.
+let skillOut: { text: string; outcome: SkillOutcome; applied: boolean } | null = null
+
+async function recordSkill($: EngineInterface, o: SkillOutcome, c: { turnId: string | null; applied: boolean }): Promise<null> {
+  const at = await $.clock.now()
+  await record($, skillDecision(o, { id: decisionId(at), at, turnId: c.turnId, applied: c.applied }))
   return null
+}
+
+// The main loop's skill listing: its skills are kept as the candidates, and the main agent reads LISTING_NOTE instead.
+// Null: the listing is left as it came.
+async function foldListing($: EngineInterface, text: string): Promise<PromptAttachmentResult | null> {
+  const skills = parseListing(text)
+  if (skills.length === 0) return null
+  // A later listing (after /clear, a compaction) replaces the candidates.
+  await update($, SKILLS, () => skills)
+  return { text: LISTING_NOTE }
+}
+
+// find-skill: the same two requests on a few words of the agent's, without the gate (the agent is already asking for
+// a skill), answering with every skill that fits, at most three.
+async function findSkill($: EngineInterface, cfg: Config, text: string): Promise<string> {
+  const query = queryOf(text)
+  if (query === '') return findSkillReply('', [], null)
+  const skills = await read($, SKILLS)
+  if (skills.length === 0) return findSkillReply(query, [], null)
+  const state = submitState({ request: query, previous: null })
+  const t0 = await $.clock.now()
+  const first = await ask(ioOf($), cfg, { state, questions: stageOne(skills, cfg.backend, false) }, cfg.submitTimeoutMs)
+  if (!first.ok) return findSkillReply(query, [], first.reason)
+  const short = shortlist(skills, first.answers)
+  if (short.length === 0) return findSkillReply(query, [], null)
+  const left = cfg.submitTimeoutMs - ((await $.clock.now()) - t0)
+  if (left < SECOND_MIN_MS) return findSkillReply(query, [], 'timeout')
+  const second = await ask(ioOf($), cfg, { state, questions: stageTwo(short, cfg.backend) }, left)
+  return second.ok ? findSkillReply(query, pickMany(short, second.answers), null) : findSkillReply(query, [], second.reason)
 }
 
 // A message that did not go in starts no turn, so its decision goes with it.
@@ -361,13 +425,34 @@ export const register: Register = (on, options) => {
     return answer ?? next(e)
   })
 
-  // The person is waiting for the message to go in: the one ask() is the only wait here. The pending
-  // decision is written before next(e), inside which the engine starts the message's turn.
+  // The person is waiting for the message to go in: the asks are the only wait here. The pending decision is
+  // written before next(e), inside which the engine starts the message's turn; a suggestion goes down as context.
   on('prompt.submit', async ($, e, next) => {
-    await failOpen($, 'prompt.submit', null, () => judgeMessage($, cfg, { text: e.text, origin: e.origin?.kind, turnId: e.turnId }))
-    const r = await next(e)
+    const skill = await failOpen($, 'prompt.submit', null, () => judgeMessage($, cfg, { text: e.text, origin: e.origin?.kind, turnId: e.turnId }))
+    const block = skill?.skill && cfg.mode === 'apply' ? suggestionBlock(skill.skill) : null
+    if (skill !== null) skillOut = { text: e.text, outcome: skill, applied: block !== null }
+    const r = await next(block === null ? e : { ...e, context: [...(e.context ?? []), block] })
     if (r.drop !== undefined) await failOpen($, 'prompt.submit', null, () => dropPending($))
+    // Still here: no turn started with it (a drop, or the engine started none inside next).
+    if (skill !== null && skillOut?.outcome === skill) {
+      skillOut = null
+      await failOpen($, 'prompt.submit', null, () => recordSkill($, skill, { turnId: null, applied: false }))
+    }
     return r
+  })
+
+  // Answered on the way back: what the engine rendered is what is parsed. A subagent keeps its listing whole.
+  on('prompt.attachment', { type: 'skill_listing' }, async ($, e, next) => {
+    const r = await next(e)
+    const text = r.text
+    if (e.agentId !== undefined || !cfg.enabled || !cfg.skills || cfg.mode === 'shadow' || !canAsk(cfg) || text === null) return r
+    return (await failOpen($, 'prompt.attachment', null, () => foldListing($, text))) ?? r
+  })
+
+  on('skill.prompt', { skill: /(^|:)find-skill$/ }, async ($, e, next) => {
+    if (!isFindSkill(e) || !cfg.enabled || !cfg.skills || cfg.mode === 'shadow') return next(e)
+    const text = await failOpen($, 'skill.prompt', null, () => findSkill($, cfg, e.text))
+    return text === null ? next(e) : { text }
   })
 
   on('turn.start', async ($, e, next) => {
@@ -377,6 +462,11 @@ export const register: Register = (on, options) => {
       // A decision that stays pending is taken by this turn's first step, once the effort is known.
       return startTurn($, e.turnId, e.text)
     })
+    const mine = e.agentId === undefined && skillOut !== null && skillOut.text === e.text ? skillOut : null
+    if (mine !== null) {
+      skillOut = null
+      await failOpen($, 'turn.start', null, () => recordSkill($, mine.outcome, { turnId: e.turnId, applied: mine.applied }))
+    }
     return next(e)
   })
 
