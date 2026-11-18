@@ -77,8 +77,11 @@ export type TurnState = {
   midrun: MidrunCounters
   pendingNote: string | null
   progress: ProgressNote | null
-  /** The id of the Decision whose level is waiting to be checked against the next request. */
-  unverified: string | null
+  /**
+   * The Decision whose level the next main-loop request is checked against (Task 11), and that level. queued: its note
+   * still waits for a row that can carry it, so no request carries the level yet.
+   */
+  unverified: { id: string; level: Level; queued: boolean } | null
   stepNo: number
   track: TrackCell[]
   pendingMark: Mark | null

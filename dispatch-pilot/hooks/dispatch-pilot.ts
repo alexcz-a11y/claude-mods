@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentSpawnInput, CommandRunResult, EngineInterface, PromptAttachmentResult, Register, SessionAppendInput, TurnCompleteInput, TurnStepInput } from 'claude-code'
+import type { AgentSpawnInput, CommandRunResult, EngineInterface, HttpInit, PromptAttachmentResult, Register, SessionAppendInput, TurnCompleteInput, TurnStepInput } from 'claude-code'
 
 import { settleSpawn } from './agents.ts'
 import type { Spawned } from './agents.ts'
@@ -10,13 +10,15 @@ import type { Config } from './config.ts'
 import { kindOf, rowOf } from './journal.ts'
 import { isLevel, tierOfModelId } from './levels.ts'
 import type { Level } from './levels.ts'
-import { DP_USAGE, RECENT_KEEP, badLevelReply, decisionId, lockReply, parseDp, pushLog, readLog, renderDp, renderLog, unlockReply } from './log.ts'
+import { DP_USAGE, RECENT_KEEP, amendLog, badLevelReply, decisionId, lockReply, parseDp, pushLog, readLog, renderDp, renderLog, unlockReply } from './log.ts'
 import type { Decision } from './log.ts'
 import { applyShift, planRow, settleCheckpoint, withNote } from './midrun.ts'
 import type { Judged, RowPlan } from './midrun.ts'
 import { agentQuestions, midrunQuestions, submitQuestions } from './questions.ts'
+import { agentSent, awaitCheck, classify, clearCheck, notePlaced, settleReading } from './readout.ts'
+import type { OpenStep, Reading } from './readout.ts'
 import { emptySession, newTurn } from './state.ts'
-import type { SessionState, TurnState } from './state.ts'
+import type { AgentState, SessionState, TurnState } from './state.ts'
 import { agentState, clip, submitState } from './statebuild.ts'
 import type { PreviousTurn } from './statebuild.ts'
 import {
@@ -97,8 +99,15 @@ export function ioOf($: EngineInterface): Io {
 
 // $.store has no compare-and-set, so this process's writes to the log go through one chain: two
 // decisions recorded at once would otherwise read the same log and the later write would drop the
-// other. A hot reload starts a new chain; what that costs is at most an entry written in that instant.
+// other, and an amendment queued after the record it amends cannot overtake it. A hot reload starts a
+// new chain; what that costs is at most an entry written in that instant.
 let logWrites: Promise<void> = Promise.resolve()
+
+function inOrder(write: () => Promise<void>): Promise<void> {
+  const mine = logWrites.then(write)
+  logWrites = mine
+  return mine
+}
 
 async function appendLog($: EngineInterface, d: Decision): Promise<void> {
   try {
@@ -119,9 +128,26 @@ export async function record($: EngineInterface, d: Decision): Promise<void> {
   } catch (err) {
     trace($, 'record', err)
   }
-  const mine = logWrites.then(() => appendLog($, d))
-  logWrites = mine
-  await mine
+  await inOrder(() => appendLog($, d))
+}
+
+async function amendStored($: EngineInterface, id: string, patch: Partial<Decision>): Promise<void> {
+  try {
+    const log = readLog(await $.store.get(LOG))
+    if (log.some((d) => d.id === id)) await $.store.set(LOG, amendLog(log, id, patch))
+  } catch (err) {
+    trace($, 'amend', err)
+  }
+}
+
+/** Writes a patch on a recorded Decision, in recent and in $.store's log (after every record queued before it). Never throws. */
+async function amend($: EngineInterface, id: string, patch: Partial<Decision>): Promise<void> {
+  try {
+    await update($, RECENT, (list) => (list.some((d) => d.id === id) ? amendLog(list, id, patch) : list))
+  } catch (err) {
+    trace($, 'amend', err)
+  }
+  await inOrder(() => amendStored($, id, patch))
 }
 
 const shown = (text: string): CommandRunResult => ({ text, isTextDisplayOnly: true })
@@ -265,9 +291,12 @@ async function takePending($: EngineInterface, cfg: Config, e: TurnStepInput, se
   const at = await $.clock.now()
   const writes = cfg.enabled && cfg.mode === 'apply' && session.lock === null
   const s = settleSubmit(pending.result, { effort: e.effort, previousLevel: session.previous?.level ?? null, writes, turnId: e.turnId, id: decisionId(at), at })
-  const turn: TurnState = { ...own, base: s.base, wanted: s.wanted }
-  await update($, TURN, () => turn)
+  // Recorded before the turn names it for a check, so a reading cannot amend a Decision not yet in the log.
   await record($, s.decision)
+  const settled: TurnState = { ...own, base: s.base, wanted: s.wanted }
+  const check = cfg.verifyEffort && s.decision.applied && s.wanted !== null ? { turnId: e.turnId, id: s.decision.id, level: s.wanted, queuedNote: null } : null
+  const turn = check === null ? settled : awaitCheck(settled, check)
+  await update($, TURN, () => turn)
   return turn
 }
 
@@ -335,6 +364,8 @@ async function keepAgent($: EngineInterface, s: Spawned, agentId: string): Promi
 async function agentStep($: EngineInterface, cfg: Config, e: TurnStepInput, agentId: string): Promise<TurnStepInput> {
   const held = await read($, { plugin: 'dispatch-pilot', key: 'agents', id: agentId } as const)
   if (held === undefined) return e
+  // At the second step the mod saw, the first one's request is the agent's last. A failed check leaves the step alone.
+  if (cfg.verifyEffort && held.steps === 1) await failOpen($, 'turn.step', null, () => checkAgent($, agentId, held))
   const effort = held.effort
   const writes = cfg.enabled && cfg.mode === 'apply' && effort !== null && isLevel(e.effort)
   let explicit = held.isEffortExplicit
@@ -348,6 +379,22 @@ async function agentStep($: EngineInterface, cfg: Config, e: TurnStepInput, agen
     return { ...was, steps: was.steps + 1, isEffortExplicit: was.isEffortExplicit ?? explicit }
   })
   return writes && explicit !== true && effort !== null ? { ...e, effort } : e
+}
+
+// An agent's check (design 5.12): $.agent.list()'s lastRequest, the documented reading, read once after the first step
+// the mod saw, against the effort decided at its spawn. A spawn that decided no effort (shadow, a failed ask) is not checked.
+async function checkAgent($: EngineInterface, agentId: string, held: AgentState): Promise<null> {
+  const { effort, decisionId: id } = held
+  if (effort === null || id === null) return null
+  const listed = (await $.agent.list()).find((a) => a.id === agentId)
+  await amend($, id, { sent: agentSent(effort, listed?.lastRequest) })
+  return null
+}
+
+// An agent that ends after the one step the mod saw is checked at its turn.complete: no second step comes to do it.
+async function endAgent($: EngineInterface, agentId: string): Promise<null> {
+  const held = await read($, { plugin: 'dispatch-pilot', key: 'agents', id: agentId } as const)
+  return held !== undefined && held.steps === 1 ? checkAgent($, agentId, held) : null
 }
 
 // A main-loop turn ends. Only the turn held here ends here: the end of one never seen starting (or with none held)
@@ -369,9 +416,15 @@ async function endTurn($: EngineInterface, e: TurnCompleteInput): Promise<null> 
 
 // After a checkpoint was evaluated, whatever came of it (a shift made, a hold, a shift not made, a failed request;
 // judged.shift is the shift only when it was made): the one place later parts attach to, the progress note in the
-// background and the board's mark on the timeline. Records the decision.
-async function afterCheckpoint($: EngineInterface, judged: Judged): Promise<void> {
-  await record($, judged.decision)
+// background and the board's mark on the timeline. Records the decision; a shift made then waits on the check of the
+// request that carries it, set once recorded, so a reading cannot amend a Decision not yet in the log.
+async function afterCheckpoint($: EngineInterface, cfg: Config, judged: Judged): Promise<void> {
+  const { decision, shift } = judged
+  await record($, decision)
+  const turnId = decision.turnId
+  if (cfg.verifyEffort && shift !== null && turnId !== null) {
+    await update($, TURN, (cur) => awaitCheck(cur, { turnId, id: decision.id, level: shift.to, queuedNote: shift.queued }))
+  }
 }
 
 // The mid-run check (design 5.4) on one row, which comes back as it goes on: with a note, or as it came. Main-loop
@@ -392,7 +445,8 @@ async function onRow($: EngineInterface, cfg: Config, e: SessionAppendInput): Pr
   const box: { plan: RowPlan | null } = { plan: null }
   await update($, TURN, (cur) => {
     box.plan = cur !== null && cur.turnId === held.turnId ? planRow(cur, row, kind, { cfg, codeMode, judging }) : null
-    return box.plan?.turn ?? cur
+    // A queued note placed on this row: from the next request on, its level is sent, so its check is due.
+    return box.plan === null ? cur : box.plan.note === null ? box.plan.turn : notePlaced(box.plan.turn)
   })
   const plan = box.plan
   if (plan === null) return e
@@ -416,8 +470,70 @@ async function onRow($: EngineInterface, cfg: Config, e: SessionAppendInput): Pr
       return next ?? cur
     })
   }
-  await afterCheckpoint($, { decision: { ...judged.decision, applied: made.yes }, shift: made.yes ? shift : null })
+  await afterCheckpoint($, cfg, { decision: { ...judged.decision, applied: made.yes }, shift: made.yes ? shift : null })
   return made.yes && shift !== null && shift.note !== null ? withNote(e, shift.note) : e
+}
+
+// The steps open now, for the readout to tell the main loop's request from an agent's (design 5.12): the main loop's
+// step, and the agent steps by model. Module level, set around each step's next() and cleared in a finally: a hot
+// reload in the middle of a step loses them, and that step's request is then recorded as unverified.
+let openMain: OpenStep | null = null
+const agentStepsOpen = new Map<string, number>()
+
+/** Registers a step as open, until what it returns is called. Exported for tests (see readout). */
+export function openStep(e: { turnId: string; index: number; model: string; agentId?: string }): () => void {
+  const { turnId, index, model } = e
+  if (e.agentId !== undefined) {
+    agentStepsOpen.set(model, (agentStepsOpen.get(model) ?? 0) + 1)
+    return () => {
+      const left = (agentStepsOpen.get(model) ?? 1) - 1
+      if (left > 0) agentStepsOpen.set(model, left)
+      else agentStepsOpen.delete(model)
+    }
+  }
+  openMain = { turnId, index, model, matched: false }
+  return () => {
+    if (openMain?.turnId === turnId && openMain.index === index) openMain = null
+  }
+}
+
+/**
+ * The readout of one request (design 5.12): read at once, its writes made beside the request, which it never sees.
+ * Null: nothing to write. Exported for tests: the kit raises no http.fetch as the engine (DEVELOPMENT.md).
+ */
+export function readout($: EngineInterface, e: { url: string; init?: HttpInit }, origin: string): Promise<null> | null {
+  const open = openMain
+  let reading: Reading
+  try {
+    reading = classify({ originPlugin: origin, url: e.url, body: e.init?.body, open, agentStepsOpen: open === null ? 0 : (agentStepsOpen.get(open.model) ?? 0) })
+  } catch (err) {
+    trace($, 'http.fetch', err)
+    return null
+  }
+  if (reading.kind === 'ignore') return null
+  // Marked before anything is awaited, so a second request of the same step is never read as its own.
+  if (reading.kind === 'main' && open !== null) openMain = { ...open, matched: true }
+  return failOpen($, 'http.fetch', null, () => keepReading($, reading, open))
+}
+
+// What a reading writes: the session's current level (a main-loop reading only), and the check it settles, on both
+// copies of the Decision.
+async function keepReading($: EngineInterface, r: Reading, open: OpenStep | null): Promise<null> {
+  if (r.kind === 'main') {
+    const effort = r.effort
+    if ((await read($, SESSION)).lastSent !== effort) await update($, SESSION, (s) => ({ ...s, lastSent: effort }))
+  }
+  const settled = settleReading(await read($, TURN), r, open)
+  if (settled === null) return null
+  // Cleared on what update() reads: of two readings at once, only the one that clears the check amends.
+  const box = { cleared: false }
+  await update($, TURN, (cur) => {
+    const next = clearCheck(cur, settled.awaited)
+    box.cleared = next !== cur
+    return next
+  })
+  if (box.cleared) await amend($, settled.awaited.id, { sent: settled.sent })
+  return null
 }
 
 export const register: Register = (on, options) => {
@@ -497,7 +613,13 @@ export const register: Register = (on, options) => {
   on('turn.step', async function* ($, e, next) {
     const agentId = e.agentId
     const out = await failOpen($, 'turn.step', e, () => (agentId === undefined ? mainStep($, cfg, e) : agentStep($, cfg, e, agentId)))
-    return yield* next(out)
+    // Open for the readout while the step's request may go.
+    const close = cfg.verifyEffort ? openStep(out) : null
+    try {
+      return yield* next(out)
+    } finally {
+      close?.()
+    }
   })
 
   // The judgement waits before next(e); the agent's entry and the Decision are written once next has answered with
@@ -517,7 +639,21 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    await failOpen($, 'turn.complete', null, () => endTurn($, e))
+    const agentId = e.agentId
+    await failOpen($, 'turn.complete', null, () => (agentId !== undefined && cfg.verifyEffort ? endAgent($, agentId) : endTurn($, e)))
     return next(e)
   })
+
+  // Every request the engine and the plugins send passes here. Each goes on as it came; the readout is written beside
+  // it (design 5.12).
+  if (cfg.verifyEffort) {
+    on('http.fetch', async ($, e, next) => {
+      const keeping = readout($, e, next.origin.plugin)
+      try {
+        return await next(e)
+      } finally {
+        if (keeping !== null) await keeping
+      }
+    })
+  }
 }

@@ -88,8 +88,10 @@ test('派出时发一个请求，state.task 是任务原文；只读又机械的
   expect(d).toHaveLength(1)
   expect(d[0]).toMatchObject({ kind: 'agent', from: 'opus · high', to: 'haiku · medium', reason: 'mechanical', detail: 'Explore', applied: true, turnId: 't1' })
   expect(entry(w, 'agent-1')).toEqual({ effort: 'medium', isEffortExplicit: false, decisionId: d[0]!.id, steps: 3 })
-  // $.agent.list() is asked once, at the agent's first step.
-  expect(w.listed.calls).toBe(1)
+  // $.agent.list() is asked twice: at the agent's first step whether its effort is its own, and at its second for what
+  // the first request carried (Task 11; this row has no lastRequest, so the check is unverified).
+  expect(w.listed.calls).toBe(2)
+  expect(d[0]!.sent).toBe('unverified')
 })
 
 test('fork、续跑、workflow 的 agent：不发请求，模型不动', { options: KEYS }, async ($, on) => {
@@ -265,7 +267,8 @@ test('agent 明写了 effort（agent.list 里有值）：不写 effort', { optio
   // The model is still decided; the effort its definition set is left as it is.
   expect(w.spawned.map((s) => s.model)).toEqual(['haiku'])
   expect(effortsOf(w, 'agent-1')).toEqual(['low', 'low', 'low'])
-  expect(w.listed.calls).toBe(1)
+  // Once for the explicit effort, once for the readout at the second step (Task 11).
+  expect(w.listed.calls).toBe(2)
   expect(entry(w, 'agent-1')).toEqual({ effort: 'medium', isEffortExplicit: true, decisionId: logged(w)[0]!.id, steps: 3 })
 })
 
@@ -291,7 +294,8 @@ test('agent 的第一步比 agent.spawn 的结果先到：这一步原样放行�
   expect(effortsOf(w, 'agent-1')).toEqual(['high', 'medium', 'medium'])
   // The early step wrote nothing; the entry counts the steps it saw.
   expect(entry(w, 'agent-1')).toEqual({ effort: 'medium', isEffortExplicit: false, decisionId: logged(w)[0]!.id, steps: 2 })
-  expect(w.listed.calls).toBe(1)
+  // Once for the explicit effort at the first step the entry saw, once for the readout at the second (Task 11).
+  expect(w.listed.calls).toBe(2)
 })
 
 // Beyond the brief.
@@ -429,7 +433,7 @@ test('next() 回答 deny 或没有 agentId：什么都不记，原样交回引�
   expect(agentWrites(w)).toHaveLength(0)
 })
 
-test('agent 的模型不收 effort（e.effort 缺省）或是数字：原样放行，不查 agent.list', { options: KEYS }, async ($, on) => {
+test('agent 的模型不收 effort（e.effort 缺省）或是数字：原样放行，不为明写的 effort 查 agent.list', { options: KEYS }, async ($, on) => {
   const w = world(on, { answer: agentAnswer(LOOKUP), agents: [info('agent-1')] })
   await mainAtHigh($)
   await spawn($)
@@ -438,6 +442,8 @@ test('agent 的模型不收 effort（e.effort 缺省）或是数字：原样放�
 
   expect(w.spawned.map((s) => s.model)).toEqual(['haiku'])
   expect(effortsOf(w, 'agent-1')).toEqual([undefined, 31999])
-  expect(w.listed.calls).toBe(0)
+  // The one call is the readout at the second step (Task 11); this row has no lastRequest, so the check is unverified.
+  expect(w.listed.calls).toBe(1)
+  expect(logged(w)[0]!.sent).toBe('unverified')
   expect(entry(w, 'agent-1')).toEqual({ effort: 'medium', isEffortExplicit: null, decisionId: logged(w)[0]!.id, steps: 2 })
 })

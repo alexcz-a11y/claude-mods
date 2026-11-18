@@ -125,10 +125,13 @@ function changeText(d: Decision): string {
   return d.reason && d.reason !== 'hold' ? `${s} · ${d.reason}` : s
 }
 
-function sentText(sent: unknown): string {
-  if (sent === 'not-sent') return ' · 未发出'
-  if (sent === 'unverified') return ' · 未核对'
-  return typeof sent === 'string' ? ` · 实际 ${sent}` : ''
+// What the check of a Decision found: the level the request carried, or that it carried another; a level the mod
+// set (a shift made, an agent's effort) that no reading confirmed is unverified.
+function sentText(d: Decision): string {
+  if (d.sent === 'not-sent') return ' · 未发出'
+  if (typeof d.sent === 'string' && d.sent !== 'unverified') return ` · 实际 ${d.sent}`
+  const checked = d.applied && (d.kind === 'submit' || d.kind === 'midrun' || d.kind === 'agent')
+  return checked || d.sent === 'unverified' ? ' · 未核对' : ''
 }
 
 function decisionLine(d: Decision): string {
@@ -136,7 +139,7 @@ function decisionLine(d: Decision): string {
   const what = d.detail ? `${kind}（${d.detail}）` : kind
   const by = d.backend ? ` · ${backendName(d.backend)} ${d.ms} ms` : ''
   const unapplied = !d.applied && !d.failure ? ' · 未执行' : ''
-  return `${clockText(d.at)} ${what} ${changeText(d)}${by}${unapplied}${sentText(d.sent)}`
+  return `${clockText(d.at)} ${what} ${changeText(d)}${by}${unapplied}${sentText(d)}`
 }
 
 // Without the chosen backend's key nothing is asked (ask() fails with no-key), whatever the other key.

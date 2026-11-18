@@ -1,0 +1,695 @@
+import { expect, test } from 'claude-code/testing'
+import type { Engine, Plugin } from 'claude-code/testing'
+import type { SessionAppendInput } from 'claude-code'
+
+import { readConfig } from '../hooks/config.ts'
+import { openStep, readout } from '../hooks/dispatch-pilot.ts'
+import { renderDp } from '../hooks/log.ts'
+import type { Decision } from '../hooks/log.ts'
+import { classify } from '../hooks/readout.ts'
+import type { OpenStep } from '../hooks/readout.ts'
+import type { SessionState, TurnState } from '../hooks/state.ts'
+import { scriptByDelivery, scriptByPoll } from './support/rows.ts'
+import { KEYS, appendAll, complete, dp, drexOk, noul, score, spawn, start, step, submit, turnStart, turns, world } from './support/world.ts'
+
+type World = ReturnType<typeof world>
+
+const OPUS = 'claude-opus-5-5'
+const HAIKU = 'claude-haiku-5-5'
+const MESSAGES = 'https://api.anthropic.com/v1/messages?beta=true'
+/** What the bottom answers a model request with here (the engine's real one streams). */
+const STREAM = 'event: message_start'
+const TASK = 'Fix the flaky retry in the uploader'
+/** Text that stands for the conversation: none of it may leave the request (design 5.12). */
+const SECRET = 'PRIVATE-7f3a: the customer list lives in /srv/clients.csv'
+const SYSTEM = 'You are Claude Code, working in /srv/acme'
+const THREAD = 'thread_7f3a'
+
+/** A request body shaped like the main loop's (E15): the conversation, a thread, and the level at the top when given. */
+function body(o: { model?: string; effort?: unknown; thread?: boolean; extra?: Record<string, unknown> } = {}): string {
+  return JSON.stringify({
+    model: o.model ?? OPUS,
+    max_tokens: 32000,
+    system: [{ type: 'text', text: SYSTEM }],
+    messages: [{ role: 'user', content: [{ type: 'text', text: SECRET }] }],
+    ...(o.thread === false ? {} : { thread: { id: THREAD } }),
+    ...(o.effort === undefined ? {} : { output_config: { effort: o.effort } }),
+    ...o.extra,
+  })
+}
+
+/** The init of a model request; a credential header reads [redacted] to a hook (E15). */
+const init = (b: unknown) => ({ method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': '[redacted]' }, body: b })
+
+// What the mod recorded and wrote in an engine-driven run, and what reached the engine.
+const logged = (w: World): Decision[] => (w.storeWrites.filter((s) => s.key === 'log').at(-1)?.value ?? []) as Decision[]
+const lastOf = (w: World, key: string): unknown => w.stateWrites.filter((s) => s.key === key && s.isSet).at(-1)?.value
+const recent = (w: World): Decision[] => (lastOf(w, 'recent') ?? []) as Decision[]
+const midruns = (w: World): Decision[] => logged(w).filter((d) => d.kind === 'midrun')
+const turnState = (w: World): TurnState => lastOf(w, 'turn') as TurnState
+const efforts = (w: World): unknown[] => w.stepsSent.map((s) => s.effort)
+const reached = (w: World, row: SessionAppendInput): SessionAppendInput | undefined => w.appended.find((a) => a.uuid === row.uuid)
+const row = (d: Decision) => [d.kind, d.from, d.to, d.applied, d.sent]
+/** Every level the mod wrote as the session's current one in an engine-driven run (session writes are made all along). */
+const sentLevels = (w: World): unknown[] => w.stateWrites.filter((s) => s.key === 'session' && (s.value as SessionState).lastSent !== null).map((s) => (s.value as SessionState).lastSent)
+/** What of a request's text the mod logged, stored or wrote in an engine-driven run; the requests themselves carried it all. */
+function leakedIn(w: World): string[] {
+  const out = JSON.stringify([w.logs, w.debugLogs, w.statuses, w.storeWrites, w.stateWrites])
+  const sent = JSON.stringify(w.requests)
+  return [SECRET, SYSTEM, THREAD].filter((s) => out.includes(s) || !sent.includes(s))
+}
+/** The checks the turn waited on, as each landed turn write left them. */
+const checks = (w: World): unknown[] => w.stateWrites.filter((s) => s.key === 'turn' && s.isSet).map((s) => (s.value as TurnState | null)?.unverified ?? null)
+
+const NOTE_HIGH = '[dispatch-pilot] effort is now high: the same failure came back after a fix.'
+
+// The message's own judgement: from medium, SUBMIT_HOLD holds and SUBMIT_RAISE goes to high.
+const SUBMIT_HOLD = { open: score([0.05, 0.3, 0.3, 0.3, 0.05]), mechanical: noul(0.1), unknown_cause: noul(0.2) }
+const SUBMIT_RAISE = { open: score([0.02, 0.08, 0.25, 0.55, 0.1]), mechanical: noul(0.1), unknown_cause: noul(0.2) }
+// Mid-run answers: HOLD stays put; SAME_FAILURE goes one level up; CAUSE_FOUND goes from high down to medium.
+const FLAGS_NO = { same_failure: noul(0.1), cause_found: noul(0.2), only_carrying_out: noul(0.2), contradicts_plan: noul(0.1) }
+const HOLD = { open: score([0.05, 0.3, 0.3, 0.3, 0.05]), ...FLAGS_NO }
+const SAME_FAILURE = { ...HOLD, same_failure: noul(0.9) }
+const CAUSE_FOUND = { open: score([0.1, 0.8, 0.05, 0.05, 0]), ...FLAGS_NO, cause_found: noul(0.9) }
+// An agent's task: read-only and mechanical, so haiku at medium.
+const LOOKUP = { open: score([0.05, 0.3, 0.3, 0.3, 0.05]), mechanical: noul(0.9), unknown_cause: noul(0.1), read_only: noul(0.9) }
+
+type Answers = Record<string, unknown>
+
+// The decision model's answers: the message's (with continues 0.1 when asked), or the mid-run ones, or what `midrun`
+// returns for the state sent. A model request (the wire plugin's) gets STREAM.
+function answers(message: Answers, midrun: Answers | ((state: any) => Answers)) {
+  return ({ url, body }: { url: string; body: any }) => {
+    if (url === MESSAGES) return STREAM
+    if ('same_failure' in body.questions) return drexOk(typeof midrun === 'function' ? midrun(body.state) : midrun)
+    return drexOk('continues' in body.questions ? { ...message, continues: noul(0.1) } : message)
+  }
+}
+
+// A turn under way: the session started, the message sent and judged, its first step taken at medium.
+async function begin($: Engine) {
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+}
+
+const stepT1 = ($: Engine, index: number) => step($, { turnId: 't1', index, effort: 'medium' })
+
+/**
+ * Sits above every mod (prepend) and answers each request with what next.trace says of the links beneath it: the
+ * plugins whose hooks ran (x-links), and whether every one of them received the same request (x-same).
+ */
+const WATCHER: Plugin = {
+  name: 'fetch-watcher',
+  tier: 'prepend',
+  register(on) {
+    on('http.fetch', async (_$, e, next) => {
+      // A $ call's chain answers { value } or { deny }.
+      const r = await next(e)
+      const v = r.value
+      if (v === undefined) return r
+      const received = next.trace.map((t) => JSON.stringify(t.received))
+      const same = received.every((x) => x === received[0])
+      return { value: { ...v, headers: { ...v.headers, 'x-links': next.trace.map((t) => t.plugin).join(','), 'x-same': String(same) } } }
+    })
+  },
+}
+
+/** Sends the request a test names ({ url, init } in the args) from its own $: the kit's own $ has no http. */
+const WIRE: Plugin = {
+  name: 'wire',
+  register(on) {
+    on('command.run', { command: 'wire' }, async ($, e) => {
+      const r = JSON.parse(e.args)
+      return { text: JSON.stringify(await $.http.fetch(r.url, r.init)) }
+    })
+  },
+}
+
+async function viaWire($: Engine, url: string, i?: unknown): Promise<{ status: number; ok: boolean; headers: Record<string, string>; text: string }> {
+  const r = await $.command.run({ command: 'wire', args: JSON.stringify({ url, init: i }), origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+  return JSON.parse(r.text ?? 'null')
+}
+
+// The readout of an engine request, driven directly. The kit raises no http.fetch as the engine (its $ has no http,
+// and a plugin named engine does not load: DEVELOPMENT.md), so these tests call the entry's openStep and readout on a
+// stand-in $ seeded with the state an engine-driven run left. The stand-in has what they touch: $.state with versions
+// (the state library's compare-and-set), $.store and $.ui.log; `refuse` makes a state write throw.
+function fakeDollar(seed: { state?: Record<string, unknown>; store?: Record<string, unknown> } = {}, o: { refuse?: (key: string, value: unknown) => boolean } = {}) {
+  const state = new Map<string, { value: unknown; version: number }>(Object.entries(seed.state ?? {}).map(([k, v]) => [k, { value: v, version: 1 }]))
+  const store = new Map<string, unknown>(Object.entries(JSON.parse(JSON.stringify(seed.store ?? {}))))
+  const logs: string[] = []
+  const writes: { key: string; value: unknown }[] = []
+  const $ = {
+    ui: { log: (text: string) => void logs.push(text) },
+    state: {
+      get: async (ref: { key: string }) => state.get(ref.key) ?? { value: undefined, version: 0 },
+      set: async (ref: { key: string }, value: unknown, opts?: { ifVersion?: number }) => {
+        if (o.refuse?.(ref.key, value)) throw new Error('refused by the test')
+        const held = state.get(ref.key) ?? { value: undefined, version: 0 }
+        if (opts?.ifVersion !== undefined && opts.ifVersion !== held.version) return { isSet: false, version: held.version }
+        state.set(ref.key, { value, version: held.version + 1 })
+        writes.push({ key: ref.key, value })
+        return { isSet: true, version: held.version + 1 }
+      },
+    },
+    store: {
+      get: async (key: string) => store.get(key),
+      set: async (key: string, value: unknown) => void store.set(key, JSON.parse(JSON.stringify(value))),
+    },
+  }
+  const value = (key: string): unknown => state.get(key)?.value
+  return {
+    $: $ as never,
+    logs,
+    writes,
+    log: () => (store.get('log') ?? []) as Decision[],
+    recent: () => (value('recent') ?? []) as Decision[],
+    session: () => value('session') as SessionState,
+    turn: () => value('turn') as TurnState | null,
+    /** Every level written as the session's current one, in order. */
+    lastSents: () => writes.filter((x) => x.key === 'session').map((x) => (x.value as SessionState).lastSent),
+    /** Where anything of a request could have gone: what was logged, stored and written. */
+    leaked: () => {
+      const out = JSON.stringify([logs, writes, [...store.values()]])
+      return [SECRET, SYSTEM, THREAD].filter((s) => out.includes(s))
+    },
+  }
+}
+type Fake = ReturnType<typeof fakeDollar>
+
+/** The state an engine-driven run left: each state key's last landed value, and $.store's log. */
+function seedOf(w: World) {
+  const state: Record<string, unknown> = {}
+  for (const key of ['session', 'turn', 'recent']) {
+    const v = lastOf(w, key)
+    if (v !== undefined) state[key] = v
+  }
+  return { state, store: { log: logged(w) } }
+}
+
+type Open = { turnId: string; index: number; model?: string; agentId?: string }
+
+/** The engine sending model requests while `open` steps are open (main loop's or agents'), each read by the entry's readout. */
+async function sendIn(f: Fake, open: Open[], bodies: unknown[], url = MESSAGES): Promise<void> {
+  const closers = open.map((s) => openStep({ ...s, model: s.model ?? OPUS }))
+  try {
+    for (const b of bodies) await readout(f.$, { url, init: init(b) as never }, 'engine')
+  } finally {
+    for (const close of closers.reverse()) close()
+  }
+}
+
+const OPEN: OpenStep = { turnId: 't1', index: 0, model: OPUS, matched: false }
+/** classify on a request the engine sent to the Messages endpoint during the open step, unless `o` says otherwise. */
+const read = (b: unknown, o: Partial<{ originPlugin: string | undefined; url: string; open: OpenStep | null; agentStepsOpen: number }> = {}) =>
+  classify({ originPlugin: 'engine', url: MESSAGES, body: b, open: OPEN, agentStepsOpen: 0, ...o })
+
+// The brief's eight.
+
+test('classify：主循环的请求读出顶层的档位', () => {
+  const b = JSON.stringify({ model: OPUS, thread: {}, output_config: { effort: 'high' }, messages: [{ role: 'user', content: 'hi' }] })
+  expect(read(b)).toEqual({ kind: 'main', effort: 'high' })
+  for (const level of ['low', 'medium', 'high', 'xhigh', 'max']) expect(read(body({ effort: level }))).toEqual({ kind: 'main', effort: level })
+  // The endpoint with or without the beta query, and on a host the engine is pointed at (a gateway).
+  expect(read(b, { url: 'https://api.anthropic.com/v1/messages' })).toEqual({ kind: 'main', effort: 'high' })
+  expect(read(b, { url: 'https://gateway.example.com/anthropic/v1/messages?beta=true' })).toEqual({ kind: 'main', effort: 'high' })
+  // Only the level leaves: the rest of output_config stays behind.
+  expect(read(body({ extra: { output_config: { effort: 'low', format: { type: 'json_schema' } } } }))).toEqual({ kind: 'main', effort: 'low' })
+})
+
+test('classify：没有 thread 的旁路请求、别的插件发的请求、别的地址：ignore', () => {
+  const main = body({ effort: 'high' })
+  expect(read(main)).toEqual({ kind: 'main', effort: 'high' })
+  // A side request (a title, a suggestion, $.model.fork) carries no thread.
+  expect(read(body({ effort: 'high', thread: false }))).toEqual({ kind: 'ignore' })
+  // A request another plugin, or this one, sends through $.http.fetch.
+  for (const originPlugin of ['dispatch-pilot', 'other-mod', 'client', undefined]) expect(read(main, { originPlugin })).toEqual({ kind: 'ignore' })
+  // Other addresses: count_tokens and batches under /v1/messages, other endpoints, a URL that does not parse.
+  for (const url of [
+    'https://api.anthropic.com/v1/messages/count_tokens?beta=true',
+    'https://api.anthropic.com/v1/messages/batches',
+    'https://api.anthropic.com/v1/complete',
+    'https://api.drex.example/v1/answer',
+    'not a url',
+  ])
+    expect(read(main, { url })).toEqual({ kind: 'ignore' })
+  // A side request is ignored whatever steps are open.
+  expect(read(body({ thread: false }), { open: null, agentStepsOpen: 2 })).toEqual({ kind: 'ignore' })
+})
+
+test('classify：只有消息里带 output_config、顶层没有：effort 为 null', () => {
+  const inner = JSON.stringify({ model: OPUS, thread: {}, messages: [{ role: 'user', content: [{ type: 'text', text: 'go' }], output_config: { effort: 'xhigh' } }] })
+  expect(read(inner)).toEqual({ kind: 'main', effort: null })
+  // A level the five do not name, a number, or an output_config that is no object: no level either.
+  for (const output_config of [{ effort: 'turbo' }, { effort: 31999 }, { effort: null }, 'high', null, {}]) {
+    expect(read(body({ extra: { output_config } }))).toEqual({ kind: 'main', effort: null })
+  }
+  // The top level is read, whatever a message carries.
+  expect(read(body({ effort: 'low', extra: { messages: [{ role: 'user', content: 'x', output_config: { effort: 'max' } }] } }))).toEqual({ kind: 'main', effort: 'low' })
+})
+
+test('classify：请求体不是文本或不是 JSON：ignore，不抛错', () => {
+  for (const b of [undefined, null, 42, { base64: 'UFJJVkFURS03ZjNh' }, '', '{"model": "claude-opus-5-5", "thread"', 'null', '"thread"', '[{"thread": {}}]', '42', 'true']) {
+    expect(read(b)).toEqual({ kind: 'ignore' })
+  }
+})
+
+test('classify：同模型的 agent 步同时开着，或这一步已经配过请求：unsure', () => {
+  const main = body({ effort: 'high' })
+  // An agent step open on the main step's model: its request cannot be told from the main loop's.
+  expect(read(main, { agentStepsOpen: 1 })).toEqual({ kind: 'unsure' })
+  // The step's request was read already (a retry, or another request on the same thread).
+  expect(read(main, { open: { ...OPEN, matched: true } })).toEqual({ kind: 'unsure' })
+  // No main step open (between steps, or lost to a hot reload), or a model the step does not name.
+  expect(read(main, { open: null })).toEqual({ kind: 'unsure' })
+  expect(read(body({ model: HAIKU, effort: 'high' }))).toEqual({ kind: 'unsure' })
+  // The same request with none of these is the main loop's.
+  expect(read(main, { agentStepsOpen: 0, open: OPEN })).toEqual({ kind: 'main', effort: 'high' })
+})
+
+test('请求原样放行：桩收到的 url 和 init 与发出的相同', { options: KEYS, plugins: [WATCHER, WIRE] }, async ($, on) => {
+  const COUNT = 'https://api.anthropic.com/v1/messages/count_tokens?beta=true'
+  const sent = [
+    { url: MESSAGES, init: init(body({ effort: 'low' })) },
+    { url: MESSAGES, init: init(body({ effort: 'low', thread: false })) },
+    { url: COUNT, init: init(body({ effort: 'low' })) },
+    { url: MESSAGES, init: init('{"model": "claude-opus-5-5", "thread"') },
+    { url: MESSAGES, init: init({ base64: 'UFJJVkFURS03ZjNh' }) },
+    { url: MESSAGES },
+  ]
+  const answered: Awaited<ReturnType<typeof viaWire>>[] = []
+  const w = world(on, {
+    onSubmit: turns($),
+    answer: ({ url, body }) => (url === MESSAGES || url === COUNT ? STREAM : answers(SUBMIT_RAISE, HOLD)({ url, body })),
+    // Sent while the main loop's step 0 is open and the message's decision waits on its check.
+    onStep: async () => {
+      for (const r of sent) answered.push(await viaWire($, r.url, r.init))
+    },
+  })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+
+  // The kit's own $ has no http, and a plugin's request reaches every hook with next.origin.plugin its own name: no
+  // test can send one as the engine (DEVELOPMENT.md).
+  expect(($ as unknown as Record<string, unknown>).http).toBeUndefined()
+  const wired = w.requests.filter((r) => r.origin !== 'dispatch-pilot')
+  expect(wired.map((r) => r.origin)).toEqual(['wire', 'wire', 'wire', 'wire', 'wire', 'wire'])
+  // Each reached the bottom as it was sent, and its answer came back as the bottom gave it.
+  expect(wired.map(({ url, init }) => ({ url, init }))).toEqual(sent)
+  expect(answered).toHaveLength(6)
+  for (const a of answered) {
+    expect(a).toMatchObject({ status: 200, ok: true, text: STREAM })
+    // The mod's hook ran on each, and every link beneath the watcher received the same request.
+    expect(a.headers['x-links']!.split(',')).toContain('dispatch-pilot')
+    expect(a.headers['x-same']).toBe('true')
+  }
+  // Another plugin's request is never read: the message's decision still waits, and no level was written.
+  const submitted = logged(w)[0]!
+  expect(row(submitted)).toEqual(['submit', 'medium', 'high', true, null])
+  expect(turnState(w).unverified).toEqual({ id: submitted.id, level: 'high', queued: false })
+  expect(w.stateWrites.filter((s) => s.key === 'session').length).toBeGreaterThan(0)
+  expect(sentLevels(w)).toEqual([])
+  expect(w.debugLogs).toEqual([])
+  expect(leakedIn(w)).toEqual([])
+
+  // The engine's request, read directly: the request object comes out of readout as it went in.
+  const f = fakeDollar(seedOf(w))
+  const e = { url: MESSAGES, init: init(body({ effort: 'high' })) }
+  const before = JSON.stringify(e)
+  const close = openStep({ turnId: 't1', index: 0, model: OPUS })
+  try {
+    await readout(f.$, Object.freeze({ ...e, init: Object.freeze({ ...e.init, headers: Object.freeze({ ...e.init.headers }) }) }) as never, 'engine')
+  } finally {
+    close()
+  }
+  expect(JSON.stringify(e)).toBe(before)
+  expect(f.logs).toEqual([])
+  expect(f.lastSents()).toEqual(['high'])
+  expect(f.leaked()).toEqual([])
+})
+
+test('换挡之后的那条决策记录带上实际发出的档位；不一致时是 not-sent', { options: KEYS }, async ($, on) => {
+  // Another session's entry in the machine's log: an amendment finds its entry by id and leaves the rest alone.
+  const other = { id: 'other-1', at: 1, kind: 'submit', backend: 'drex', model: 'drex-max-v1.1', ms: 5, raw: null, from: 'low', to: 'high', reason: 'more-open', detail: '', turnId: 'x1', step: 0, bars: null, failure: null, requestId: null, applied: true, sent: null }
+  const w = world(on, {
+    store: { log: [other] },
+    onSubmit: turns($),
+    answer: answers(SUBMIT_HOLD, (s) => (s.current_level === 'medium' ? SAME_FAILURE : s.steps_so_far >= 4 ? CAUSE_FOUND : HOLD)),
+  })
+  await begin($)
+  await appendAll($, scriptByPoll(1, 'rerun the upload test', 'FAIL test_upload'))
+  const up = midruns(w)[0]!
+  expect(row(up)).toEqual(['midrun', 'medium', 'high', true, null])
+  expect(turnState(w).unverified).toEqual({ id: up.id, level: 'high', queued: false })
+
+  // Step 1's request carries high: the shift's Decision gets it, in the log and in recent.
+  const a = fakeDollar(seedOf(w))
+  await sendIn(a, [{ turnId: 't1', index: 1 }], [body({ effort: 'high' })])
+  expect(a.log()[0]).toEqual(other)
+  expect(a.log().slice(1).map(row)).toEqual([
+    ['submit', 'medium', 'medium', true, null],
+    ['midrun', 'medium', 'high', true, 'high'],
+  ])
+  expect(a.recent()).toEqual(a.log().slice(1))
+  expect(a.session().lastSent).toBe('high')
+  expect(a.turn()!.unverified).toBe(null)
+  expect(a.leaked()).toEqual([])
+
+  // Three steps on, a shift down to medium; step 4's request still carries high.
+  for (let n = 1; n <= 4; n++) {
+    await stepT1($, n)
+    if (n < 4) await appendAll($, scriptByPoll(n + 1, `script ${n + 1}`, `result ${n + 1}`))
+  }
+  expect(efforts(w)).toEqual(['medium', 'high', 'high', 'high', 'medium'])
+  const down = midruns(w)[3]!
+  expect(midruns(w).map(row)).toEqual([
+    ['midrun', 'medium', 'high', true, null],
+    ['midrun', 'high', 'high', false, null],
+    ['midrun', 'high', 'high', false, null],
+    ['midrun', 'high', 'medium', true, null],
+  ])
+  // The newer shift took the place of the older one's check; holds are never checked.
+  expect(turnState(w).unverified).toEqual({ id: down.id, level: 'medium', queued: false })
+  const b = fakeDollar(seedOf(w))
+  await sendIn(b, [{ turnId: 't1', index: 4 }], [body({ effort: 'high' })])
+  expect(b.log().find((d) => d.id === down.id)!.sent).toBe('not-sent')
+  expect(b.recent().find((d) => d.id === down.id)!.sent).toBe('not-sent')
+  expect(b.log().filter((d) => d.id !== down.id).map((d) => d.sent)).toEqual([null, null, null, null, null])
+  expect(b.session().lastSent).toBe('high')
+  expect(b.leaked()).toEqual([])
+})
+
+test('verifyEffort 关着：记录里 sent 为 null，/dp 标未核对', { options: { ...KEYS, verifyEffort: false }, plugins: [WATCHER, WIRE] }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, SAME_FAILURE) })
+  await begin($)
+  await appendAll($, scriptByPoll(1, 'rerun the upload test', 'FAIL test_upload'))
+  await stepT1($, 1)
+
+  expect(efforts(w)).toEqual(['medium', 'high'])
+  expect(logged(w).map(row)).toEqual([
+    ['submit', 'medium', 'medium', true, null],
+    ['midrun', 'medium', 'high', true, null],
+  ])
+  expect(recent(w).map((d) => d.sent)).toEqual([null, null])
+  // No Decision waits on a check, and no level is ever written as sent.
+  expect(checks(w).length).toBeGreaterThan(0)
+  expect(checks(w).filter((c) => c !== null)).toEqual([])
+  expect(sentLevels(w)).toEqual([])
+  // The mod registers no http.fetch hook: beneath the watcher run only the test's own and the engine's.
+  const r = await viaWire($, MESSAGES, init(body({ effort: 'high' })))
+  expect(r).toMatchObject({ status: 200, text: STREAM })
+  expect(r.headers['x-links']!.length).toBeGreaterThan(0)
+  expect(r.headers['x-links']!.split(',')).not.toContain('dispatch-pilot')
+
+  const text = await dp($)
+  expect(text).toContain('档位：high（mod 要的，未核对）')
+  expect(text).toContain('发消息 medium 不变 · Drex 0 ms · 未核对')
+  expect(text).toContain('中途 medium → high · same-failure · Drex 0 ms · 未核对')
+})
+
+// What the eight do not reach.
+
+test('排着的说明：放上行之前读到的请求不核对它，放上之后的第一次请求才核对', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (s) => (s.current_level === 'medium' ? SAME_FAILURE : HOLD)) })
+  await begin($)
+  await appendAll($, scriptByDelivery(1, 'run the upload test', 'FAIL test_upload'))
+  const shift = midruns(w)[0]!
+  expect(row(shift)).toEqual(['midrun', 'medium', 'high', true, null])
+  // Judged on a delivery row: the note is queued, and so is the check.
+  expect(turnState(w)).toMatchObject({ wanted: 'high', pendingNote: NOTE_HIGH, unverified: { id: shift.id, level: 'high', queued: true } })
+
+  // Step 1's request goes before the note is on a row, still at medium (E13): it says nothing of this Decision.
+  await stepT1($, 1)
+  const a = fakeDollar(seedOf(w))
+  await sendIn(a, [{ turnId: 't1', index: 1 }], [body({ effort: 'medium' })])
+  expect(a.log().map(row)).toEqual([
+    ['submit', 'medium', 'medium', true, null],
+    ['midrun', 'medium', 'high', true, null],
+  ])
+  expect(a.recent().map((d) => d.sent)).toEqual([null, null])
+  expect(a.turn()!.unverified).toEqual({ id: shift.id, level: 'high', queued: true })
+  expect(a.session().lastSent).toBe('medium')
+
+  // The next receipt carries the note: from the next request on, the level is checked.
+  const second = scriptByPoll(2, 'fix the retry and rerun', '3 passed')
+  await appendAll($, second)
+  const receipt = second.find((r) => r.door === 'tool-result' && r.origin.kind === 'tool' && r.origin.tool === 'REPL')!
+  expect(reached(w, receipt)!.message.content.at(-1)).toEqual({ type: 'text', text: NOTE_HIGH })
+  expect(turnState(w)).toMatchObject({ pendingNote: null, unverified: { id: shift.id, level: 'high', queued: false } })
+
+  await stepT1($, 2)
+  const b = fakeDollar(seedOf(w))
+  await sendIn(b, [{ turnId: 't1', index: 2 }], [body({ effort: 'high' })])
+  expect(b.log().map(row)).toEqual([
+    ['submit', 'medium', 'medium', true, null],
+    ['midrun', 'medium', 'high', true, 'high'],
+    ['midrun', 'high', 'high', false, null],
+  ])
+  expect(b.recent()).toEqual(b.log())
+  expect(b.turn()!.unverified).toBe(null)
+  expect(efforts(w)).toEqual(['medium', 'high', 'high'])
+})
+
+test('发消息时定的档：由第 0 步的请求核对；引擎发出的不是它时记 not-sent', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, HOLD) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  const decided = logged(w)[0]!
+  expect(row(decided)).toEqual(['submit', 'medium', 'high', true, null])
+  // Set at step 0, before the step's request goes.
+  expect(turnState(w).unverified).toEqual({ id: decided.id, level: 'high', queued: false })
+  expect(efforts(w)).toEqual(['high'])
+
+  const sent = fakeDollar(seedOf(w))
+  await sendIn(sent, [{ turnId: 't1', index: 0 }], [body({ effort: 'high' })])
+  expect(sent.log().map(row)).toEqual([['submit', 'medium', 'high', true, 'high']])
+  expect(sent.recent().map(row)).toEqual([['submit', 'medium', 'high', true, 'high']])
+  expect(sent.session().lastSent).toBe('high')
+
+  const kept = fakeDollar(seedOf(w))
+  await sendIn(kept, [{ turnId: 't1', index: 0 }], [body({ effort: 'medium' })])
+  expect(kept.log().map(row)).toEqual([['submit', 'medium', 'high', true, 'not-sent']])
+  expect(kept.recent().map(row)).toEqual([['submit', 'medium', 'high', true, 'not-sent']])
+  expect(kept.session().lastSent).toBe('medium')
+  // A request that carries no level at all did not carry the one decided either.
+  const none = fakeDollar(seedOf(w))
+  await sendIn(none, [{ turnId: 't1', index: 0 }], [body()])
+  expect(none.log()[0]!.sent).toBe('not-sent')
+})
+
+test('认不准的请求记 unverified，不写当前档位：模型不同、没有开着的主循环步、同模型的 agent 步开着；模型不同的 agent 步不碍事', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, HOLD) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  const id = logged(w)[0]!.id
+  const cases: [string, Open[], string][] = [
+    ['the request names another model than the step', [{ turnId: 't1', index: 0 }], HAIKU],
+    ['no main-loop step open (what a hot reload leaves)', [], OPUS],
+    ['an agent step open on the same model', [{ turnId: 'a1', index: 0, agentId: 'agent-x' }, { turnId: 't1', index: 0 }], OPUS],
+  ]
+  for (const [what, open, model] of cases) {
+    const f = fakeDollar(seedOf(w))
+    await sendIn(f, open, [body({ model, effort: 'high' })])
+    expect([what, f.log().map((d) => [d.id, d.sent])]).toEqual([what, [[id, 'unverified']]])
+    expect([what, f.recent().map((d) => d.sent)]).toEqual([what, ['unverified']])
+    expect([what, f.turn()!.unverified]).toEqual([what, null])
+    expect([what, f.lastSents()]).toEqual([what, []])
+  }
+  // An agent step open on another model: the request with the step's model is the main loop's.
+  const f = fakeDollar(seedOf(w))
+  await sendIn(f, [{ turnId: 'a1', index: 0, agentId: 'agent-y', model: HAIKU }, { turnId: 't1', index: 0 }], [body({ effort: 'high' })])
+  expect(f.log().map((d) => [d.id, d.sent])).toEqual([[id, 'high']])
+  expect(f.lastSents()).toEqual(['high'])
+})
+
+test('同一步的第二次请求：不覆盖当前档位，也不改已经核对过的记录', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, HOLD) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  const f = fakeDollar(seedOf(w))
+  await sendIn(f, [{ turnId: 't1', index: 0 }], [body({ effort: 'high' }), body({ effort: 'low' })])
+  expect(f.log().map(row)).toEqual([['submit', 'medium', 'high', true, 'high']])
+  expect(f.recent().map((d) => d.sent)).toEqual(['high'])
+  expect(f.lastSents()).toEqual(['high'])
+  // The next step's first request is read again.
+  await sendIn(f, [{ turnId: 't1', index: 1 }], [body({ effort: 'low' })])
+  expect(f.lastSents()).toEqual(['high', 'low'])
+  expect(f.log()[0]!.sent).toBe('high')
+})
+
+/** A row of $.agent.list() for one agent, with its last request when given. */
+function info(id: string, lastRequest?: { at: number; model: string; effort?: string }) {
+  return {
+    id,
+    description: 'Find the retry',
+    type: 'general-purpose',
+    status: 'running',
+    kind: 'local_agent',
+    taskStatus: 'running',
+    label: 'Find the retry',
+    startTime: 0,
+    cwd: '/work',
+    model: HAIKU,
+    tokenCount: 0,
+    tokenSamples: [],
+    ...(lastRequest === undefined ? {} : { lastRequest }),
+  }
+}
+
+const agentStep = ($: Engine, agentId: string, index: number) => step($, { turnId: `a-${agentId}`, index, effort: 'high', model: HAIKU, agentId })
+
+test('agent：第二步开始时读 $.agent.list() 的 lastRequest；只有一步的在 turn.complete 读；读不到记 unverified', { options: KEYS }, async ($, on) => {
+  const w = world(on, {
+    answer: () => drexOk(LOOKUP),
+    agents: [info('agent-1', { at: 0, model: HAIKU, effort: 'medium' }), info('agent-2', { at: 0, model: HAIKU, effort: 'high' }), info('agent-3')],
+  })
+  await start($)
+  await turnStart($, 't1', TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'high' })
+  for (const id of ['toolu_1', 'toolu_2', 'toolu_3']) await spawn($, { tool_use_id: id })
+  expect(logged(w).map((d) => [d.kind, d.to, d.applied, d.sent])).toEqual([
+    ['agent', 'haiku · medium', true, null],
+    ['agent', 'haiku · medium', true, null],
+    ['agent', 'haiku · medium', true, null],
+  ])
+  const ids = logged(w).map((d) => d.id)
+
+  // agent-1: its first step asks whether its effort is its own (Task 9); its second reads what the first carried.
+  await agentStep($, 'agent-1', 0)
+  expect(w.listed.calls).toBe(1)
+  expect(logged(w)[0]!.sent).toBe(null)
+  await agentStep($, 'agent-1', 1)
+  expect(w.listed.calls).toBe(2)
+  expect(logged(w)[0]!.sent).toBe('medium')
+  // Once: the third step reads nothing.
+  await agentStep($, 'agent-1', 2)
+  expect(w.listed.calls).toBe(2)
+
+  // agent-2 takes one step and ends: read at its turn.complete. Its request carried high, not the medium decided.
+  await agentStep($, 'agent-2', 0)
+  expect(w.listed.calls).toBe(3)
+  await complete($, 'a-agent-2', { agentId: 'agent-2' })
+  expect(w.listed.calls).toBe(4)
+
+  // agent-3's row has no lastRequest.
+  await agentStep($, 'agent-3', 0)
+  await agentStep($, 'agent-3', 1)
+  expect(w.listed.calls).toBe(6)
+
+  expect(efforts(w)).toEqual(['high', 'medium', 'medium', 'medium', 'medium', 'medium', 'medium'])
+  const d = logged(w)
+  expect(d.map((x) => [x.id, x.sent])).toEqual([
+    [ids[0], 'medium'],
+    [ids[1], 'not-sent'],
+    [ids[2], 'unverified'],
+  ])
+  expect(recent(w)).toEqual(d)
+  const text = await dp($)
+  expect(text).toContain('agent（general-purpose） opus · high → haiku · medium · mechanical · Drex 0 ms · 实际 medium')
+  expect(text).toContain('agent（general-purpose） opus · high → haiku · medium · mechanical · Drex 0 ms · 未发出')
+  expect(text).toContain('agent（general-purpose） opus · high → haiku · medium · mechanical · Drex 0 ms · 未核对')
+})
+
+test('读数里出错：readout 不抛，只在 debug 日志里记一行；记录不改，请求的内容哪里都没去', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, HOLD) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  // The readout's first write, the session's current level, throws.
+  const f = fakeDollar(seedOf(w), { refuse: (key, value) => key === 'session' && (value as SessionState).lastSent !== null })
+  const e = { url: MESSAGES, init: init(body({ effort: 'high' })) }
+  const close = openStep({ turnId: 't1', index: 0, model: OPUS })
+  let settled: unknown = 'not settled'
+  try {
+    settled = await readout(f.$, e as never, 'engine')
+  } finally {
+    close()
+  }
+  expect(settled).toBe(null)
+  expect(e).toEqual({ url: MESSAGES, init: init(body({ effort: 'high' })) })
+  expect(f.logs).toHaveLength(1)
+  expect(f.logs[0]).toContain('http.fetch failed open')
+  expect(f.logs[0]).toContain('refused by the test')
+  expect(f.log().map(row)).toEqual([['submit', 'medium', 'high', true, null]])
+  expect(f.writes).toEqual([])
+  expect(f.leaked()).toEqual([])
+  // Nothing to read, nothing to throw: an ignored request returns null at once, with no write and no line.
+  expect(readout(f.$, { url: MESSAGES, init: init(body({ thread: false })) } as never, 'engine')).toBe(null)
+  expect(readout(f.$, e as never, 'wire')).toBe(null)
+  expect(f.logs).toHaveLength(1)
+})
+
+test('没执行的决策不检查：shadow、请求失败；当前档位照读', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, SAME_FAILURE) })
+  await begin($)
+  await appendAll($, scriptByPoll(1, 'rerun the upload test', 'FAIL test_upload'))
+  await stepT1($, 1)
+  expect(efforts(w)).toEqual(['medium', 'medium'])
+  expect(logged(w).map(row)).toEqual([
+    ['submit', 'medium', 'high', false, null],
+    ['midrun', 'high', 'xhigh', false, null],
+  ])
+  expect(turnState(w).unverified).toBe(null)
+  const f = fakeDollar(seedOf(w))
+  await sendIn(f, [{ turnId: 't1', index: 1 }], [body({ effort: 'medium' })])
+  expect(f.log().map((d) => d.sent)).toEqual([null, null])
+  expect(f.lastSents()).toEqual(['medium'])
+})
+
+test('没执行的决策不检查：请求失败时 sent 留空，当前档位照读', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: () => null })
+  await begin($)
+  expect(logged(w).map((d) => [d.kind, d.failure, d.applied, d.sent])).toEqual([['submit', 'network', false, null]])
+  expect(turnState(w).unverified).toBe(null)
+  const f = fakeDollar(seedOf(w))
+  await sendIn(f, [{ turnId: 't1', index: 0 }], [body({ effort: 'medium' })])
+  expect(f.log().map((d) => d.sent)).toEqual([null])
+  expect(f.lastSents()).toEqual(['medium'])
+})
+
+test('一轮结束时还没核对：sent 留空，下一轮的请求只核对下一轮的', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (s) => (s.current_level === 'medium' ? SAME_FAILURE : HOLD)) })
+  await begin($)
+  await appendAll($, scriptByPoll(1, 'rerun the upload test', 'FAIL test_upload'))
+  const shift = midruns(w)[0]!
+  expect(turnState(w).unverified).toEqual({ id: shift.id, level: 'high', queued: false })
+  // The turn ends with no further request: nothing waits on a check any more.
+  await complete($, 't1', { answer: 'Stopped here.' })
+  expect(lastOf(w, 'turn')).toBe(null)
+  const ended = fakeDollar(seedOf(w))
+  await sendIn(ended, [], [body({ effort: 'high' })])
+  expect(ended.log().map((d) => d.sent)).toEqual([null, null])
+
+  await submit($, 'Now the downloader')
+  await step($, { turnId: 't2', index: 0, effort: 'medium' })
+  const next = fakeDollar(seedOf(w))
+  await sendIn(next, [{ turnId: 't2', index: 0 }], [body({ effort: 'medium' })])
+  expect(next.log().map((d) => [d.kind, d.turnId, d.to, d.applied, d.sent])).toEqual([
+    ['submit', 't1', 'medium', true, null],
+    ['midrun', 't1', 'high', true, null],
+    ['submit', 't2', 'medium', true, 'medium'],
+  ])
+})
+
+test('/dp 的当前档位取最近一次主循环请求实际带的；读不到时是 mod 要的并标未核对；每条决策写出核对结果', () => {
+  const cfg = readConfig(KEYS)
+  const d = (over: Partial<Decision>): Decision => ({ id: 'd', at: 0, kind: 'midrun', backend: 'drex', model: 'drex-max-v1.1', ms: 12, raw: null, from: 'medium', to: 'high', reason: 'same-failure', detail: '', turnId: 't1', step: 1, bars: null, failure: null, requestId: null, applied: true, sent: null, ...over })
+  const log = [d({ sent: 'high' }), d({ sent: 'not-sent' }), d({ sent: 'unverified' }), d({ sent: null }), d({ applied: false, to: 'medium', from: 'medium', reason: 'hold' })]
+  const shown = renderDp({ cfg, wanted: 'high', lastSent: 'medium', lock: null, log })
+  expect(shown).toContain('档位：实际发出 medium，mod 要的是 high')
+  const lines = shown.split('\n').filter((l) => l.includes('中途'))
+  expect(lines.map((l) => l.slice(l.indexOf('中途')))).toEqual([
+    '中途 medium → high · same-failure · Drex 12 ms · 实际 high',
+    '中途 medium → high · same-failure · Drex 12 ms · 未发出',
+    '中途 medium → high · same-failure · Drex 12 ms · 未核对',
+    '中途 medium → high · same-failure · Drex 12 ms · 未核对',
+    '中途 medium 不变 · Drex 12 ms · 未执行',
+  ])
+  expect(renderDp({ cfg, wanted: 'high', lastSent: 'high', lock: null, log: [] })).toContain('档位：high（最近一次主循环请求实际带的）')
+  expect(renderDp({ cfg, wanted: 'high', lastSent: null, lock: null, log: [] })).toContain('档位：high（mod 要的，未核对）')
+})

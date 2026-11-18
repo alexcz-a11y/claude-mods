@@ -58,6 +58,11 @@ export type WorldOptions = {
   onSpawn?: (e: AgentSpawnInput, agentId: string) => unknown
   /** The text the engine's prompt.attachment answers with; the attachment's own text when left out (null leaves it out). */
   attachmentText?: (e: PromptAttachmentInput) => string | null
+  /**
+   * Runs inside the engine's turn.step, before it answers, with the step as it reached the engine: where the engine
+   * sends the step's model request (design 9), while the mod's turn.step hook is still inside next().
+   */
+  onStep?: (e: SentStep) => unknown
 }
 
 export type SentStep = { turnId: string; index: number; effort: unknown; model: string; agentId: string | undefined }
@@ -73,6 +78,8 @@ function parseBody(body: unknown): any {
 
 export function world(on: On, o: WorldOptions = {}) {
   const fetched: { url: string; headers: Record<string, string>; body: any }[] = []
+  /** Every $.http.fetch that reached the bottom, as it came: the url, the init untouched, and who raised it (next.origin.plugin). */
+  const requests: { url: string; init: unknown; origin: string }[] = []
   const statuses: (string | undefined)[] = []
   const logs: string[] = []
   /** The lines of logs that went to the debug log alone ({ to: 'debug' }). */
@@ -101,7 +108,8 @@ export function world(on: On, o: WorldOptions = {}) {
   const REFUSED = { deny: 'refused by the test' } as const
 
   // The mod's $ calls.
-  on('http.fetch', async (_$, e) => {
+  on('http.fetch', async (_$, e, next) => {
+    requests.push({ url: e.url, init: e.init, origin: next.origin.plugin })
     const body = parseBody(e.init?.body)
     fetched.push({ url: e.url, headers: e.init?.headers ?? {}, body })
     if (!o.answer) return { value: { status: 500, ok: false, headers: {}, text: '' } }
@@ -166,7 +174,9 @@ export function world(on: On, o: WorldOptions = {}) {
   })
   on('turn.start', (_$, e) => ({ turnId: e.turnId }))
   on('turn.step', async function* (_$, e): AsyncGenerator<never, TurnStepResult> {
-    stepsSent.push({ turnId: e.turnId, index: e.index, effort: e.effort, model: e.model, agentId: e.agentId })
+    const sent = { turnId: e.turnId, index: e.index, effort: e.effort, model: e.model, agentId: e.agentId }
+    stepsSent.push(sent)
+    await o.onStep?.(sent)
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage: null }
   })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
@@ -189,7 +199,7 @@ export function world(on: On, o: WorldOptions = {}) {
   })
   on('skill.prompt', (_$, e) => ({ text: e.text }))
 
-  return { fetched, statuses, logs, debugLogs, stepsSent, appended, spawned, listed, submitted, attachments, completes, commands, storeWrites, stateWrites, clock }
+  return { fetched, requests, statuses, logs, debugLogs, stepsSent, appended, spawned, listed, submitted, attachments, completes, commands, storeWrites, stateWrites, clock }
 }
 
 // Answers in the shapes the decision models send (backend.ts reads them).
