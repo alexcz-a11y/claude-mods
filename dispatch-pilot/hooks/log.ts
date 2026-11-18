@@ -75,6 +75,9 @@ const LEVEL_LIST = LEVELS.join('、')
 const KIND_ZH: Record<string, string> = { submit: '发消息', midrun: '中途', agent: 'agent', skill: 'skill', progress: '进展记录' }
 
 const backendName = (b: string): string => (b === 'drex' ? 'Drex' : b === 'jev' ? 'Jev' : b)
+// Jev takes part in no calibration (design 8): a Jev answer and the Jev backend say so.
+const answeredBy = (b: string): string => backendName(b) + (b === 'jev' ? '（未校准）' : '')
+const modelText = (b: 'drex' | 'jev', model: string): string => (b === 'jev' ? `${model}，未校准` : model)
 
 function missText(m: Miss): string {
   const b = backendName(m.backend)
@@ -144,7 +147,7 @@ function sentText(d: Decision): string {
 function decisionLine(d: Decision): string {
   const kind = KIND_ZH[d.kind] ?? d.kind
   const what = d.detail ? `${kind}（${d.detail}）` : kind
-  const by = d.backend ? ` · ${backendName(d.backend)} ${d.ms} ms` : ''
+  const by = d.backend ? ` · ${answeredBy(d.backend)} ${d.ms} ms` : ''
   const unapplied = !d.applied && !d.failure ? ' · 未执行' : ''
   return `${clockText(d.at)} ${what} ${changeText(d)}${by}${unapplied}${sentText(d)}`
 }
@@ -157,8 +160,8 @@ function backendLine(cfg: Config): string {
   const other = first === 'drex' ? 'jev' : 'drex'
   if (!key[first] && !key[other]) return '没有可用的后端：Drex 和 Jev 都没有密钥，dispatch-pilot 不做任何判断。在 /plugin 里给它填上密钥。'
   if (!key[first]) return `没有可用的后端：选中的 ${backendName(first)} 没有密钥。${backendName(other)} 有密钥，要用它就把「决策模型的后端」改成 ${other}。`
-  const fallback = cfg.fallback && key[other] ? `；请求失败时改问 ${backendName(other)}（${model[other]}）` : ''
-  return `后端：${backendName(first)}（${model[first]}）· 可用${fallback}`
+  const fallback = cfg.fallback && key[other] ? `；请求失败时改问 ${backendName(other)}（${modelText(other, model[other])}）` : ''
+  return `后端：${backendName(first)}（${modelText(first, model[first])}）· 可用${fallback}`
 }
 
 // The level shown is the one the last main-loop request carried; without a reading, the one the mod

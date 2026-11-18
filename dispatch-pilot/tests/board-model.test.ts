@@ -210,7 +210,7 @@ test('后端：没有密钥；Jev；最近一次失败；进展记录的失败�
   expect(boardModel(readConfig({}), s).backend).toEqual({ isOk: false, text: '没有密钥' })
   // Only the chosen backend's key counts.
   expect(boardModel(readConfig({ backend: 'jev', drexApiKey: 'k' }), s).backend).toEqual({ isOk: false, text: '没有密钥' })
-  expect(boardModel(readConfig({ backend: 'jev', jevApiKey: 'k' }), scenes.up).backend).toEqual({ isOk: true, text: 'Jev jev-latest · 可用' })
+  expect(boardModel(readConfig({ backend: 'jev', jevApiKey: 'k' }), scenes.up).backend).toEqual({ isOk: true, text: 'Jev jev-latest · 可用（未校准）' })
   const progress: Decision = { ...s.recent.at(-1)!, id: 'p1', kind: 'progress', backend: null, model: 'haiku', failure: 'http', detail: 'HTTP 500' }
   const ok = scenes.up.recent.at(-1)!
   expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: [ok, progress] }).backend).toEqual({ isOk: true, text: 'Drex drex-max-v1.1 · 可用' })
@@ -352,4 +352,26 @@ test('换挡之后的规则：从新档再走一档要多少，再写为什么�
   expect(rules(moreOpen)).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.50', '升到这一档：上方合计 0.90，过了 0.70'])
   // A hold keeps the margins either way from its level.
   expect(rules({ ...moreOpen, from: 'high', to: 'high', reason: 'hold' })).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.50', '降一档要下方合计 ≥ 0.70，现在 0.10'])
+})
+
+test('会话种类：照 session.codeMode 写 Code Mode 会话或普通会话，空闲时也有；六个场景和原型一致', () => {
+  const kinds = Object.fromEntries((Object.keys(scenes) as (keyof typeof SCENES)[]).map((k) => [k, of(k).sessionKind]))
+  // The prototype's session field of each scene (docs/research/board-prototype/timeline-and-pane.html).
+  expect(kinds).toEqual({ up: 'Code Mode 会话', start: 'Code Mode 会话', ordinary: '普通会话', notsent: 'Code Mode 会话', idle: 'Code Mode 会话', locked: '普通会话' })
+  const plainIdle: BoardState = { ...scenes.idle, session: { ...scenes.idle.session, codeMode: false } }
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), plainIdle).sessionKind).toBe('普通会话')
+  const codeTurn: BoardState = { ...scenes.ordinary, session: { ...scenes.ordinary.session, codeMode: true } }
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), codeTurn).sessionKind).toBe('Code Mode 会话')
+})
+
+test('Jev 标「未校准」：后端行（可用和失败时）、上次评估的 by；Drex 答的不变，经 fallback 也一样', () => {
+  const jev = readConfig({ backend: 'jev', jevApiKey: 'k' })
+  const asJev = (s: BoardState): BoardState => ({ ...s, recent: s.recent.map((d) => (d.backend === null ? d : { ...d, backend: 'jev' as const })) })
+  expect(boardModel(jev, scenes.up).backend).toEqual({ isOk: true, text: 'Jev jev-latest · 可用（未校准）' })
+  expect(boardModel(jev, asJev(scenes.ordinary)).backend).toEqual({ isOk: false, text: 'Jev jev-latest · 最近一次超时（未校准）' })
+  expect(boardModel(jev, asJev(scenes.ordinary)).last).toMatchObject({ by: 'Jev（未校准） 超时' })
+  expect(boardModel(jev, asJev(scenes.up)).last).toMatchObject({ by: 'Jev（未校准） · 312 ms' })
+  // Backend jev chosen, but this decision was answered by Drex (the fallback): Drex's wording, unchanged.
+  expect(boardModel(jev, scenes.up).last).toMatchObject({ by: 'Drex · 312 ms' })
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), scenes.up).backend).toEqual({ isOk: true, text: 'Drex drex-max-v1.1 · 可用' })
 })

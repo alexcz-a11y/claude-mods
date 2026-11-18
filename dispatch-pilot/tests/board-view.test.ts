@@ -153,10 +153,10 @@ test('空闲的一行：会话设定的档位、上一轮结束在哪一档、�
 test('空闲时不评估：时间轴的一行也写出原因', () => {
   const noKey = boardModel(readConfig({}), SCENES.idle)
   expect(noKey.next).toEqual({ main: '不评估', sub: '没有可用的后端', ahead: 0 })
-  expect(timelineRows(noKey, { columns: 120, isPaneOpen: false }).map(rowText)).toEqual(['▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 不评估 · 没有可用的后端'])
+  expect(timelineRows(noKey, { columns: 120, isPaneOpen: false }).map(rowText)).toEqual(['▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 不评估 · 没有可用的后端 · Code Mode 会话'])
   // With no reason to give, the row ends at the next evaluation.
   const fresh = boardModel(CFG, { ...SCENES.idle, session: { ...SCENES.idle.session, previous: null } })
-  expect(timelineRows(fresh, { columns: 120, isPaneOpen: false }).map(rowText)).toEqual(['▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 发出下一条消息时'])
+  expect(timelineRows(fresh, { columns: 120, isPaneOpen: false }).map(rowText)).toEqual(['▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 发出下一条消息时 · Code Mode 会话'])
 })
 
 test('一轮里还没有评估（没锁定）：上次评估那一行和面板都写「本轮还没有评估」', () => {
@@ -244,7 +244,7 @@ test('轨道合并后记号仍在各自那一格下面', () => {
 
 test('面板的各分区：现在、换挡记录、上次评估、下次评估、功能、agent、skill', () => {
   const s = sectionsOf(up)
-  expect(s.now).toEqual(['▮▮▮▯▯ high', '✓ 已发出', '第 7 轮 · 第 10 步', '第 6 步后 medium → high', '同一失败在修改后又出现'])
+  expect(s.now).toEqual(['▮▮▮▯▯ high', '✓ 已发出', '第 7 轮 · 第 10 步 · Code Mode 会话', '第 6 步后 medium → high', '同一失败在修改后又出现'])
   expect(s.shifts).toEqual(['第 6 步后  medium → high', '  同一失败在修改后又出现'])
   expect(s.last).toEqual([
     '不变',
@@ -280,7 +280,7 @@ test('面板的各分区：现在、换挡记录、上次评估、下次评估�
   expect(sectionsOf(ordinary).last).toEqual(['× 评估失败，档位不变', '评估失败：超时，按规则放行', '第 13 步后 · Drex 超时'])
   // Between turns: the level the last turn ended at, and the last evaluation recorded.
   const between = sectionsOf(idle)
-  expect(between.now).toEqual(['▮▮▯▯▯ medium', '– 空闲', '上一轮结束在 high'])
+  expect(between.now).toEqual(['▮▮▯▯▯ medium', '– 空闲', '上一轮结束在 high', 'Code Mode 会话'])
   expect(between.last?.at(-1)).toBe('此前 · 第 13 步后 · Drex · 301 ms')
   expect(between.next).toEqual(['发出下一条消息时', '说「继续」这类话会从上一轮的 high 起算'])
 })
@@ -288,9 +288,9 @@ test('面板的各分区：现在、换挡记录、上次评估、下次评估�
 test('时间轴各行在别的场景里：没核对、锁定、失败、后端出错', () => {
   const rowsOf = (m: BoardModel) => timelineRows(m, { columns: 160, isPaneOpen: false }).map(rowText)
   expect(rowsOf(up)[3]).toBe('上次评估 不变 · 同一失败又出现 0.12 · 原因已查明 0.22 · 只剩照做 0.18 · 与计划矛盾 0.09    第 9 步后 · Drex · 312 ms')
-  expect(rowsOf(notsent)[0]).toBe('▮▮▮▯▯ high  ! 要 xhigh，实际发出 high   第 5 轮 · 第 8 步')
+  expect(rowsOf(notsent)[0]).toBe('▮▮▮▯▯ high  ! 要 xhigh，实际发出 high   第 5 轮 · 第 8 步 · Code Mode 会话')
   expect(rowsOf(notsent)[2]).toBe('评 ···▲···▲   第 7 步后 high → xhigh（还没发出） · 最新结果和原计划矛盾')
-  expect(rowsOf(locked)[0]).toBe('▮▮▮▯▯ high  ■ 已锁定   第 2 轮 · 第 5 步')
+  expect(rowsOf(locked)[0]).toBe('▮▮▮▯▯ high  ■ 已锁定   第 2 轮 · 第 5 步 · 普通会话')
   expect(rowsOf(locked)[2]).toBe('上次评估 锁定期间不评估')
   expect(rowsOf(locked)[3]).toBe('生效 skill 推荐 · 档位核对   锁定 发消息定档 · 中途换挡 · agent 定档   关 进展记录')
   expect(rowsOf(ordinary)[1]).toBe('步 ██████████████┄┄┄┄┄┄◇   下次评估 再 8 步')
@@ -298,4 +298,17 @@ test('时间轴各行在别的场景里：没核对、锁定、失败、后端�
   expect(rowsOf(ordinary)[4]).toMatch(/   ! Drex drex-max-v1\.1 · 最近一次超时$/)
   const noBackend = boardModel(readConfig({}), SCENES.up)
   expect(timelineRows(noBackend, { columns: 200, isPaneOpen: false }).map(rowText)[4]).toBe('生效 档位核对   未生效 发消息定档 · 中途换挡 · agent 定档 · skill 推荐   关 进展记录   ! 没有密钥')
+})
+
+test('第一行最后是会话种类，行太长时最先去掉；空闲的那一行也有；面板的「现在」写在第几轮第几步那一行', () => {
+  const first = (m: BoardModel, columns: number): string => rowText(timelineRows(m, { columns, isPaneOpen: false })[0]!)
+  expect(first(up, 160)).toBe('▮▮▮▯▯ high  ✓ 已发出   第 7 轮 · 第 10 步 · Code Mode 会话')
+  expect(first(ordinary, 160)).toBe('▮▮▮▯▯ high  ✓ 已发出   第 3 轮 · 第 14 步 · 普通会话')
+  // At 60 columns the notsent row is too long with it: the session's kind goes, the rest stays.
+  expect(displayWidth('▮▮▮▯▯ high  ! 要 xhigh，实际发出 high   第 5 轮 · 第 8 步 · Code Mode 会话')).toBeGreaterThan(60)
+  expect(first(notsent, 60)).toBe('▮▮▮▯▯ high  ! 要 xhigh，实际发出 high   第 5 轮 · 第 8 步')
+  expect(first(idle, 200)).toBe('▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 发出下一条消息时 · 说「继续」这类话会从上一轮的 high 起算 · Code Mode 会话')
+  expect(sectionsOf(up).now?.[2]).toBe('第 7 轮 · 第 10 步 · Code Mode 会话')
+  expect(sectionsOf(locked).now?.[2]).toBe('第 2 轮 · 第 5 步 · 普通会话')
+  expect(sectionsOf(idle).now).toEqual(['▮▮▯▯▯ medium', '– 空闲', '上一轮结束在 high', 'Code Mode 会话'])
 })

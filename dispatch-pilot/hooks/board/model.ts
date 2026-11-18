@@ -24,6 +24,8 @@ export type BoardState = { session: SessionState; turn: TurnState | null; recent
 export type BoardModel = {
   isIdle: boolean
   where: string
+  /** What the mod believes the session is (session.codeMode): shown on the timeline's first row and in the pane. */
+  sessionKind: 'Code Mode 会话' | '普通会话'
   level: Level | null
   wanted: Level | null
   sent: Level | null
@@ -106,6 +108,9 @@ export function cellSent(turn: TurnState, level: Level): TurnState {
 const LABELS = ['发消息定档', '中途换挡', 'agent 定档', 'skill 推荐', '档位核对', '进展记录'] as const
 
 const backendName = (b: Backend): string => (b === 'drex' ? 'Drex' : 'Jev')
+// Jev takes part in no calibration (design 8): wherever a Jev answer or the Jev backend is named, it says so.
+const UNCALIBRATED = '（未校准）'
+const answeredBy = (b: Backend): string => backendName(b) + (b === 'jev' ? UNCALIBRATED : '')
 const atStep = (step: number | null): string => (step === null || step === 0 ? '发消息时' : `第 ${step} 步后`)
 const isJudged = (d: Decision): boolean => d.kind === 'submit' || d.kind === 'midrun'
 const two = (n: number): string => n.toFixed(2)
@@ -138,7 +143,7 @@ function probsOf(d: Decision): number[] | null {
 
 function lastOf(cfg: Config, d: Decision, prefix: string): NonNullable<BoardModel['last']> {
   const mark = markOf(d)
-  const name = backendName(d.backend ?? cfg.backend)
+  const name = answeredBy(d.backend ?? cfg.backend)
   const at = prefix + atStep(d.step)
   if (d.failure !== null) {
     const why = FAILURE_ZH[d.failure] ?? d.failure
@@ -258,10 +263,11 @@ function featuresOf(cfg: Config, s: BoardState & { locked: boolean; ask: boolean
 function backendOf(cfg: Config, recent: readonly Decision[]): BoardModel['backend'] {
   if (!canAsk(cfg)) return { isOk: false, text: '没有密钥' }
   const label = `${backendName(cfg.backend)} ${cfg.backend === 'drex' ? cfg.drexModel : cfg.jevModel}`
+  const mark = cfg.backend === 'jev' ? UNCALIBRATED : ''
   // The last decision that asked a decision model: a progress note's failure is another model's.
   const asked = recent.findLast((d) => d.backend !== null)
-  if (asked !== undefined && asked.failure !== null) return { isOk: false, text: `${label} · 最近一次${FAILURE_ZH[asked.failure] ?? asked.failure}` }
-  return { isOk: true, text: `${label} · 可用` }
+  if (asked !== undefined && asked.failure !== null) return { isOk: false, text: `${label} · 最近一次${FAILURE_ZH[asked.failure] ?? asked.failure}${mark}` }
+  return { isOk: true, text: `${label} · 可用${mark}` }
 }
 
 /** Everything the board shows, from the state alone (design 5.14). Total: any state the mod can hold gives a model. */
@@ -281,6 +287,7 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   return {
     isIdle,
     where: turn === null ? '空闲' : `第 ${session.turnNo} 轮 · 第 ${turn.stepNo} 步`,
+    sessionKind: session.codeMode ? 'Code Mode 会话' : '普通会话',
     level: turn === null ? (wanted ?? session.sessionLevel) : (sent ?? wanted),
     wanted,
     sent,

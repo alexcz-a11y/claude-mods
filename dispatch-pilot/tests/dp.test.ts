@@ -1,7 +1,8 @@
 import { expect, test } from 'claude-code/testing'
 
 import { record } from '../hooks/runtime.ts'
-import { LOG_KEEP, RECENT_KEEP, amendLog, decisionId, pushLog, readLog } from '../hooks/log.ts'
+import { readConfig } from '../hooks/config.ts'
+import { LOG_KEEP, RECENT_KEEP, amendLog, decisionId, pushLog, readLog, renderDp, renderLog } from '../hooks/log.ts'
 import type { Decision } from '../hooks/log.ts'
 import { KEYS, dp, start, step, world } from './support/world.ts'
 
@@ -288,4 +289,19 @@ test('/dp 的文字版：后端可用、档位未核对、最近的决策', { op
   expect(text).toContain('Drex（drex-max-v1.1）· 可用')
   expect(text).toContain('锁定：没有')
   expect(text).toContain('还没有决策')
+})
+
+test('Jev 标「未校准」：/dp 的后端行、决策行和 /dp log；Drex 的不变', () => {
+  const jev = readConfig({ backend: 'jev', jevApiKey: 'k' })
+  const log = [decision({ backend: 'jev', model: 'jev-1.14.0' }), decision({ id: 'd1', at: 1_700_000_001_000 })]
+  const text = renderDp({ cfg: jev, wanted: null, lastSent: null, lock: null, log })
+  expect(text).toContain('后端：Jev（jev-latest，未校准）· 可用')
+  expect(text).toContain('· Jev（未校准） 312 ms')
+  expect(text).toContain('· Drex 312 ms')
+  const listed = renderLog(log, 10)
+  expect(listed).toContain('· Jev（未校准） 312 ms')
+  expect(listed).toContain('· Drex 312 ms')
+  // Drex chosen, Jev as the fallback: the fallback is named with it too; Drex's own line is unchanged.
+  const both = renderDp({ cfg: readConfig({ drexApiKey: 'k', jevApiKey: 'k', fallback: true }), wanted: null, lastSent: null, lock: null, log: [] })
+  expect(both).toContain('后端：Drex（drex-max-v1.1）· 可用；请求失败时改问 Jev（jev-latest，未校准）')
 })

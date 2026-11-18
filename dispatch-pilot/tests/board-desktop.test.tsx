@@ -76,7 +76,7 @@ test('Desktop 的时间轴：两个 Svg（档位格、轨道），行里的话�
   expect(svgs.map((s) => s.props.alt)).toEqual(['档位 high，五档中的第 3 档', '10 步：medium 6 步，high 4 步；下次评估在 1 步后'])
   expect(svgs[0]!.props.source).toBe(pipsSvg('high').source)
   expect(svgs[1]!.props.source).toBe(trackSvg(up.track, 1).source)
-  expect((await ui.find({ type: 'Text', text: /已发出/ }))?.text).toBe(' high  ✓ 已发出   第 7 轮 · 第 10 步')
+  expect((await ui.find({ type: 'Text', text: /已发出/ }))?.text).toBe(' high  ✓ 已发出   第 7 轮 · 第 10 步 · Code Mode 会话')
   expect((await ui.find({ type: 'Text', text: /下一份脚本结果到达时/ }))?.text).toBe('   下次评估 下一份脚本结果到达时')
   // The marks are in the drawing: the row under the track carries only the shift, with no label and no mark glyph.
   expect((await ui.find({ type: 'Text', text: /第 6 步后/ }))?.text).toBe('第 6 步后 medium → high · 同一失败在修改后又出现')

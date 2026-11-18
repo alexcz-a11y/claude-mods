@@ -224,8 +224,11 @@ function noEvaluation(m: BoardModel): string {
 /** The track's room: the brief's columns less 34, and never under 10 cells; at most maxCells where a surface sets one. */
 const trackRoom = (columns: number, maxCells = Infinity): number => Math.min(maxCells, Math.max(10, columns - 34))
 
+// The session's kind closes the first row, a group of its own: a row too narrow drops it first.
+const kindPart = (m: BoardModel): Part => text(` · ${m.sessionKind}`, 'dim')
+
 function nowRow(m: BoardModel): Row {
-  return { id: 'now', parts: [...levelParts(m), text(`  ${statusText(m)}`, STATUS[m.status.kind].tone), text(`   ${m.where}`, 'dim')] }
+  return { id: 'now', parts: [...levelParts(m), text(`  ${statusText(m)}`, STATUS[m.status.kind].tone), text(`   ${m.where}`, 'dim'), kindPart(m)] }
 }
 
 function nextParts(m: BoardModel): Part[] {
@@ -287,7 +290,7 @@ function idleRow(m: BoardModel): Row {
   const ended = m.sent === null ? [] : [text(`   上一轮结束在 ${m.sent}`, 'dim')]
   // Why, where there is room: between turns the row is all the timeline shows (a group of its own, dropped first).
   const why = m.next.sub === '' ? [] : [text(` · ${m.next.sub}`, 'dim')]
-  return { id: 'idle', parts: [...levelParts(m), text(`  ${statusText(m)}`, STATUS[m.status.kind].tone), ...ended, ...nextParts(m), ...why] }
+  return { id: 'idle', parts: [...levelParts(m), text(`  ${statusText(m)}`, STATUS[m.status.kind].tone), ...ended, ...nextParts(m), ...why, kindPart(m)] }
 }
 
 // The timeline's rows before they are fitted to their columns; maxCells caps the track's cells (the Desktop's).
@@ -312,7 +315,8 @@ function nowRows(m: BoardModel): Row[] {
   ]
   if (m.isIdle) {
     if (m.sent !== null) rows.push({ id: 'ended', parts: [text(`上一轮结束在 ${m.sent}`, 'dim')] })
-  } else rows.push({ id: 'where', parts: [text(m.where, 'dim')] })
+    rows.push({ id: 'kind', parts: [text(m.sessionKind, 'dim')] })
+  } else rows.push({ id: 'where', parts: [text(`${m.where} · ${m.sessionKind}`, 'dim')] })
   const shift = m.shifts.at(-1)
   if (shift !== undefined) {
     rows.push({ id: 'shift', parts: [text(`${shift.at} ${shift.from} → ${shift.to}`), ...(shift.isSent ? [] : [text('（还没发出）', 'warn')])] })
