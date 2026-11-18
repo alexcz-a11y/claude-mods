@@ -2,6 +2,8 @@ import { expect, test } from 'claude-code/testing'
 import type { Engine, Plugin } from 'claude-code/testing'
 import type { SessionAppendInput } from 'claude-code'
 
+import { boardModel } from '../hooks/board/model.ts'
+import { footerLabel } from '../hooks/board/view.ts'
 import { readConfig } from '../hooks/config.ts'
 import { openStep, readout } from '../hooks/flows/readout.ts'
 import { renderDp } from '../hooks/log.ts'
@@ -899,7 +901,7 @@ test('/dp 的当前档位取最近一次主循环请求实际带的；读不到�
     '中途 medium → high · same-failure · Drex 12 ms · 未核对',
     '中途 medium 不变 · Drex 12 ms · 未执行',
   ])
-  // An agent's Decision has a level to read out only when it decided an effort; one that only changed the model has none.
+  // An agent's Decision reads out whatever the mod set, the model as much as the effort (final review I2).
   const agents = renderDp({
     cfg,
     wanted: null,
@@ -913,9 +915,77 @@ test('/dp 的当前档位取最近一次主循环请求实际带的；读不到�
   })
   expect(agents.split('\n').filter((l) => l.includes('agent（')).map((l) => l.slice(l.indexOf('agent（')))).toEqual([
     'agent（Explore） opus · high → haiku · medium · mechanical · Drex 12 ms · 未核对',
-    'agent（Plan） fable · high → opus · —',
+    'agent（Plan） fable · high → opus · — · 未核对',
     'agent（Plan） fable · high → opus · — · 未核对',
   ])
   expect(renderDp({ cfg, wanted: 'high', lastSent: 'high', lock: null, log: [] })).toContain('档位：high（最近一次主循环请求实际带的）')
   expect(renderDp({ cfg, wanted: 'high', lastSent: null, lock: null, log: [] })).toContain('档位：high（mod 要的，未核对）')
+})
+
+// Final review I2.
+
+test('同一模型的 agent 在跑、这一步主循环的请求认不准：状态是未核对（档位是步上的），不拿上一步的读数', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, HOLD) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  const f = fakeDollar(seedOf(w))
+  // Step 0's own request read clean: high, as decided.
+  await sendIn(f, [{ turnId: 't1', index: 0 }], [body({ effort: 'high' })])
+  const board = () => boardModel(readConfig(KEYS), { session: f.session(), turn: f.turn(), recent: f.recent(), skills: [] })
+  expect([board().status, board().sent]).toEqual([{ kind: 'sent', text: '已发出' }, 'high'])
+  // Step 1 opens a cell of its own (as the engine's turn.step does); an agent on the same model sends beside it.
+  const t = f.turn()!
+  const g = fakeDollar({
+    state: { session: f.session(), recent: f.recent(), turn: { ...t, stepNo: 2, journal: { ...t.journal, workSteps: 1 }, track: [...t.track, { level: 'high', sent: null, mark: null }] } },
+    store: { log: f.log() },
+  })
+  await sendIn(g, [{ turnId: 'a1', index: 0, agentId: 'agent-x' }, { turnId: 't1', index: 1 }], [body({ effort: 'medium' })])
+  // The session's last known reading stays high; the status is this step's: not read, so unverified at the steps' level.
+  expect(g.session().lastSent).toBe('high')
+  const m = boardModel(readConfig(KEYS), { session: g.session(), turn: g.turn(), recent: g.recent(), skills: [] })
+  expect([m.level, m.sent, m.status]).toEqual(['high', null, { kind: 'unverified', text: '未核对' }])
+  expect(footerLabel(m)).toBe('dp high –')
+})
+
+test('agent 的模型也读回：mod 给了模型的，lastRequest 的模型层级不一样记 not-sent；只给了模型、读到一样的算已发出', { options: KEYS }, async ($, on) => {
+  const w = world(on, {
+    answer: (req) => (req.url === MESSAGES ? STREAM : drexOk('read_only' in req.body.questions ? LOOKUP : SUBMIT_HOLD)),
+    agents: [
+      info('agent-2', { at: 0, model: 'claude-sonnet-5-5', effort: 'medium' }),
+      info('agent-3', { at: 0, model: HAIKU, effort: 'medium' }),
+    ],
+  })
+  await start($)
+  await turnStart($, 't1', TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'high' })
+  // The first of the type teaches; the next two are given haiku at medium.
+  for (const id of ['toolu_1', 'toolu_2', 'toolu_3']) await spawn($, { tool_use_id: id })
+  for (const id of ['agent-2', 'agent-3']) for (const index of [0, 1]) await agentStep($, id, index)
+  const d = logged(w)
+  expect(d.map((x) => [x.to, x.sent])).toEqual([
+    ['inherit · medium', null],
+    // It ran on sonnet: the model the mod gave did not go out.
+    ['haiku · medium', 'not-sent'],
+    ['haiku · medium', 'medium'],
+  ])
+  const m = boardModel(readConfig(KEYS), { session: lastOf(w, 'session') as SessionState, turn: turnState(w), recent: recent(w), skills: [] })
+  expect(m.agents.map((a) => a.reading)).toEqual(['unverified', 'not-sent', 'sent'])
+})
+
+test('只有上限改了模型的 agent（没有密钥）：模型读回一样就是已发出，不一样是 not-sent', { options: {} }, async ($, on) => {
+  const FABLE = 'claude-fable-5-2'
+  const w = world(on, { agents: [info('agent-2', { at: 0, model: OPUS, effort: 'high' }), info('agent-4', { at: 0, model: FABLE, effort: 'high' })] })
+  await start($)
+  await turnStart($, 't1', TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'high' })
+  for (const id of ['toolu_1', 'toolu_2', 'toolu_3', 'toolu_4']) await spawn($, { tool_use_id: id, parentModel: FABLE })
+  for (const id of ['agent-2', 'agent-4']) for (const index of [0, 1]) await agentStep($, id, index)
+  // The first teaches and records nothing; the three after it are capped, and agent-3 takes no step to be read.
+  const d = logged(w)
+  expect(d.map((x) => [x.to, x.sent])).toEqual([
+    ['opus · —', 'high'],
+    ['opus · —', null],
+    ['opus · —', 'not-sent'],
+  ])
 })

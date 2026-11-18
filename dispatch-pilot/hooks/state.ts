@@ -99,8 +99,8 @@ export type TurnState = {
   shifts: Decision[]
 }
 
-/** One per dispatched agent, by agentId. */
-export type AgentState = { effort: Level | null; isEffortExplicit: boolean | null; decisionId: string | null; steps: number }
+/** One per dispatched agent, by agentId. model: the tier the mod gave it at its spawn (null: none), read back with its effort. */
+export type AgentState = { effort: Level | null; model: Tier | null; isEffortExplicit: boolean | null; decisionId: string | null; steps: number }
 
 export function emptySession(): SessionState {
   return {

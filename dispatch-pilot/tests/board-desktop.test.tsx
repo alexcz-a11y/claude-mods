@@ -79,7 +79,7 @@ test('Desktop 的时间轴：两个 Svg（档位格、轨道），行里的话�
   expect((await ui.find({ type: 'Text', text: /已发出/ }))?.text).toBe(' high  ✓ 已发出   第 7 轮 · 第 10 步 · Code Mode 会话')
   expect((await ui.find({ type: 'Text', text: /下一份脚本结果到达时/ }))?.text).toBe('   下次评估 下一份脚本结果到达时')
   // The marks are in the drawing: the row under the track carries only the shift, with no label and no mark glyph.
-  expect((await ui.find({ type: 'Text', text: /第 6 步后/ }))?.text).toBe('第 6 步后 medium → high · 同一失败在修改后又出现')
+  expect((await ui.find({ type: 'Text', text: /第 6 步后/ }))?.text).toBe('第 6 步后 medium → high · 已发出 · 同一失败在修改后又出现')
   expect(await ui.find({ type: 'Text', text: /[▲▼·×]{3}|^评|^步/ })).toBe(undefined)
   expect(await ui.find({ type: 'Text', text: /^上次评估 不变/ })).toBeTruthy()
   expect(await ui.find({ type: 'Text', text: /^生效 发消息定档/ })).toBeTruthy()

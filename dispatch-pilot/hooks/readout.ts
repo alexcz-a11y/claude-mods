@@ -7,8 +7,8 @@
 // goes out a few to twenty ms after its turn.step starts and carries a `thread` field, which side requests (a title,
 // a suggestion, $.model.fork) do not; an agent's request carries one too. What cannot be told apart is 'unsure', and
 // is recorded as unverified, never as a level that may be someone else's.
-import { isLevel } from './levels.ts'
-import type { Level } from './levels.ts'
+import { isLevel, tierOfModelId } from './levels.ts'
+import type { Level, Tier } from './levels.ts'
 import { amendLog } from './log.ts'
 import type { Decision } from './log.ts'
 import type { TurnState } from './state.ts'
@@ -141,10 +141,14 @@ export function clearCheck(turn: TurnState | null, awaited: Awaited): TurnState 
 }
 
 /**
- * An agent's check, from $.agent.list()'s documented reading (design 5.12): the level its last request carried against
- * the one decided at its spawn. No last request (the agent not listed, or none answered yet): unverified.
+ * An agent's check, from $.agent.list()'s documented reading (design 5.12): its last request's model (by tier) and level
+ * against what the mod set at its spawn; either one different is not-sent. Equal: the level the request carried (the
+ * one decided, or with only a model set whatever it carried; none carried: unverified). No last request (the agent not
+ * listed, or none answered yet): unverified.
  */
-export function agentSent(decided: Level, last: { effort?: unknown } | undefined): Level | 'not-sent' | 'unverified' {
+export function agentSent(decided: { effort: Level | null; model: Tier | null }, last: { model?: unknown; effort?: unknown } | undefined): Level | 'not-sent' | 'unverified' {
   if (last === undefined) return 'unverified'
-  return last.effort === decided ? decided : 'not-sent'
+  if (decided.model !== null && (typeof last.model !== 'string' || tierOfModelId(last.model) !== decided.model)) return 'not-sent'
+  if (decided.effort !== null) return last.effort === decided.effort ? decided.effort : 'not-sent'
+  return isLevel(last.effort) ? last.effort : 'unverified'
 }

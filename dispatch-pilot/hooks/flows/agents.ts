@@ -70,7 +70,7 @@ export async function keepAgent($: EngineInterface, s: Spawned, agentId: string)
   if (decision === null) return null
   const at = await $.clock.now()
   const id = decisionId(at)
-  await update($, { plugin: 'dispatch-pilot', key: 'agents', id: agentId } as const, () => ({ effort: s.effort, isEffortExplicit: null, decisionId: id, steps: 0 }))
+  await update($, { plugin: 'dispatch-pilot', key: 'agents', id: agentId } as const, () => ({ effort: s.effort, model: s.model, isEffortExplicit: null, decisionId: id, steps: 0 }))
   await record($, { ...decision, id, at })
   return null
 }
@@ -104,12 +104,13 @@ export async function agentStep($: EngineInterface, cfg: Config, e: TurnStepInpu
 }
 
 // An agent's check (design 5.12): $.agent.list()'s lastRequest, the documented reading, read once after the first step
-// the mod saw, against the effort decided at its spawn. A spawn that decided no effort (shadow, a failed ask) is not checked.
+// the mod saw, against the model and the effort set at its spawn. A spawn that set neither (shadow, a failed ask that
+// changed nothing) is not checked.
 export async function checkAgent($: EngineInterface, agentId: string, held: AgentState): Promise<null> {
-  const { effort, decisionId: id } = held
-  if (effort === null || id === null) return null
+  const { effort, model, decisionId: id } = held
+  if ((effort === null && model === null) || id === null) return null
   const listed = (await $.agent.list()).find((a) => a.id === agentId)
-  await amendSent($, id, agentSent(effort, listed?.lastRequest))
+  await amendSent($, id, agentSent({ effort, model }, listed?.lastRequest))
   return null
 }
 

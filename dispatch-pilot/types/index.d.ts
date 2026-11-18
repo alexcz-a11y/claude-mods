@@ -86,7 +86,7 @@ export type DpTurnState = {
   shifts: DpDecision[]
 }
 
-export type DpAgentState = { effort: DpLevel | null; isEffortExplicit: boolean | null; decisionId: string | null; steps: number }
+export type DpAgentState = { effort: DpLevel | null; model: DpTier | null; isEffortExplicit: boolean | null; decisionId: string | null; steps: number }
 
 export type DpDecision = {
   id: string

@@ -3,7 +3,7 @@
 // nothing the model has said is worked out again. board.tsx draws these; each Tone becomes a theme key there.
 import { LEVELS } from '../levels.ts'
 import type { Level } from '../levels.ts'
-import type { BoardModel, Mark, TrackCell } from './model.ts'
+import type { BoardModel, Mark, Readout, TrackCell } from './model.ts'
 
 /** How a stretch of text looks. Only theme keys stand behind them, so the board follows the person's theme. */
 export type Tone = 'plain' | 'dim' | 'ok' | 'warn' | 'err' | 'info' | 'accent' | Level
@@ -236,6 +236,21 @@ function nextParts(m: BoardModel): Part[] {
   return [text('   下次评估 ', 'dim'), text(m.next.main)]
 }
 
+// A reading's words (design 5.12), wherever the board prints one; only a reading that differs warns.
+const READOUT: Record<Readout, { word: string; tone: Tone }> = {
+  sent: { word: '已发出', tone: 'ok' },
+  'not-sent': { word: '没发出', tone: 'warn' },
+  unverified: { word: '未核对', tone: 'dim' },
+}
+// A queued note is no reading: the shift waits for a row that can carry it (it warns of nothing).
+const QUEUED = '（还没发出）'
+
+/** A shift's or an agent's reading in brackets, after its levels (the pane). */
+function readingPart(reading: Readout | 'queued'): Part {
+  if (reading === 'queued') return text(QUEUED, 'dim')
+  return text(`（${READOUT[reading].word}）`, READOUT[reading].tone)
+}
+
 // The scale goes right after the track: a row too narrow for everything keeps it before the next evaluation, since
 // the cells cannot be read without it.
 function trackRows(m: BoardModel, columns: number, maxCells?: number): Row[] {
@@ -249,7 +264,8 @@ function trackRows(m: BoardModel, columns: number, maxCells?: number): Row[] {
       ? []
       : [
           text(`   ${shift.at} ${shift.from} → ${shift.to}`),
-          ...(shift.isSent ? [] : [text('（还没发出）', 'warn')]),
+          // A reading is a group of its own, dropped before the shift itself; a queued note stays with it.
+          shift.reading === 'queued' ? text(QUEUED, 'dim') : text(` · ${READOUT[shift.reading].word}`, READOUT[shift.reading].tone),
           ...(shift.why === '' ? [] : [text(` · ${shift.why}`, 'dim')]),
         ]
   // When no evaluation is ahead, why, where there is room (a group of its own, dropped first), as the idle row does.
@@ -324,7 +340,7 @@ function nowRows(m: BoardModel): Row[] {
   } else rows.push({ id: 'where', parts: [text(`${m.where} · ${m.sessionKind}`, 'dim')] })
   const shift = m.shifts.at(-1)
   if (shift !== undefined) {
-    rows.push({ id: 'shift', parts: [text(`${shift.at} ${shift.from} → ${shift.to}`), ...(shift.isSent ? [] : [text('（还没发出）', 'warn')])] })
+    rows.push({ id: 'shift', parts: [text(`${shift.at} ${shift.from} → ${shift.to}`), readingPart(shift.reading)] })
     if (shift.why !== '') rows.push({ id: 'why', parts: [text(shift.why, 'dim')] })
   }
   return rows
@@ -334,7 +350,7 @@ function shiftRows(m: BoardModel): Row[] {
   if (m.shifts.length === 0) return [{ id: 'none', parts: [text('这一轮没有换挡', 'dim')] }]
   const at = Math.max(...m.shifts.map((s) => displayWidth(s.at))) + 2
   return m.shifts.flatMap((s, i): Row[] => [
-    { id: `shift-${i}`, parts: [text(padded(s.at, at), 'dim'), text(`${s.from} → ${s.to}`), ...(s.isSent ? [] : [text('（还没发出）', 'warn')])] },
+    { id: `shift-${i}`, parts: [text(padded(s.at, at), 'dim'), text(`${s.from} → ${s.to}`), readingPart(s.reading)] },
     ...(s.why === '' ? [] : [{ id: `why-${i}`, parts: [text(`  ${s.why}`, 'dim')] }]),
   ])
 }
@@ -402,12 +418,16 @@ function featureRows(m: BoardModel): Row[] {
   return [...rows, { id: 'backend', parts: [text('后端 ', 'dim'), text(m.backend.text, m.backend.isOk ? 'dim' : 'warn')] }]
 }
 
+const AGENT_MARK: Record<Readout, { mark: string; tone: Tone }> = { sent: { mark: '✓ ', tone: 'ok' }, 'not-sent': { mark: '! ', tone: 'warn' }, unverified: { mark: '– ', tone: 'dim' } }
+
+// An agent the mod left alone has no readout: no mark (its column kept blank) and no words.
 function agentRows(m: BoardModel): Row[] {
   const type = Math.max(0, ...m.agents.map((a) => displayWidth(a.type))) + 2
-  return m.agents.map((a, i): Row => ({
-    id: `agent-${i}`,
-    parts: [text(a.isVerified ? '✓ ' : '– ', a.isVerified ? 'ok' : 'dim'), text(padded(a.type, type)), text(a.text), ...(a.isVerified ? [] : [text('（未核对）', 'dim')])],
-  }))
+  return m.agents.map((a, i): Row => {
+    const reading = a.reading
+    const mark = reading === null ? text('  ') : text(AGENT_MARK[reading].mark, AGENT_MARK[reading].tone)
+    return { id: `agent-${i}`, parts: [mark, text(padded(a.type, type)), text(a.text), ...(reading === null ? [] : [readingPart(reading)])] }
+  })
 }
 
 /** The pane's sections, in their fixed order (design 5.14); agents and the skill only when there are some. */

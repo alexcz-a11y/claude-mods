@@ -4,8 +4,8 @@ import { readConfig } from '../hooks/config.ts'
 import type { Decision } from '../hooks/log.ts'
 import { SHIFTS_KEEP, boardModel, keepJudged, markOf } from '../hooks/board/model.ts'
 import { judgedWithSent } from '../hooks/readout.ts'
-import { paneSections, rowText, timelineRows } from '../hooks/board/view.ts'
-import type { BoardState } from '../hooks/board/model.ts'
+import { footerLabel, paneSections, rowText, timelineRows } from '../hooks/board/view.ts'
+import type { BoardState, TrackCell } from '../hooks/board/model.ts'
 import { SCENES } from './support/scenes.ts'
 
 // Compile-time: every scene is a complete BoardState as the state is now (scenes.ts imports nothing, so tsc checks it here).
@@ -34,7 +34,7 @@ test('中途升过一次档', () => {
   expect([m.level, m.status.kind, m.status.text]).toEqual(['high', 'sent', '已发出'])
   expect(m.track).toHaveLength(10)
   expect(m.track[6]).toEqual({ level: 'high', sent: 'high', mark: 'up' })
-  expect(m.shifts).toEqual([{ at: '第 6 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', isSent: true }])
+  expect(m.shifts).toEqual([{ at: '第 6 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', reading: 'sent' }])
   expect(m.last).toMatchObject({ at: '第 9 步后', mark: 'hold', text: '不变', by: 'Drex · 312 ms' })
   expect(m.last?.nouls.map((n) => [n.label, n.reading])).toEqual([['同一失败又出现', 'no'], ['原因已查明', 'no'], ['只剩照做', 'no'], ['与计划矛盾', 'no']])
   expect(m.last?.rules).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.41', '降一档要下方合计 ≥ 0.70，现在 0.13'])
@@ -60,7 +60,8 @@ test('普通会话、评估失败', () => {
 test('要换的档还没发出：两个档位都写出来', () => {
   const m = of('notsent')
   expect(m.status).toEqual({ kind: 'mismatch', text: '要 xhigh，实际发出 high' })
-  expect(m.shifts.at(-1)).toMatchObject({ to: 'xhigh', isSent: false })
+  // Its note is still queued: not placed yet, so the requests could not carry it.
+  expect(m.shifts.at(-1)).toMatchObject({ to: 'xhigh', reading: 'queued' })
 })
 
 test('空闲：显示会话设定的档位', () => {
@@ -115,14 +116,14 @@ test('六个场景：其余各项', () => {
   ])
   expect(up.backend).toEqual({ isOk: true, text: 'Drex drex-max-v1.1 · 可用' })
   expect(up.agents).toEqual([
-    { type: 'Explore', text: 'haiku · low', isVerified: true },
-    { type: 'general-purpose', text: 'sonnet · medium', isVerified: true },
+    { type: 'Explore', text: 'haiku · low', reading: 'sent' },
+    { type: 'general-purpose', text: 'sonnet · medium', reading: 'sent' },
   ])
   expect(up.skill).toBe(null)
 
   const start = of('start')
   expect(start.where).toBe('第 7 轮 · 第 1 步')
-  expect(start.shifts).toEqual([{ at: '发消息时', from: 'medium', to: 'high', why: '问题比原先估计的更开放', isSent: true }])
+  expect(start.shifts).toEqual([{ at: '发消息时', from: 'medium', to: 'high', why: '问题比原先估计的更开放', reading: 'sent' }])
   expect(start.last?.nouls).toEqual([
     { label: '机械重复', value: 0.04, reading: 'no' },
     { label: '原因未知', value: 0.81, reading: 'yes' },
@@ -143,8 +144,8 @@ test('六个场景：其余各项', () => {
   const notsent = of('notsent')
   expect([notsent.level, notsent.wanted, notsent.sent]).toEqual(['high', 'xhigh', 'high'])
   expect(notsent.shifts).toEqual([
-    { at: '第 3 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', isSent: true },
-    { at: '第 7 步后', from: 'high', to: 'xhigh', why: '最新结果和原计划矛盾', isSent: false },
+    { at: '第 3 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', reading: 'sent' },
+    { at: '第 7 步后', from: 'high', to: 'xhigh', why: '最新结果和原计划矛盾', reading: 'queued' },
   ])
   // Mid-run the cap is xhigh, so no level further up; the shift came from a flag, so its reason says why.
   expect(notsent.last).toMatchObject({ at: '第 7 步后', mark: 'up', text: '升到 xhigh', rules: ['升到这一档：最新结果和原计划矛盾'] })
@@ -183,7 +184,7 @@ test('总能算出：空的 recent、raw 为 null 或没有 open、bars 为 null
 
   // A shift with no reason has an empty why.
   const shift: Decision = { ...base, from: 'medium', to: 'high', reason: null, applied: true, sent: 'not-sent' }
-  expect(boardModel(cfg, judging(s, [shift])).shifts).toEqual([{ at: '第 9 步后', from: 'medium', to: 'high', why: '', isSent: false }])
+  expect(boardModel(cfg, judging(s, [shift])).shifts).toEqual([{ at: '第 9 步后', from: 'medium', to: 'high', why: '', reading: 'not-sent' }])
 
   // A turn with no cells yet: no step taken (starting: the level last seen), the readout not yet due.
   const fresh = boardModel(cfg, { ...s, session: { ...s.session, lastSent: null }, turn: { ...s.turn!, track: [], stepNo: 0 } })
@@ -271,7 +272,8 @@ test('shadow 模式里想升档的决策：记号是不变，不算换挡，写�
   const s = scenes.start
   const wished = s.recent.map((d) => (d.kind === 'submit' ? { ...d, applied: false, sent: null } : d))
   // In shadow the turn still holds the level it would have set (wanted high); the steps go at the engine's own.
-  const m = boardModel(readConfig({ drexApiKey: 'k', mode: 'shadow' }), judging({ ...s, session: { ...s.session, lastSent: 'medium' } }, wished))
+  // The step carried the engine's own medium, and its request was read so.
+  const m = boardModel(readConfig({ drexApiKey: 'k', mode: 'shadow' }), judging({ ...s, session: { ...s.session, lastSent: 'medium' }, turn: { ...s.turn!, track: [{ level: 'medium', sent: 'medium', mark: 'hold' }] } }, wished))
   expect([m.wanted, m.level, m.status]).toEqual(['medium', 'medium', { kind: 'sent', text: '已发出' }])
   expect(m.shifts).toEqual([])
   // The evaluation itself is shown as any other: its distribution, answers and rules.
@@ -284,7 +286,7 @@ test('写入时被拒的换挡：不算换挡，写「想升到 / 想降到 X，
   const s = scenes.notsent
   const refused = s.recent.map((d) => (d.id === 't5-m7' ? { ...d, applied: false } : d))
   const m = boardModel(readConfig({ drexApiKey: 'k' }), judging(s, refused))
-  expect(m.shifts).toEqual([{ at: '第 3 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', isSent: true }])
+  expect(m.shifts).toEqual([{ at: '第 3 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', reading: 'sent' }])
   expect(m.last).toMatchObject({ at: '第 7 步后', mark: 'hold', text: '想升到 xhigh，未执行', rules: ['再升一档要上方合计 ≥ 0.80，现在 0.80', '降一档要下方合计 ≥ 0.70，现在 0.05'] })
   const down = boardModel(readConfig({ drexApiKey: 'k' }), judging(s, [{ ...s.recent.at(-1)!, to: 'medium', applied: false }]))
   expect([down.last?.mark, down.last?.text, down.shifts]).toEqual(['hold', '想降到 medium，未执行', []])
@@ -459,6 +461,50 @@ test('两轮之间的「此前」取上一轮结束时留在会话里的那次�
   expect(kept.id).toBe('t4-m13')
   // Nothing judged in any turn so far: none.
   expect(boardModel(cfg, { ...s, session: { ...s.session, lastJudged: null } }).last).toBe(null)
+})
+
+// Final review I2: three readings, each with its own words; the status takes the current step's own reading.
+
+test('换挡的读数：读到且一样是已发出，读到但不一样是没发出，没读到是未核对；说明还排着的是还没发出', () => {
+  const s = scenes.up
+  const cfg = readConfig({ drexApiKey: 'k' })
+  const shift = s.recent.find((d) => d.id === 't7-m6')!
+  const reading = (sent: Decision['sent'], turn = s.turn!) => boardModel(cfg, judging({ ...s, turn }, [{ ...shift, sent }])).shifts[0]!.reading
+  expect([reading('high'), reading('not-sent'), reading('medium'), reading('unverified'), reading(null)]).toEqual(['sent', 'not-sent', 'not-sent', 'unverified', 'unverified'])
+  // Its note queued and not on a row yet; once placed (the pending note gone) it is a reading like any other.
+  const queued = { ...s.turn!, pendingNote: 'n', queuedCheck: { id: 't7-m6', level: 'high' as const, note: 'n' } }
+  expect(reading(null, queued)).toBe('queued')
+  expect(reading(null, { ...queued, pendingNote: null })).toBe('unverified')
+})
+
+test('状态取这一步自己格子的读数：这一步还没读到是未核对（档位是步上的），不拿更早一步的读数', () => {
+  const s = scenes.up
+  const cfg = readConfig({ drexApiKey: 'k' })
+  const withLast = (sent: TrackCell['sent'], lastSent: BoardState['session']['lastSent']): BoardState => {
+    const track = [...s.turn!.track.slice(0, -1), { ...s.turn!.track.at(-1)!, sent }]
+    return { ...s, session: { ...s.session, lastSent }, turn: { ...s.turn!, track } }
+  }
+  // The earlier step read high (lastSent); this step's own request was not read.
+  const unread = boardModel(cfg, withLast(null, 'high'))
+  expect([unread.level, unread.sent, unread.status]).toEqual(['high', null, { kind: 'unverified', text: '未核对' }])
+  expect(footerLabel(unread)).toBe('dp high –')
+  // An older reading of medium is not this step's either.
+  expect(boardModel(cfg, withLast(null, 'medium')).status).toEqual({ kind: 'unverified', text: '未核对' })
+  // This step's own: equal is sent, another level is a mismatch.
+  expect(boardModel(cfg, withLast('high', 'medium')).status).toEqual({ kind: 'sent', text: '已发出' })
+  expect(boardModel(cfg, withLast('medium', 'high')).status).toEqual({ kind: 'mismatch', text: '要 high，实际发出 medium' })
+  // Between turns the last known reading stays: the turn ended there.
+  expect(of('idle').sent).toBe('high')
+})
+
+test('agent 的读数：mod 定了模型或 effort 的才有；读到且一样、读到但不一样、没读到；没动的没有记号', () => {
+  const s = scenes.up
+  const cfg = readConfig({ drexApiKey: 'k' })
+  const a = s.recent.find((d) => d.id === 't7-a1')!
+  const reading = (d: Partial<Decision>) => boardModel(cfg, { ...s, recent: [{ ...a, ...d }] }).agents[0]!.reading
+  expect([reading({ sent: 'low' }), reading({ sent: 'not-sent' }), reading({ sent: 'unverified' }), reading({ sent: null })]).toEqual(['sent', 'not-sent', 'unverified', 'unverified'])
+  // The mod set nothing (shadow, a failed ask that changed nothing): no readout at all.
+  expect([reading({ applied: false, sent: null }), reading({ applied: false, sent: 'unverified' })]).toEqual([null, null])
 })
 
 // A turn whose first step has not arrived (controller ruling): its level is not known yet, which is not "no effort".

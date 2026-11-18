@@ -26,6 +26,19 @@ export const SHIFTS_KEEP = MAX_NOTES + 1
 
 export type BoardState = { session: SessionState; turn: TurnState | null; recent: readonly Decision[]; skills: readonly Skill[] }
 
+/**
+ * What the readout found of a level or a model the mod set (design 5.12): sent, read and equal; not-sent, read and
+ * different; unverified, not read (the reading was unsure, the readout is off, or none has come).
+ */
+export type Readout = 'sent' | 'not-sent' | 'unverified'
+
+/** A Decision's sent as a reading; `level` the one it should equal (null: any level read counts, an agent's). */
+export function readoutOf(sent: Decision['sent'], level: string | null): Readout {
+  if (sent === 'not-sent') return 'not-sent'
+  if (isLevel(sent)) return level === null || sent === level ? 'sent' : 'not-sent'
+  return 'unverified'
+}
+
 export type BoardModel = {
   isIdle: boolean
   where: string
@@ -36,12 +49,14 @@ export type BoardModel = {
   sent: Level | null
   status: { kind: 'sent' | 'mismatch' | 'unverified' | 'locked' | 'idle' | 'starting' | 'none'; text: string }
   track: readonly TrackCell[]
-  shifts: { at: string; from: Level; to: Level; why: string; isSent: boolean }[]
+  /** queued: the shift's note waits for a row that can carry it, so no request could carry the level yet. */
+  shifts: { at: string; from: Level; to: Level; why: string; reading: Readout | 'queued' }[]
   last: { at: string; mark: Mark; text: string; probs: number[] | null; nouls: { label: string; value: number; reading: 'yes' | 'no' | 'unsure' }[]; rules: string[]; by: string } | null
   next: { main: string; sub: string; ahead: number }
   features: { label: string; state: 'active' | 'inactive' | 'off' | 'locked'; note: string }[]
   backend: { isOk: boolean; text: string }
-  agents: { type: string; text: string; isVerified: boolean }[]
+  /** reading: null for an agent the mod set neither a model nor an effort for (nothing to read back). */
+  agents: { type: string; text: string; reading: Readout | null }[]
   skill: string | null
 }
 
@@ -139,13 +154,17 @@ function statusOf(s: { locked: boolean; idle: boolean; starting: boolean }, want
   return { kind: 'sent', text: '已发出' }
 }
 
-function shiftsOf(kept: readonly Decision[]): BoardModel['shifts'] {
+function shiftsOf(turn: TurnState): BoardModel['shifts'] {
   const out: BoardModel['shifts'] = []
-  for (const d of kept) {
+  // The shift whose note is still queued (not on a row yet): until it is placed no request can carry its level.
+  const q = turn.queuedCheck
+  const queued = q !== null && turn.pendingNote === q.note ? q.id : null
+  for (const d of turn.shifts) {
     const mark = isJudged(d) ? markOf(d) : 'hold'
     // Only a level that changed is a shift: a Decision not applied is never one (markOf reads it as hold).
     if ((mark !== 'up' && mark !== 'down') || !isLevel(d.from) || !isLevel(d.to)) continue
-    out.push({ at: atStep(d.step), from: d.from, to: d.to, why: d.reason === null ? '' : (REASON_ZH[d.reason] ?? d.reason), isSent: d.sent === d.to })
+    const reading = d.id === queued ? 'queued' : readoutOf(d.sent, d.to)
+    out.push({ at: atStep(d.step), from: d.from, to: d.to, why: d.reason === null ? '' : (REASON_ZH[d.reason] ?? d.reason), reading })
   }
   return out
 }
@@ -293,7 +312,9 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   const ask = canAsk(cfg)
   // The level the steps go at, built on what the mod writes (stepLevel on ownLevel), so the two cannot disagree.
   const wanted = stepLevel(cfg, session, turn)
-  const sent = session.lastSent
+  // Inside a turn the level the current step's own request carried (its cell's; none read yet: null, 未核对), never an
+  // older step's; between turns the last one read, the level the last turn ended at.
+  const sent = turn === null ? session.lastSent : (turn.track.at(-1)?.sent ?? null)
   const thisTurn = turn === null ? [] : recent.filter((d) => d.turnId === turn.turnId)
   const agents = thisTurn.filter((d) => d.kind === 'agent')
   // Inside a turn its own last evaluation (none yet: null), kept on the turn; between turns the one the last turns
@@ -311,12 +332,13 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
     sent,
     status: statusOf({ locked, idle: isIdle, starting }, wanted, sent),
     track: turn === null ? [] : turn.track,
-    shifts: turn === null ? [] : shiftsOf(turn.shifts),
+    shifts: turn === null ? [] : shiftsOf(turn),
     last: locked || judged === null ? null : lastOf(cfg, judged, turn === null ? '此前 · ' : ''),
     next: nextOf(cfg, { session, turn, locked, ask, wanted, starting }),
     features: featuresOf(cfg, { ...s, locked, ask, agents: agents.length }),
     backend: backendOf(cfg, recent),
-    agents: agents.map((d) => ({ type: agentTypeOf(d), text: d.to ?? '', isVerified: isLevel(d.sent) })),
+    // Read back only what the mod set (a model, an effort): an agent it left alone has nothing to check.
+    agents: agents.map((d) => ({ type: agentTypeOf(d), text: d.to ?? '', reading: d.applied ? readoutOf(d.sent, null) : null })),
     skill: thisTurn.findLast((d) => d.kind === 'skill' && d.to !== null)?.to ?? null,
   }
 }

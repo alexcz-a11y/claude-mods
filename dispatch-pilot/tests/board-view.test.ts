@@ -204,7 +204,7 @@ test('60 列和 40 列：每一行都放得下，丢的是整段，不切开任�
   ])
   // 60 columns: one more answer of the evaluation; the shift is still without its reason.
   const sixty = timelineRows(up, { columns: 60, isPaneOpen: false }).map(rowText)
-  expect(sixty[2]).toBe('评 ······▲···   第 6 步后 medium → high')
+  expect(sixty[2]).toBe('评 ······▲···   第 6 步后 medium → high · 已发出')
   expect(sixty[3]).toBe('上次评估 不变 · 同一失败又出现 0.12 · 原因已查明 0.22')
 })
 
@@ -245,8 +245,8 @@ test('轨道合并后记号仍在各自那一格下面', () => {
 
 test('面板的各分区：现在、换挡记录、上次评估、下次评估、功能、agent、skill', () => {
   const s = sectionsOf(up)
-  expect(s.now).toEqual(['▮▮▮▯▯ high', '✓ 已发出', '第 7 轮 · 第 10 步 · Code Mode 会话', '第 6 步后 medium → high', '同一失败在修改后又出现'])
-  expect(s.shifts).toEqual(['第 6 步后  medium → high', '  同一失败在修改后又出现'])
+  expect(s.now).toEqual(['▮▮▮▯▯ high', '✓ 已发出', '第 7 轮 · 第 10 步 · Code Mode 会话', '第 6 步后 medium → high（已发出）', '同一失败在修改后又出现'])
+  expect(s.shifts).toEqual(['第 6 步后  medium → high（已发出）', '  同一失败在修改后又出现'])
   expect(s.last).toEqual([
     '不变',
     'max     █        0.08',
@@ -272,10 +272,10 @@ test('面板的各分区：现在、换挡记录、上次评估、下次评估�
     '○ 进展记录   关',
     '后端 Drex drex-max-v1.1 · 可用',
   ])
-  expect(s.agents).toEqual(['✓ Explore          haiku · low', '✓ general-purpose  sonnet · medium'])
+  expect(s.agents).toEqual(['✓ Explore          haiku · low（已发出）', '✓ general-purpose  sonnet · medium（已发出）'])
   expect(sectionsOf(start).skill).toEqual(['superpowers:systematic-debugging'])
   // A shift not sent yet says so, and so does the status; locked, nothing is judged; a failed evaluation says why.
-  expect(sectionsOf(notsent).shifts).toEqual(['第 3 步后  medium → high', '  同一失败在修改后又出现', '第 7 步后  high → xhigh（还没发出）', '  最新结果和原计划矛盾'])
+  expect(sectionsOf(notsent).shifts).toEqual(['第 3 步后  medium → high（已发出）', '  同一失败在修改后又出现', '第 7 步后  high → xhigh（还没发出）', '  最新结果和原计划矛盾'])
   expect(sectionsOf(notsent).now?.slice(0, 2)).toEqual(['▮▮▮▯▯ high', '! 要 xhigh，实际发出 high'])
   expect(sectionsOf(locked).shifts).toEqual(['这一轮没有换挡'])
   expect(sectionsOf(ordinary).last).toEqual(['× 评估失败，档位不变', '评估失败：超时，按规则放行', '第 13 步后 · Drex 超时'])
@@ -350,4 +350,55 @@ test('一轮刚开始：第一行和功能行，没有空的「步」那一行�
   // A turn on a model that takes no effort has no cell either: no empty track row.
   const noEffort = boardModel(CFG, { ...s, turn: { ...s.turn!, base: null, wanted: null, track: [] }, recent: [] })
   expect(timelineRows(noEffort, { columns: 120, isPaneOpen: false }).map((r) => r.id)).toEqual(['now', 'last', 'features'])
+})
+
+// Final review I2: three readings, each with its own words wherever the board prints one.
+
+test('换挡和 agent 的三种读数各有各的字：已发出、没发出、未核对；排着的说明写还没发出；verifyEffort 关着时没有警告色', () => {
+  const s = SCENES.up
+  const shift = s.recent.find((d) => d.id === 't7-m6')!
+  const agent = s.recent.find((d) => d.id === 't7-a1')!
+  const withSent = (sent: Decision['sent'], cfg = CFG) => boardModel(cfg, { ...s, recent: [{ ...agent, sent }], turn: { ...s.turn!, shifts: [{ ...shift, sent }] } })
+  const shown = (m: BoardModel) => ({
+    marks: rowText(timelineRows(m, { columns: 160, isPaneOpen: false })[2]!),
+    now: sectionsOf(m).now?.[3],
+    shift: sectionsOf(m).shifts?.[0],
+    agent: sectionsOf(m).agents?.[0],
+  })
+  expect(shown(withSent('high'))).toEqual({
+    marks: '评 ······▲···   第 6 步后 medium → high · 已发出 · 同一失败在修改后又出现',
+    now: '第 6 步后 medium → high（已发出）',
+    shift: '第 6 步后  medium → high（已发出）',
+    agent: '✓ Explore  haiku · low（已发出）',
+  })
+  expect(shown(withSent('not-sent'))).toEqual({
+    marks: '评 ······▲···   第 6 步后 medium → high · 没发出 · 同一失败在修改后又出现',
+    now: '第 6 步后 medium → high（没发出）',
+    shift: '第 6 步后  medium → high（没发出）',
+    agent: '! Explore  haiku · low（没发出）',
+  })
+  for (const sent of ['unverified', null] as const) {
+    expect(shown(withSent(sent))).toEqual({
+      marks: '评 ······▲···   第 6 步后 medium → high · 未核对 · 同一失败在修改后又出现',
+      now: '第 6 步后 medium → high（未核对）',
+      shift: '第 6 步后  medium → high（未核对）',
+      agent: '– Explore  haiku · low（未核对）',
+    })
+  }
+  // An agent the mod left alone: no readout mark at all.
+  const alone = boardModel(CFG, { ...s, recent: [{ ...agent, applied: false, to: 'inherit · —', sent: null }] })
+  expect(sectionsOf(alone).agents).toEqual(['  Explore  inherit · —'])
+  // verifyEffort off: nothing is read, so no shift warns, a queued note included.
+  const off = readConfig({ drexApiKey: 'k', verifyEffort: false })
+  const shiftTones = (m: BoardModel): (string | undefined)[] => {
+    const sections = paneSections(m)
+    const rows = [
+      timelineRows(m, { columns: 160, isPaneOpen: false })[2]!,
+      ...sections.find((x) => x.id === 'now')!.rows.filter((r) => r.id === 'shift'),
+      ...sections.find((x) => x.id === 'shifts')!.rows,
+    ]
+    return rows.flatMap((r) => r.parts.flatMap((p) => (p.t === 'text' ? [p.tone] : [])))
+  }
+  for (const m of [withSent(null, off), boardModel(off, SCENES.notsent)]) expect(shiftTones(m).filter((t) => t === 'warn')).toEqual([])
+  expect(rowText(paneSections(boardModel(off, SCENES.notsent))[1]!.rows[2]!)).toBe('第 7 步后  high → xhigh（还没发出）')
 })

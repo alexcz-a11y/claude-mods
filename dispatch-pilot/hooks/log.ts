@@ -131,12 +131,11 @@ function changeText(d: Decision): string {
   return d.reason && d.reason !== 'hold' ? `${s} · ${d.reason}` : s
 }
 
-// A Decision with a level to read out: the main loop's (submit, midrun) once applied, an agent's when it decided an
-// effort (its to reads `<model> · <effort>`, `—` for none: one that only changed the model has nothing to read out).
+// A Decision with something to read out once applied: the main loop's (submit, midrun) level, an agent's model or
+// effort (whichever the mod set: both are read back).
 function readsOut(d: Decision): boolean {
   if (!d.applied) return false
-  if (d.kind === 'submit' || d.kind === 'midrun') return true
-  return d.kind === 'agent' && typeof d.to === 'string' && !d.to.endsWith('· —')
+  return d.kind === 'submit' || d.kind === 'midrun' || d.kind === 'agent'
 }
 
 // What the check of a Decision found: the level the request carried, or that it carried another; a level the mod
