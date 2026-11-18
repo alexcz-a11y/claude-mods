@@ -210,7 +210,7 @@ test('后端：没有密钥；Jev；最近一次失败；进展记录的失败�
   expect(boardModel(readConfig({}), s).backend).toEqual({ isOk: false, text: '没有密钥' })
   // Only the chosen backend's key counts.
   expect(boardModel(readConfig({ backend: 'jev', drexApiKey: 'k' }), s).backend).toEqual({ isOk: false, text: '没有密钥' })
-  expect(boardModel(readConfig({ backend: 'jev', jevApiKey: 'k' }), scenes.up).backend).toEqual({ isOk: true, text: 'Jev jev-latest · 可用（未校准）' })
+  expect(boardModel(readConfig({ backend: 'jev', jevApiKey: 'k' }), scenes.up).backend).toEqual({ isOk: true, text: 'Jev jev-latest（未校准）· 可用' })
   const progress: Decision = { ...s.recent.at(-1)!, id: 'p1', kind: 'progress', backend: null, model: 'haiku', failure: 'http', detail: 'HTTP 500' }
   const ok = scenes.up.recent.at(-1)!
   expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: [ok, progress] }).backend).toEqual({ isOk: true, text: 'Drex drex-max-v1.1 · 可用' })
@@ -367,8 +367,8 @@ test('会话种类：照 session.codeMode 写 Code Mode 会话或普通会话，
 test('Jev 标「未校准」：后端行（可用和失败时）、上次评估的 by；Drex 答的不变，经 fallback 也一样', () => {
   const jev = readConfig({ backend: 'jev', jevApiKey: 'k' })
   const asJev = (s: BoardState): BoardState => ({ ...s, recent: s.recent.map((d) => (d.backend === null ? d : { ...d, backend: 'jev' as const })) })
-  expect(boardModel(jev, scenes.up).backend).toEqual({ isOk: true, text: 'Jev jev-latest · 可用（未校准）' })
-  expect(boardModel(jev, asJev(scenes.ordinary)).backend).toEqual({ isOk: false, text: 'Jev jev-latest · 最近一次超时（未校准）' })
+  expect(boardModel(jev, scenes.up).backend).toEqual({ isOk: true, text: 'Jev jev-latest（未校准）· 可用' })
+  expect(boardModel(jev, asJev(scenes.ordinary)).backend).toEqual({ isOk: false, text: 'Jev jev-latest（未校准）· 最近一次超时' })
   expect(boardModel(jev, asJev(scenes.ordinary)).last).toMatchObject({ by: 'Jev（未校准） 超时' })
   expect(boardModel(jev, asJev(scenes.up)).last).toMatchObject({ by: 'Jev（未校准） · 312 ms' })
   // Backend jev chosen, but this decision was answered by Drex (the fallback): Drex's wording, unchanged.

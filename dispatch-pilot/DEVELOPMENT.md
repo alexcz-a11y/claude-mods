@@ -53,7 +53,7 @@ dispatch-pilot/
 - **入口** `hooks/dispatch-pilot.ts`：只有 `register` 和每个 `on(...)`，每个 hook 里是各功能动手的先后顺序。它不直接调 `$.`，也不读写状态。
 - flow 只在真的调用时才导入别的 flow（midrun → progress，submit → skills），不能成环。
 
-`eval/validate.ts` 检查：hooks 模块里没有 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send`、`classic.*` 的注册，也没有 `$.tool.register`（不给脚本内部的调用加等待）；同一个 state key 的 atom 声明在各文件里逐字相同；`docs/research/board-scenes/hooks/scenes-data.ts` 和 `tests/support/scenes.ts` 一字不差。
+`eval/validate.ts` 检查：hooks 模块里没有 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send`、`classic.*` 的注册，也没有 `$.tool.register`（不为脚本内部的每次调用发决策请求、做决定）；同一个 state key 的 atom 声明在各文件里逐字相同；`docs/research/board-scenes/hooks/scenes-data.ts` 和 `tests/support/scenes.ts` 一字不差。
 
 ## 引擎规则（2.1.327 实测）
 

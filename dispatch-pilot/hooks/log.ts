@@ -74,9 +74,12 @@ export function decisionId(at: number): string {
 const LEVEL_LIST = LEVELS.join('、')
 const KIND_ZH: Record<string, string> = { submit: '发消息', midrun: '中途', agent: 'agent', skill: 'skill', progress: '进展记录' }
 
-const backendName = (b: string): string => (b === 'drex' ? 'Drex' : b === 'jev' ? 'Jev' : b)
-// Jev takes part in no calibration (design 8): a Jev answer and the Jev backend say so.
-const answeredBy = (b: string): string => backendName(b) + (b === 'jev' ? '（未校准）' : '')
+/** A backend's name as people read it (the board imports it too, so the two never drift). */
+export const backendName = (b: string): string => (b === 'drex' ? 'Drex' : b === 'jev' ? 'Jev' : b)
+/** Jev takes part in no calibration (design 8): wherever Jev answered or is the backend, this follows its name or its model. */
+export const UNCALIBRATED = '（未校准）'
+/** Who answered a Decision: Jev's name carries UNCALIBRATED. */
+export const answeredBy = (b: string): string => backendName(b) + (b === 'jev' ? UNCALIBRATED : '')
 const modelText = (b: 'drex' | 'jev', model: string): string => (b === 'jev' ? `${model}，未校准` : model)
 
 function missText(m: Miss): string {

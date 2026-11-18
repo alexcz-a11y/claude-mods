@@ -94,7 +94,7 @@ pre-commit 和 pre-merge-commit hook 都跑 `scripts/check.sh`（无冲突的合
 validate 通过并不代表以下几条也满足，它们需要自己留意：
 
 - 运行时限制：每个 hook 有 10 秒超时（`prompt.edit` 只有 50 ms）。command、tool 和 pane 的名字只能用字母、数字、`_`、`-`，最长 64 个字符。
-- Code Mode（实验功能）：2.1.327 起，挂了 `tool.call`、`agent.spawn`、`agent.offer`、`session.send` 这类事件的 mod 不再挡它启动（2.1.326 及以前会挡，实测）。dispatch-pilot 仍然不挂 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send` 和 `classic.*`，也不调 `$.tool.register`：这些 hook 会给脚本内部的每次调用加等待，抵消 Code Mode 的收益。`dispatch-pilot/eval/validate.ts` 会检查（ADR 0030）。
+- Code Mode（实验功能）：2.1.327 起，挂了 `tool.call`、`agent.spawn`、`agent.offer`、`session.send` 这类事件的 mod 不再挡它启动（2.1.325 实测会挡；2.1.327 实测不挡）。dispatch-pilot 仍然不挂 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send` 和 `classic.*`，也不调 `$.tool.register`：它不为脚本内部的每次调用发决策请求、做决定，这些调用只在结果行上记下工具名和是否失败。`dispatch-pilot/eval/validate.ts` 会检查（ADR 0030）。
 - `$` 只能交给文件顶层声明的函数，从本 mod 的文件导入的顶层函数也可以（validate 列成 `(via <函数名>)`），不能交给局部函数或按名字查出来的函数；`engine.create` 里 `next(e)` 的结果不能当参数传出去。
 - `$.state` 的 atom 要在用它的那个文件里声明（`const X = atom({ plugin, key } as const, 默认值)`）：从别的文件导入的 atom 会让模块加载失败（2.1.327 实测）。同一个 key 在几个文件里各声明一次没有问题，dispatch-pilot 的 `eval/validate.ts` 检查这些声明逐字相同。
 - 任何会话、任何测试都不打开 OpenTelemetry：不设 `CLAUDE_CODE_ENABLE_TELEMETRY`、`ENABLE_BETA_TRACING_DETAILED`。

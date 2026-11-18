@@ -1,6 +1,7 @@
 // Run with `node dispatch-pilot/eval/validate.ts` (scripts/check.sh does).
-// Code Mode does not run with a mod whose hooks module registers any of these events (checked against the
-// module's source text, matcher or not), so keep them out of every file under hooks/.
+// The mod registers none of these events in any file under hooks/ (checked against the source text, matcher or not):
+// tool.call and its kin act on each tool call itself, inside a Code Mode script too, and the mod makes no decision
+// request and no decision per such call; it only notes a call's tool and failure on its result row.
 // The module scan takes a state atom only as a const of the file that reads or writes through it, so each file declares
 // the atoms it uses: every declaration of one key must be the same line, or the copies could drift apart.
 // The board-scenes probe (docs/research/board-scenes) shows the tests' scenes from its own copy of them: the copy must
@@ -13,10 +14,10 @@ const hooksDir = fileURLToPath(new URL('../hooks/', import.meta.url))
 
 const FORBIDDEN: { why: string; pattern: RegExp }[] = [
   {
-    why: 'registers an event that blocks Code Mode',
+    why: 'registers an event the mod keeps out of its hooks (no decision per tool call)',
     pattern: /\bon\(\s*(['"`])(tool\.call|tool\.check|tool\.run|tool\.judge|agent\.offer|session\.send)\1/,
   },
-  { why: 'registers a classic.* event, which blocks Code Mode', pattern: /\bon\(\s*(['"`])classic\./ },
+  { why: 'registers a classic.* event, which the mod keeps out of its hooks', pattern: /\bon\(\s*(['"`])classic\./ },
   { why: 'registers a tool with $.tool.register', pattern: /\$\.tool\.register\b/ },
 ]
 
@@ -62,4 +63,4 @@ if (found.length > 0) {
   console.error(found.join('\n'))
   process.exit(1)
 }
-console.log(`dispatch-pilot: ${files.length} hook files, none registers an event that blocks Code Mode; ${atoms.size} atom keys, each declared alike; the probe's scenes are the tests' own`)
+console.log(`dispatch-pilot: ${files.length} hook files, none registers tool.call or its kin; ${atoms.size} atom keys, each declared alike; the probe's scenes are the tests' own`)

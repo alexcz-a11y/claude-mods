@@ -5,7 +5,7 @@
 ## 决定
 
 - **单个 plugin、单条路径。** 删掉 extras plugin，`dispatch-pilot` 原地换成新实现，版本 `1.0.0`，要求 Claude Code 2.1.327 及以上。挂的事件：`session.start`、`command.run`（`/dp`）、`prompt.submit`、`prompt.attachment`（`skill_listing`）、`skill.prompt`、`turn.start`、`turn.step`、`agent.spawn`、`session.append`、`turn.complete`、`http.fetch`，以及看板的 `ui.render` 和 `ui.close`。
-- **不挂 `tool.call` 一类的事件。** 2.1.327 起挂了也不挡 Code Mode，但它们会在脚本内部的每次调用上加一道等待，这正是 Code Mode 要省掉的。所以 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send`、`classic.*` 和 `$.tool.register` 都不用，`eval/validate.ts` 检查。中途判断的依据从 `session.append` 的行里读。`agent.spawn` 只落在派出 agent 的那一次调用上，所以用它。
+- **不挂 `tool.call` 一类的事件。** 2.1.327 起挂了也不挡 Code Mode。但 mod 不为脚本内部的每次调用发决策请求、做决定，这些调用的结果行经过 `session.append` 时只记下工具名和是否失败（这会不会让脚本变慢没有测过）。所以 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send`、`classic.*` 和 `$.tool.register` 都不用，`eval/validate.ts` 检查。中途判断的依据从 `session.append` 的行里读。`agent.spawn` 只落在派出 agent 的那一次调用上，所以用它。
 - **模型只给判断，决定在代码里。** 每处判断都问同一道 `score` 题（问题有多开放，五档各是一种情形）和几道 `noul` 条件题，档位和模型由代码里的规则从概率算出，没有一道题问「该用哪一档」。门槛按后端、模型版本和动作各存一张表，现在全是初值（0.7、0.8、0.7/0.3），校准之后再定。
 - **一轮中途在结果行上加一行说明换档。** 只带工具结果的步上改 effort 发不出去（E4），在结果行上加一个 text 块，下一次请求起就是新档（E5、E6）。Code Mode 会话里每到达一份脚本结果是一个检查点，普通会话里是失败成簇和每 8 个工作步，两种会话里都有新输入。一轮最多 4 条说明，两次换档至少隔 3 个工作步，中途最高 `xhigh`。
 - **派出 agent 在 `agent.spawn` 上判断。** hook 最多等 3 秒，用 `next({ ...e, model })` 定模型，effort 由 agent 的每一步写出。模型只往下换，只在把握大时才换；`fableAgents` 关着时没有明写模型的 agent 最高到 `opus`。

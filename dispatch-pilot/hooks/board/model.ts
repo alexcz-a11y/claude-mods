@@ -2,12 +2,13 @@
 // and the timeline's cells. No $ calls. The drawings only draw what boardModel returns; flows/submit.ts opens the cells,
 // runtime.ts's record leaves the mark for the next one, and flows/readout.ts writes the level a cell's request carried.
 import { canAsk } from '../backend.ts'
-import type { Backend, Failure } from '../backend.ts'
+import type { Failure } from '../backend.ts'
 import type { Config } from '../config.ts'
 import { START, margins, readNoul } from '../decide.ts'
 import type { Reason, Thresholds } from '../decide.ts'
 import { LEVELS, isLevel } from '../levels.ts'
 import type { Level } from '../levels.ts'
+import { UNCALIBRATED, answeredBy, backendName } from '../log.ts'
 import type { Decision } from '../log.ts'
 import { notesLeft } from '../midrun.ts'
 import { stepLevel } from '../submit.ts'
@@ -107,10 +108,6 @@ export function cellSent(turn: TurnState, level: Level): TurnState {
 
 const LABELS = ['发消息定档', '中途换挡', 'agent 定档', 'skill 推荐', '档位核对', '进展记录'] as const
 
-const backendName = (b: Backend): string => (b === 'drex' ? 'Drex' : 'Jev')
-// Jev takes part in no calibration (design 8): wherever a Jev answer or the Jev backend is named, it says so.
-const UNCALIBRATED = '（未校准）'
-const answeredBy = (b: Backend): string => backendName(b) + (b === 'jev' ? UNCALIBRATED : '')
 const atStep = (step: number | null): string => (step === null || step === 0 ? '发消息时' : `第 ${step} 步后`)
 const isJudged = (d: Decision): boolean => d.kind === 'submit' || d.kind === 'midrun'
 const two = (n: number): string => n.toFixed(2)
@@ -262,12 +259,12 @@ function featuresOf(cfg: Config, s: BoardState & { locked: boolean; ask: boolean
 
 function backendOf(cfg: Config, recent: readonly Decision[]): BoardModel['backend'] {
   if (!canAsk(cfg)) return { isOk: false, text: '没有密钥' }
-  const label = `${backendName(cfg.backend)} ${cfg.backend === 'drex' ? cfg.drexModel : cfg.jevModel}`
-  const mark = cfg.backend === 'jev' ? UNCALIBRATED : ''
+  // Jev's mark follows its model's name, before what is said of it.
+  const label = cfg.backend === 'drex' ? `${backendName('drex')} ${cfg.drexModel} ·` : `${backendName('jev')} ${cfg.jevModel}${UNCALIBRATED}·`
   // The last decision that asked a decision model: a progress note's failure is another model's.
   const asked = recent.findLast((d) => d.backend !== null)
-  if (asked !== undefined && asked.failure !== null) return { isOk: false, text: `${label} · 最近一次${FAILURE_ZH[asked.failure] ?? asked.failure}${mark}` }
-  return { isOk: true, text: `${label} · 可用${mark}` }
+  if (asked !== undefined && asked.failure !== null) return { isOk: false, text: `${label} 最近一次${FAILURE_ZH[asked.failure] ?? asked.failure}` }
+  return { isOk: true, text: `${label} 可用` }
 }
 
 /** Everything the board shows, from the state alone (design 5.14). Total: any state the mod can hold gives a model. */

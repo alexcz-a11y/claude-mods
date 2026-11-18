@@ -1,7 +1,7 @@
 {
   "name": "dispatch-pilot",
   "version": "1.0.0",
-  "description": "Claude 之外的决策模型（默认 Nace 的 Drex Max v1.1，也可以改用 TypeSafe 的 Jev）在你每次发消息时决定主 agent 的 effort，一轮进行中在失败复现、脚本结果交回这类时刻再看一次，也为主 agent 派出的 agent 选模型和 effort，并在你发消息时最多推荐一个 skill，代替完整的 skill 列表。判断和依据显示在 prompt 上方的时间轴和旁边的面板里，/dp 给出文字版。主 agent 的模型从不改变，所以 prompt cache 不受影响；Code Mode 里也能用。只面向 Claude Code 订阅：Bedrock、Vertex 和网关上切换 effort 会让缓存失效。",
+  "description": "Claude 之外的决策模型（默认 Nace 的 Drex Max v1.1，也可以改用 TypeSafe 的 Jev）在你每次发消息时决定主 agent 的 effort，一轮进行中在失败复现、脚本结果交回这类时刻再看一次，也为主 agent 派出的 agent 选模型和 effort，并在你发消息时最多推荐一个 skill，代替完整的 skill 列表。判断和依据显示在 prompt 上方的时间轴和旁边的面板里，/dp 给出文字版。主 agent 的模型从不改变，所以 prompt cache 不受影响；Code Mode 里也能用。只面向用 API key 或订阅登录的 Claude Code：Bedrock、Google Cloud 和网关上切换 effort 会让缓存失效。",
   "author": {
     "name": "alexcz-a11y",
     "url": "https://github.com/alexcz-a11y"
