@@ -1,6 +1,6 @@
 # dispatch-pilot 重写：原生适配 Code Mode（设计）
 
-日期：2026-11-17　分支：`dp/rewrite`　Claude Code：2.1.326
+日期：2026-11-17　分支：`dp/rewrite`　Claude Code：2.1.326　修订：2026-11-18
 
 ## 1. 意图
 
@@ -72,6 +72,18 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 - 调门槛时固定模型版本。`drex-latest` 现在指向 `drex-max-v1.1`。
 - 文档建议客户端超时不低于 60 秒（服务端最多排队 55 秒）。
 
+**Nace 官方 skill（`nace-ai/drex-agent-skills` 0.8.0 的 `drex-for-harness`，https://github.com/nace-ai/drex-agent-skills ）**
+
+- "Start from the behavior the user wants, then work backward to the semantic judgments it requires. Keep deterministic checks, calculations, execution, and permissions in code."
+- 它的对照表：路由或选一个有限的下一步动作，用 "`choice` over named destinations or actions"；评估质量、相关度、紧急度或风险，用 "`score` against concrete ordered levels"，代码 "apply reviewed thresholds"；同一 state 的几个方面，用同一请求里互相独立的题，代码 "Combine answers into policy"。
+- `score` 的档位："Describe concrete situations rather than vague labels when possible."
+- "Keep questions and thresholds reviewable in one module."、"Evaluate thresholds on representative data and consequences rather than copying a cookbook cutoff or another model's calibration."
+- 客户端要核对回答的 `model`："Compare the response `model` with the pinned id. A mismatch means a retired or mistyped id: log it as an error and handle the call as failed."（拼错或退役的 `drex-` id 会被别的版本回答，不报错。）还要核对每道题都带着要求的类型回来，失败时记 `request_id`，401、402、422 不重试。
+- 等不起 60 秒的请求路径："a shorter total budget wins over the 60-second floor. It abandons slow requests, so treat its expiry like any other Drex failure."
+- 不是护栏的判断在 Drex 不可用时放行并记一行日志；失败不能和真实的「否」用同一个结果表示。
+- 换提供方：Drex 被设为默认提供方时，Drex 失败后新写的决策代码不得改调别家；"Keeping the existing provider path behind an explicit configuration switch is allowed, because a person selects it."
+- 这份 skill 写 `drex-latest` 指向 `drex-v2.0`，和现行 models 页不一致（页面 2026-11-18 渲染后读到：`drex-latest` 指向 `drex-max-v1.1`，不写 `model` 时也选它）。skill 自己说以现行文档为准，这里按页面。
+
 **TypeSafe Jev**（https://docs.typesafe.ai/ 下的 primitives、confidence、models、model-jaggedness 各页和 skill_suggestion cookbook）
 
 - Score 的 `criteria` 是 2 到 10 档的有序数组，回答里有 `probabilities`。
@@ -82,11 +94,14 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 - `jev-latest` 现在指向 `jev-1.14.0`，别名会随新版移动；回答的 `model` 字段给出实际版本；调过门槛就该固定版本。
 - skill cookbook：第一次请求问一道 Choice（选项是各 skill 的说明）、三道「是否要动手」的 Noul 和一道「是否点名了方法」的 Noul；三道的均值不低于 0.30 或点名题不低于 0.50 才算需要 skill。第二次请求对前三名重排，并逐个问「这个 skill 是否正好做用户要的事」，最高分低于 0.30 就不推荐。
 
-**TypeSafe 官方 skill（`typesafe:typesafe-ai` 0.6.2）对问法的要求**
+**TypeSafe 官方 skill（`typesafe:typesafe-ai` 0.6.2）和现行文档对问法的要求**
 
+- 这份 skill 是现行版本：上游 `typesafe-ai/skills` 只有 `v0.5.7`（2026-09-12）和 `v0.6.2`（2026-10-23）两个标签，本机的 0.6.2 和上游逐字相同。「Judgments from Jev, decisions in code」一节是 0.6.2 新加的，0.5.7 里没有。
+- 现行文档说的是同一件事：use-case-map 页（2026-11-13 更新）"Start from the action your system takes, and list the judgments it depends on. Turn each judgment into a question for Jev. Keep the rules that combine the answers into a decision in your code."；patterns 页 "Every pattern splits a decision into small System One questions and leaves the decision to your code"；primitives 页把 "Analyze this message and determine the best course of action" 列为不该问的题。"truth table" 和 "wrong layer" 这两个说法只在 skill 里有。
+- skill 对自己的限定："None of it is absolute. … When a situation calls for something else, test the alternative and use your judgment."
 - 模型只给判断，决定写在代码里。让模型直接做决定的题（"该不该升级"）问错了层，要拆成它依赖的几个判断，决定用代码里的表来做，每种回答组合都要有结果，包括落在两个门槛之间的情况。
 - 问具体、能指出来的事，一题一个判断，"或""和"连接的条件拆成两题。
-- Score 的每一档写成一种情形，单独读也成立，不写"比上一档更…"。Noul 的 `false` 也写成具体情形。
+- Score 的每一档写成一种情形，单独读也成立，不写"比上一档更…"。Noul 的 `false` 也写成具体情形。 score 页："Describe situations, not degrees."、"Keep each Score question to one dimension."
 - state 用带名字的字段，题目用反引号里的路径指向字段；每个字段都要和题有关；代码已经知道的事实直接写出来。
 - Choice 总会选一个，所以另问一道 Noul"有没有任何一个合适"。
 - 请求失败要当作错误处理，不能当作"否"。所有题的措辞放在一个模块里。
@@ -106,7 +121,12 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 - Nace 文档对用例数量、类别比例、标注方法没有说法；TypeSafe 文档没有规定用例格式和数量。
 - 向真实接口发测试请求前，先征得用户同意，说明预算、会发送哪些数据、用谁的密钥（TypeSafe skill）。
 
-两家都没有 effort 或模型分级路由的官方配方。
+**effort 和模型路由**
+
+- 两家都没有官方配方。TypeSafe 只在 use-case-map 页有一条想法："Model router: match each prompt to a model … Classify each prompt's intent and subject area. Estimate difficulty and risk."，没有例题。
+- Nace 的例题直接问决定（"How should accounts payable handle this invoice?"，选项 `pay`、`hold`、`reject`；"Which priority should this ticket get?"，选项 `p0` 到 `p3`，说明写成情形）。Nace 没有哪一页比较过「问判断」和「问决定」两种写法。
+- Nace 文档收了一个社区贡献的集成（Oh My Pi 的 `auto` thinking level）："Drex rates how hard each prompt is, and omp picks the thinking level for that turn."，页面没给题目。它的源码（第三方，不是 Nace 写的）用一道 Choice 直接选 `low` 到 `max`，各选项的说明是情形；评的是问题有多开放（"Volume of work never raises it."），`max` 另需一个附加条件（"Difficulty alone is insufficient."），拿不准时取低的一档。没有公开的评测数据。
+- 逐条出处见 `docs/research/decision-question-layer.md`。
 
 ## 4. 做法的选择
 
@@ -140,13 +160,15 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 
 **模型只给判断，决定在代码里。** 没有任何一题问"该用哪一档"或"该用哪个模型"。题目问的是工作本身，档位和模型由代码里的表从回答算出来。所有题的措辞集中在一个模块里。
 
-- **工作有多费力**用一道 `score` 题，五档从低到高，每一档写成一种单独读也成立的情形（照 Anthropic 对 effort 的说法：快速的机械改动；常规开发；要验证、要考虑边界、或在老代码里查 bug；长时间自主处理的难题；其上的极难问题）。代码把第 0 到 4 档对应到 `low`、`medium`、`high`、`xhigh`、`max`。
+依据（3.4 节）：这是 TypeSafe 现行文档和官方 skill 的写法。Nace 的 skill 同样要求从判断倒推、把门槛留在代码里，但它的例题允许直接问动作，也没有比较过两种问法。所以默认用这一种，「直接选档位」的写法只在校准时作对照（第 8 节）。
+
+- **工作有多难**用一道 `score` 题，只量一个维度：问题有多开放，也就是做法是不是已经给定、还有多少原因或设计没有定下来。工作量大小不算在这道题里（score 页："Keep each Score question to one dimension."）。五档从低到高，每一档写成一种单独读也成立的情形，不用程度词。起步的五档：做法已经给定，照着改；小范围内有少数几种可能，或有一处小坑；有几种可行的设计或几个可能的原因，要做取舍；原因不明的偶发、并发或状态问题，或容易出细微错误的改法；上一档的情形，再加上没有复现、操作不可逆、要在运行中切换三者之一。代码把第 0 到 4 档对应到 `low`、`medium`、`high`、`xhigh`、`max`。这五档的分法参考了 3.4 节那个社区实现，文字自己写，以校准为准。
 - 读这道题用函数 `decide(current, probabilities)`，三处共用：
   - 升：比当前高一档及以上的概率和不低于升档门槛，就升一档，再对新的一档重复。
   - 降：比当前低一档及以下的概率和不低于降档门槛，就降一档，再重复。
   - 两边都不到，保持当前档。这就是文档说的中间带。
 - **条件类的判断**各用一道 `noul`，一题一个条件，高值表示「是」，`criteria.true` 和 `criteria.false` 都写成具体情形。起步的两道：「这项工作是不是照已知做法重复的机械改动」（是，则上限 `medium`）、「这项工作是不是要先查明一个原因未知的问题」（是，则下限 `high`）。读法用两个门槛，落在中间带时这一条不起作用。每道题都必须在表里有用处，没有用处的不问。
-- 门槛按后端、模型版本和动作各存一张表。初值：升档 0.7，降档 0.7（即文档的 0.7/0.3 起步），升到 `xhigh` 和 `max` 的门槛更高（初值 0.8），`noul` 用 0.7 和 0.3。初值只是起点，发布前校准（第 8 节）。
+- 门槛按后端、模型版本和动作各存一张表。初值：升档 0.7，降档 0.7（即文档的 0.7/0.3 起步），升到 `xhigh` 和 `max` 的门槛更高（初值 0.8），`noul` 用 0.7 和 0.3。初值只是起点，发布前校准（第 8 节）。 0.7 和 0.3 是 TypeSafe 文档给 Jev 的起步值；Nace 的 skill 要求门槛在自己的数据上定，不照搬别家模型的校准，所以 Drex 那张表在校准前只是占位，不当作 Nace 认可的值。
 - 一次判断的所有题放进同一次请求。
 - state 是带名字字段的对象（例如 `request`、`recent_steps`、`current_level`），题目用反引号里的路径指向字段；只放和题有关的字段，上限 4000 token，两家都不触发抽取或长上下文模式。
 - 请求失败记为失败并放行，不当作「否」。
@@ -192,8 +214,9 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 ### 5.7 后端
 
 - 接口是一个函数：`ask({ state, questions }) -> { answers, model, ms }`，`drex` 和 `jev` 各一个实现。两家的请求体都是 `state` 加 `questions`，回答字段名相同的部分直接用，不同的部分（Jev 的 `legend` 是对象、`noul` 没有 `confidence`）在各自的实现里抹平。
-- 默认后端 Drex（`drex-max-v1.1`，固定版本）。另一个是 Jev（`jev-latest`）。配置了两个密钥时，默认后端请求失败或超时，同一次判断改问另一个，只改问一次。
-- 每次判断有总时限，到时放行：发消息 4 秒，中途检查点 2 秒，agent 3 秒，可配置。这比 Nace 建议的 60 秒客户端超时短，是有意的：用户在等，超时的请求不重试，所以不会反复排队。
+- 默认后端 Drex（`drex-max-v1.1`，固定版本）。另一个是 Jev（`jev-latest`）。另一个后端接手由开关 `fallback` 控制（默认开）：配置了两个密钥并且开关开着时，默认后端请求失败或超时，同一次判断改问另一个，只改问一次，并在决策记录里写明是谁答的。Nace 的 skill 要求换提供方必须出自人选定的配置开关，所以这里做成开关，不写死在代码里。
+- 核对回答：Drex 回答里的 `model` 和 `drexModel` 不一致时，这次调用记为错误并按失败处理（Nace skill）。Jev 用的是别名，不做这条核对，只记下实际版本（第 8 节）。每道题都要带着要求的类型回来，缺题或类型不对按失败处理。失败记录带上 `request_id`，不记密钥，也不记可能回显 state 的错误正文。
+- 每次判断有总时限，到时放行：发消息 4 秒，中途检查点 2 秒，agent 3 秒，可配置。这比 Nace 建议的 60 秒客户端超时短，是有意的：用户在等。Nace 的 skill 对等不起的请求路径写的是 "a shorter total budget wins over the 60-second floor"，到时按失败处理。超时的请求不重试。
 - 发给决策模型的内容：用户的消息、近况和最近几步的摘要（含工具结果文字的开头），按 5.2 节的上限截断，不脱敏。这沿用用户此前对脚本结果的决定。除两家决策模型的接口外不向任何地方发送。
 - 每条决策记录写下：时间、哪一项换挡、题的原始回答（分布和 noul 值）、门槛、结果、回答里的 `model` 字段、耗时、是否放行。存进 `$.store`，只留最近 200 条。
 
@@ -213,11 +236,11 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 
 ### 5.10 配置（`userConfig`）
 
-`enabled`、`mode`（`apply` 或 `shadow`，后者只判断和记录、不改任何东西；默认 `apply`）、`backend`、`drexApiKey`、`jevApiKey`（sensitive）、`drexModel`、`jevModel`、`midrunEverySteps`、`midrunMaxNotes`、`agentModels`、`fableAgents`（默认关）、三个时限，以及四个布尔开关 `submitShift`、`midrunShift`、`agentShift`、`skills`，分别开关发消息定档、中途换挡、agent 定档和 skill 一组功能，默认都开。没有密钥的后端视为不可用；两个都没有时 mod 什么也不做，并在 `/dp` 里说明。
+`enabled`、`mode`（`apply` 或 `shadow`，后者只判断和记录、不改任何东西；默认 `apply`）、`backend`、`fallback`（默认开）、`drexApiKey`、`jevApiKey`（sensitive）、`drexModel`、`jevModel`、`midrunEverySteps`、`midrunMaxNotes`、`agentModels`、`fableAgents`（默认关）、三个时限，以及四个布尔开关 `submitShift`、`midrunShift`、`agentShift`、`skills`，分别开关发消息定档、中途换挡、agent 定档和 skill 一组功能，默认都开。没有密钥的后端视为不可用；两个都没有时 mod 什么也不做，并在 `/dp` 里说明。
 
 ### 5.11 放行规则
 
-以下情况一律放行（不改 effort、不改模型、不加说明、不换 skill 列表以外的任何东西），并记一条记录：请求失败、超时、回答缺字段、模型不接受 effort（`e.effort` 缺省）、`mode` 为 `shadow`。hook 自己抛错时引擎会跳过它，所以每个 hook 的主体都包在一层兜底里，保证总是走到 `next(e)`。
+以下情况一律放行（不改 effort、不改模型、不加说明、不换 skill 列表以外的任何东西），并记一条记录：请求失败、超时、回答缺字段或题的类型不对、Drex 回答的 `model` 和固定版本不一致、模型不接受 effort（`e.effort` 缺省）、`mode` 为 `shadow`。hook 自己抛错时引擎会跳过它，所以每个 hook 的主体都包在一层兜底里，保证总是走到 `next(e)`。
 
 ## 6. 仓库里的变化
 
@@ -250,6 +273,8 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 
 - 用例分调整集和留出集。措辞和门槛只在调整集上改，每次改动都在没用来调的用例上复查；留出集只在最后算一次分，报告里的数字来自它。
 - 比较措辞时，把几种写法作为同一请求里的不同题，对同一个 state 问。逐条看回答，不只看汇总。Score 的各档说明先在几个样例上试，改写后在另一批输入上验证再留下。
+- 问法的对照：两家都没有 effort 路由的官方配方，Nace 的例题和它文档收录的社区实现用的又是直接选档位的写法。所以在调整集上把两种问法放进同一请求比较：默认的「问工作本身，代码查表」，和「一道题直接选档位，各选项的说明写成情形」。留出集上后者在某个后端明显更好时，才在那个后端换用，并把依据写进校准记录；否则保持默认。
+- `score` 题只量问题有多开放。要不要另加一道判断来管「连续很多步、中间没有人看着」的工作，看它在留出集上有没有用；没有用就不加。
 - 门槛从保守的初值起步。在调整集上画出概率和正确率的关系，按每种动作出错的代价定（升档、降档、换模型、推荐 skill 各自一张表），再到留出集上核对。一段很宽的门槛范围结果相同时取保守的一端。
 - 不做的事：criteria 里点名用例或为每个失败用例加一句；为解释某次怪回答加说明；让门槛贴着个别用例；测试里断言精确概率（单元测试只用打桩的回答）；用代码悄悄改写回答。回答看着不对时按这个顺序查：实际发出的请求、state、选项、题的范围、措辞。
 - 稳定性：skill 的 Choice 把选项顺序打乱再问一遍，结果变了的用例单独列出；同一请求重复问，看决定会不会变。
@@ -278,15 +303,16 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 
 ## 10. 我替用户做的决定（请在读的时候核对）
 
-1. Drex 作默认，Jev 作另一个后端并在 Drex 失败时接手。核心版没有看图功能，所以没有「带图给 Jev」这条。
+1. Drex 作默认，Jev 作另一个后端并在 Drex 失败时接手；接手做成开关 `fallback`，默认开（Nace 的 skill 要求换提供方出自人选定的开关）。核心版没有看图功能，所以没有「带图给 Jev」这条。
 2. `jev-latest` 按用户要求用别名；每条记录写实际版本，和校准时的版本不一致就提示重新校准。TypeSafe 文档的建议是固定版本，可以用 `jevModel` 改。
-3. 题目只问工作本身，档位和模型由代码里的表算出（照 TypeSafe 官方 skill）。门槛初值取 0.7/0.3 的起步值，高档更严，发布前校准。
+3. 题目只问工作本身，档位和模型由代码里的表算出。2026-11-18 对照现行文档核对过：TypeSafe 的 skill（0.6.2 是最新版，这一节是它新加的）和现行文档都这样写；Nace 不反对，但它的例题直接问动作。所以默认不变，校准时拿「直接选档位」的写法作对照。`score` 题只量问题有多开放，不量工作量（TypeSafe：一题一个维度）。门槛初值取 0.7/0.3 的起步值，高档更严，发布前校准；Drex 的门槛不照搬 TypeSafe 的数。
 4. 中途检查点三种：新输入、失败成簇、每 8 个工作步；一轮最多 4 条说明；中途不升到 `max`。
 5. agent 的模型只往下换、只在把握大时才换，层级 `haiku` < `sonnet` < `opus` < `fable`，不高于主 agent。`fableAgents` 关着时（默认），没有明写模型的 agent 最高到 `opus`；派出时明写的值不改，包括明写的 `fable`。agent 的第一步最多等 3 秒。
-6. 时限 4 秒、2 秒、3 秒，短于 Nace 建议的 60 秒，超时不重试。
+6. 时限 4 秒、2 秒、3 秒，短于 Nace 建议的 60 秒（Nace 的 skill 允许等不起的路径用更短的总时限），超时不重试。
 7. 只留状态行和 `/dp`，不做 band 和面板。配置从 40 项减到十几项，加了 `shadow` 模式。
 8. 版本号 `1.0.0`，删除 `dispatch-pilot-extras`。
 9. agent 的 skill 列表不动，只收起主循环的。
 10. 发给决策模型的内容不脱敏，只截断，沿用此前对脚本结果的决定。
 11. 校准算在这个项目里，不用旧评测集；用例首选本机真实会话记录，参考答案由强模型标、用户抽查，每类至少 60 例（文档没有规定数量）；默认 `apply`，校准后才发 `1.0.0`。
 12. 主循环中途换挡若验证不通过，停下来问，不自行降级。
+13. Drex 回答的 `model` 和固定版本不一致时按失败处理并放行（照 Nace 的 skill）；Jev 用别名，只记版本并提示重新校准。
