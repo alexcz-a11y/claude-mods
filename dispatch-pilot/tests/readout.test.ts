@@ -3,7 +3,7 @@ import type { Engine, Plugin } from 'claude-code/testing'
 import type { SessionAppendInput } from 'claude-code'
 
 import { readConfig } from '../hooks/config.ts'
-import { openStep, readout } from '../hooks/dispatch-pilot.ts'
+import { openStep, readout } from '../hooks/flows/readout.ts'
 import { renderDp } from '../hooks/log.ts'
 import type { Decision } from '../hooks/log.ts'
 import { classify, modelBase, withSent } from '../hooks/readout.ts'
@@ -133,7 +133,7 @@ async function viaWire($: Engine, url: string, i?: unknown): Promise<{ status: n
 }
 
 // The readout of an engine request, driven directly. The kit raises no http.fetch as the engine (its $ has no http,
-// and a plugin named engine does not load: DEVELOPMENT.md), so these tests call the entry's openStep and readout on a
+// and a plugin named engine does not load: DEVELOPMENT.md), so these tests call flows/readout.ts's openStep and readout on a
 // stand-in $ seeded with the state an engine-driven run left. The stand-in has what they touch: $.state with versions
 // (the state library's compare-and-set), $.store and $.ui.log; `refuse` and `refuseStore` make a state or store write throw.
 function fakeDollar(seed: { state?: Record<string, unknown>; store?: Record<string, unknown> } = {}, o: { refuse?: (key: string, value: unknown) => boolean; refuseStore?: (key: string) => boolean } = {}) {
@@ -201,7 +201,7 @@ function carried(seed: ReturnType<typeof seedOf>, from: Fake) {
 
 type Open = { turnId: string; index: number; model?: string; agentId?: string }
 
-/** The engine sending model requests while `open` steps are open (main loop's or agents'), each read by the entry's readout. */
+/** The engine sending model requests while `open` steps are open (main loop's or agents'), each read by flows/readout.ts's readout. */
 async function sendIn(f: Fake, open: Open[], bodies: unknown[], url = MESSAGES): Promise<void> {
   const closers = open.map((s) => openStep({ ...s, model: s.model ?? OPUS }))
   try {

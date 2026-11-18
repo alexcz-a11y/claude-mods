@@ -1,0 +1,144 @@
+// A message a person sends (design 5.3): its judgement at prompt.submit, its turn, the level its first step takes,
+// the main loop's steps, and the turn's end.
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, TurnCompleteInput, TurnStepInput } from 'claude-code'
+
+import { ask, canAsk, partOf } from '../backend.ts'
+import type { Config } from '../config.ts'
+import { isLevel } from '../levels.ts'
+import type { Level } from '../levels.ts'
+import { decisionId } from '../log.ts'
+import { submitQuestions } from '../questions.ts'
+import { awaitCheck } from '../readout.ts'
+import { ioOf, record, verifies } from '../runtime.ts'
+import { stageOne } from '../skills.ts'
+import type { SkillOutcome } from '../skills.ts'
+import { emptySession, newTurn } from '../state.ts'
+import type { SessionState, TurnState } from '../state.ts'
+import { clip, submitState } from '../statebuild.ts'
+import type { PreviousTurn } from '../statebuild.ts'
+import { settleSubmit } from '../submit.ts'
+import { suggestSkill } from './skills.ts'
+
+// The state atoms this file reads and writes, one line each and alike in every file that declares them: the module
+// scan takes only a const of the file that reads or writes (eval/validate.ts checks the copies are the same text).
+const SESSION = atom({ plugin: 'dispatch-pilot', key: 'session' } as const, emptySession())
+const TURN = atom({ plugin: 'dispatch-pilot', key: 'turn' } as const, null)
+const SKILLS = atom({ plugin: 'dispatch-pilot', key: 'skills' } as const, [])
+
+/** Where a message a person sent comes from: only these are judged when sent (design 5.3). */
+const PERSON: readonly string[] = ['composer', 'sdk', 'bridge']
+
+/** How much of the last answer the next message's judgement sees of it. */
+const LAST_REPLY_TOKENS = 300
+
+// The judgement when a person sends a message: the effort questions and the skill questions in one request. The
+// effort's level is settled at the turn's first step, the first place the session's own effort can be read; the
+// skill is settled here, since its suggestion goes down with the message. Null: nothing was asked.
+export async function judgeMessage($: EngineInterface, cfg: Config, m: { text: string; origin: string | undefined; turnId: string | undefined }): Promise<SkillOutcome | null> {
+  if (!cfg.enabled || m.origin === undefined || !PERSON.includes(m.origin)) return null
+  // A prompt delivered into a running turn starts no turn of its own: the mid-run check covers it.
+  if (m.turnId !== undefined) return null
+  const text = m.text
+  const session = await read($, SESSION)
+  const effortAsked = cfg.submitShift && session.lock === null
+  const skills = cfg.skills && canAsk(cfg) ? await read($, SKILLS) : []
+  if (!effortAsked && skills.length === 0) return null
+  // Every question this message is asked goes into the one map and the one request; each part then reads the
+  // answers it needs (the effort: open, mechanical, unknown_cause, continues; the skill: skill_<n> and the gate).
+  const effortQuestions = effortAsked ? submitQuestions(session.previous !== null) : {}
+  const skillQuestions = skills.length > 0 ? stageOne(skills, cfg.backend, true) : {}
+  const state = submitState({ request: text, previous: session.previous })
+  const t0 = await $.clock.now()
+  // Read part by part, so an unusable effort part leaves the skill part standing, and the other way round.
+  const result = await ask(ioOf($), cfg, { state, questions: { ...effortQuestions, ...skillQuestions }, partial: skills.length > 0 }, cfg.submitTimeoutMs)
+  if (effortAsked) {
+    const own = partOf(result, Object.keys(effortQuestions))
+    await update($, SESSION, (s) => ({ ...s, pending: { request: text, result: own } }))
+  }
+  if (skills.length === 0) return null
+  return suggestSkill($, cfg, { skills, state, first: result, asked: Object.keys(skillQuestions), t0 })
+}
+
+// A message that did not go in starts no turn, so its decision goes with it.
+export async function dropPending($: EngineInterface): Promise<null> {
+  await update($, SESSION, (s) => ({ ...s, pending: null }))
+  return null
+}
+
+// A main-loop turn begins. The engine raises turn.start inside prompt.submit's next(e), with the text
+// prompt.submit passed down (measured on 2.1.327): the pending decision is kept only for the turn its own
+// message starts, and dropped for any other.
+export async function startTurn($: EngineInterface, turnId: string, text: string): Promise<null> {
+  const { pending } = await read($, SESSION)
+  if (pending !== null && pending.request !== text) {
+    // Compared again on what update() reads: a decision for this very text written meanwhile is kept.
+    await update($, SESSION, (s) => (s.pending !== null && s.pending.request !== text ? { ...s, pending: null } : s))
+  }
+  await update($, TURN, () => newTurn(turnId, text))
+  return null
+}
+
+// The turn's first step takes the decision its message left, once: it is cleared whatever comes of it.
+async function takePending($: EngineInterface, cfg: Config, e: TurnStepInput, session: SessionState, own: TurnState | null): Promise<TurnState | null> {
+  const pending = session.pending
+  if (pending === null) return own
+  await update($, SESSION, (s) => ({ ...s, pending: null }))
+  // Only the turn the message started takes its decision; one that cannot be bound to it is dropped.
+  if (own === null || own.request !== pending.request) return own
+  const at = await $.clock.now()
+  const writes = cfg.enabled && cfg.mode === 'apply' && session.lock === null
+  const s = settleSubmit(pending.result, { effort: e.effort, previousLevel: session.previous?.level ?? null, writes, turnId: e.turnId, id: decisionId(at), at })
+  // Recorded before the turn names it for a check, so a reading cannot amend a Decision not yet in the log.
+  await record($, s.decision)
+  const settled: TurnState = { ...own, base: s.base, wanted: s.wanted }
+  const check = verifies(cfg) && s.decision.applied && s.wanted !== null ? { turnId: e.turnId, id: s.decision.id, level: s.wanted, queuedNote: null } : null
+  const turn = check === null ? settled : awaitCheck(settled, check)
+  await update($, TURN, () => turn)
+  return turn
+}
+
+// A turn no message decision set (a task notification's, a peer's, submitShift off) starts from the engine's own
+// level at step 0, so the mid-run check has a level to judge. Nothing is decided here: wanted stays null, no Decision.
+async function takeBase($: EngineInterface, turn: TurnState, level: Level): Promise<TurnState> {
+  await update($, TURN, (cur) => (cur !== null && cur.turnId === turn.turnId && cur.base === null ? { ...cur, base: level } : cur))
+  return { ...turn, base: level }
+}
+
+// The main loop's branch of turn.step. Returns the step as it goes on.
+export async function mainStep($: EngineInterface, cfg: Config, e: TurnStepInput): Promise<TurnStepInput> {
+  const session = await read($, SESSION)
+  const held = await read($, TURN)
+  let turn = held !== null && held.turnId === e.turnId ? held : null
+  // takePending hands back the turn it wrote, so nothing is read back.
+  if (e.index === 0) turn = await takePending($, cfg, e, session, turn)
+  if (e.index === 0 && turn !== null && turn.base === null && isLevel(e.effort)) turn = await takeBase($, turn, e.effort)
+  // A step whose effort is absent (the model takes none) or a number (the session uses numeric
+  // effort) passes as it came; so does every step while the mod is off or only watching.
+  if (!isLevel(e.effort) || !cfg.enabled || cfg.mode === 'shadow') return e
+  // Only effort is written: the main loop's model is never changed (it would break the prompt cache).
+  const level = session.lock ?? turn?.wanted ?? null
+  return level === null ? e : { ...e, effort: level }
+}
+
+function endedOf(e: { reason: string; isAborted: boolean }): PreviousTurn['ended'] {
+  if (e.isAborted || e.reason === 'aborted') return 'interrupted'
+  return e.reason === 'answer' ? 'answered' : 'error'
+}
+
+// A main-loop turn ends. Only the turn held here ends here: the end of one never seen starting (or with none held)
+// writes no previous and keeps the held turn.
+export async function endTurn($: EngineInterface, e: TurnCompleteInput): Promise<null> {
+  if (e.agentId !== undefined) return null
+  const held = await read($, TURN)
+  if (held === null || held.turnId !== e.turnId) return null
+  const previous: PreviousTurn = {
+    request: held.request,
+    lastReply: clip(e.answer, LAST_REPLY_TOKENS),
+    ended: endedOf(e),
+    level: held.wanted ?? held.base,
+  }
+  await update($, SESSION, (s) => ({ ...s, previous }))
+  await update($, TURN, (cur) => (cur !== null && cur.turnId === e.turnId ? null : cur))
+  return null
+}

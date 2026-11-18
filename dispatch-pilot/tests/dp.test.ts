@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { record } from '../hooks/dispatch-pilot.ts'
+import { record } from '../hooks/runtime.ts'
 import { LOG_KEEP, RECENT_KEEP, amendLog, decisionId, pushLog, readLog } from '../hooks/log.ts'
 import type { Decision } from '../hooks/log.ts'
 import { KEYS, dp, start, step, world } from './support/world.ts'
