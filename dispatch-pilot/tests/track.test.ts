@@ -1,0 +1,211 @@
+import { expect, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
+
+import { TRACK_KEEP } from '../hooks/board/model.ts'
+import { openStep, readout } from '../hooks/flows/readout.ts'
+import type { SessionState, TrackCell, TurnState } from '../hooks/state.ts'
+import { assistantToolUse, deliveryResult, replReceipt, scriptByPoll, toolResult } from './support/rows.ts'
+import { seedOf, standIn } from './support/standin.ts'
+import { KEYS, appendAll, dp, drexOk, noul, score, start, step, submit, turns, world } from './support/world.ts'
+
+type World = ReturnType<typeof world>
+
+// The state as the mod's last landed write of each key left it (the world records every write).
+const lastOf = (w: World, key: string): unknown => w.stateWrites.filter((s) => s.key === key && s.isSet).at(-1)?.value
+const turnState = (w: World): TurnState => lastOf(w, 'turn') as TurnState
+const session = (w: World): SessionState => lastOf(w, 'session') as SessionState
+/** The timeline as [level, mark]: the engine-driven run reads no request, so sent is asserted apart. */
+const cells = (w: World): [string, string | null][] => turnState(w).track.map((c) => [c.level, c.mark])
+const efforts = (w: World): unknown[] => w.stepsSent.map((s) => s.effort)
+
+const TASK = 'Fix the flaky retry in the uploader'
+const OPUS = 'claude-opus-5-5'
+const MESSAGES = 'https://api.anthropic.com/v1/messages?beta=true'
+
+// The message's own judgement: from medium, SUBMIT_HOLD holds and SUBMIT_RAISE goes to high.
+const SUBMIT_HOLD = { open: score([0.05, 0.3, 0.3, 0.3, 0.05]), mechanical: noul(0.1), unknown_cause: noul(0.2) }
+const SUBMIT_RAISE = { open: score([0.02, 0.08, 0.25, 0.55, 0.1]), mechanical: noul(0.1), unknown_cause: noul(0.2) }
+// Mid-run answers: HOLD stays put; SAME_FAILURE goes one level up.
+const HOLD = { open: score([0.05, 0.3, 0.3, 0.3, 0.05]), same_failure: noul(0.1), cause_found: noul(0.2), only_carrying_out: noul(0.2), contradicts_plan: noul(0.1) }
+const SAME_FAILURE = { ...HOLD, same_failure: noul(0.9) }
+
+type Answers = Record<string, unknown>
+
+/** The message's questions get `message`; the n-th mid-run check (from 1) gets midrun(n), null for a network failure. */
+function answers(message: Answers, midrun: (n: number) => Answers | null) {
+  let n = 0
+  return ({ body }: { body: any }) => {
+    if (!('same_failure' in body.questions)) return drexOk(message)
+    const a = midrun(++n)
+    return a === null ? null : drexOk(a)
+  }
+}
+
+const stepT1 = ($: Engine, index: number, effort: unknown = 'medium') => step($, { turnId: 't1', index, effort })
+
+/** One work step of an ordinary session: a Bash call and its result. */
+const bash = ($: Engine, result = '3 passed') => appendAll($, [assistantToolUse('Bash', { command: 'npm test' }), toolResult('Bash', result)])
+
+/** A main-loop request body as the engine sends it (E15): a thread, and the level at the top. */
+const body = (effort: string) => JSON.stringify({ model: OPUS, thread: { id: 'th' }, output_config: { effort }, messages: [{ role: 'user', content: 'x' }] })
+
+/** The engine sending the step's model requests, each read by the readout, while the main-loop step is open. */
+async function sendIn(f: ReturnType<typeof standIn>, s: { turnId: string; index: number }, efforts: string[]): Promise<void> {
+  const close = openStep({ ...s, model: OPUS })
+  try {
+    for (const effort of efforts) await readout(f.$, { url: MESSAGES, init: { method: 'POST', headers: {}, body: body(effort) } }, 'engine')
+  } finally {
+    close()
+  }
+}
+
+// The brief's five.
+
+test('发消息升到 high：第一格是 high，记号是 up；每个工作步开一格', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, () => HOLD) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  expect(turnState(w)).toMatchObject({ stepNo: 1, track: [{ level: 'high', sent: null, mark: 'up' }], pendingMark: null })
+  expect(session(w)).toMatchObject({ turnNo: 1, sessionLevel: 'medium' })
+  await bash($)
+  await stepT1($, 1)
+  // An ordinary session checks every 8 steps: no check came before the second step, so its cell has no mark.
+  expect(cells(w)).toEqual([['high', 'up'], ['high', null]])
+  expect(turnState(w)).toMatchObject({ stepNo: 2, journal: { workSteps: 1 } })
+  expect(efforts(w)).toEqual(['high', 'high'])
+})
+
+test('中途升档：记号落在下一格上，那一格是新档', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, () => SAME_FAILURE) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  await appendAll($, scriptByPoll(1, 'rerun the upload test', 'FAIL test_upload: expected 200, got 500'))
+  // The check's mark waits on the turn for the cell of the step it was made before.
+  expect(turnState(w)).toMatchObject({ wanted: 'high', pendingMark: 'up', stepNo: 1 })
+  await stepT1($, 1)
+  expect(cells(w)).toEqual([['medium', 'hold'], ['high', 'up']])
+  expect(turnState(w).pendingMark).toBe(null)
+  expect(efforts(w)).toEqual(['medium', 'high'])
+})
+
+test('同一个工作步里的第二次请求不开新格', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, () => HOLD) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  // Code Mode: the receipt comes back at once and the model is asked again, in the same work step.
+  await appendAll($, [assistantToolUse('REPL', { code: '…', description: 'run the upload test' }), replReceipt(1)])
+  await stepT1($, 1)
+  expect(turnState(w)).toMatchObject({ stepNo: 1, journal: { workSteps: 0 } })
+  expect(cells(w)).toEqual([['medium', 'hold']])
+  // The script's result ends the work step; the next step is the second cell.
+  await appendAll($, [deliveryResult(1, '3 passed')])
+  await stepT1($, 2)
+  expect(turnState(w)).toMatchObject({ stepNo: 2, journal: { workSteps: 1 } })
+  expect(cells(w)).toEqual([['medium', 'hold'], ['medium', 'hold']])
+  expect(efforts(w)).toEqual(['medium', 'medium', 'medium'])
+})
+
+test('模型不收 effort：不开格', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, () => HOLD) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0 })
+  await bash($)
+  await step($, { turnId: 't1', index: 1 })
+  await bash($)
+  await step($, { turnId: 't1', index: 2, effort: 31999 })
+  // The turn's rows were read (two work steps), but no step carried a level: no cell, and no level of the session.
+  expect(turnState(w)).toMatchObject({ stepNo: 0, track: [], journal: { workSteps: 2 } })
+  expect(session(w)).toMatchObject({ turnNo: 1, sessionLevel: null })
+  expect(efforts(w)).toEqual([undefined, undefined, 31999])
+})
+
+test('超过 300 格只留最后 300 格，stepNo 照常往上数', { options: { ...KEYS, midrunShift: false } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, () => HOLD) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  expect(cells(w)).toEqual([['medium', 'hold']])
+  const total = TRACK_KEEP + 2
+  for (let index = 1; index < total; index++) {
+    await bash($)
+    await stepT1($, index)
+  }
+  const t = turnState(w)
+  expect([t.track.length, t.stepNo, t.journal.workSteps]).toEqual([300, total, total - 1])
+  // The first two cells went: the one marked by the message's check among them.
+  expect(t.track.every((c: TrackCell) => c.level === 'medium' && c.mark === null)).toBe(true)
+})
+
+// Beyond the brief.
+
+test('锁定的轮：格子是锁定的档位，没有判断就没有记号', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, () => SAME_FAILURE) })
+  await start($)
+  await dp($, 'lock xhigh')
+  await submit($, TASK)
+  await stepT1($, 0)
+  await bash($)
+  await stepT1($, 1)
+  expect(cells(w)).toEqual([['xhigh', null], ['xhigh', null]])
+  expect(efforts(w)).toEqual(['xhigh', 'xhigh'])
+  // What the engine itself gave, before the lock was written over it.
+  expect(session(w)).toMatchObject({ lock: 'xhigh', sessionLevel: 'medium', turnNo: 1 })
+})
+
+test('中途评估：不变记 hold，请求失败记 fail，都在下一格', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, (n) => (n === 1 ? HOLD : null)) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  await appendAll($, scriptByPoll(1, 'read the uploader', 'upload.ts: 3 retries'))
+  await stepT1($, 1)
+  await appendAll($, scriptByPoll(2, 'rerun the upload test', 'FAIL test_upload'))
+  await stepT1($, 2)
+  expect(cells(w)).toEqual([['high', 'up'], ['high', 'hold'], ['high', 'fail']])
+})
+
+test('verifyEffort 关着：格子照开，sent 一直是 null', { options: { ...KEYS, verifyEffort: false } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, () => HOLD) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  await appendAll($, scriptByPoll(1, 'read the uploader', 'upload.ts: 3 retries'))
+  await stepT1($, 1)
+  expect(turnState(w).track).toEqual([
+    { level: 'high', sent: null, mark: 'up' },
+    { level: 'high', sent: null, mark: 'hold' },
+  ])
+})
+
+test('一步的第一次主循环请求填进最后一格的 sent，之后的请求不改它', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, () => HOLD) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  await appendAll($, scriptByPoll(1, 'read the uploader', 'upload.ts: 3 retries'))
+  await stepT1($, 1)
+  // Code Mode: the second script's receipt, then the request of the same work step.
+  await appendAll($, [assistantToolUse('REPL', { code: '…', description: 'run the upload test' }), replReceipt(2)])
+  expect(cells(w)).toEqual([['high', 'up'], ['high', 'hold']])
+
+  const f = standIn(seedOf(w))
+  // Step 1's request: the last cell takes the level it carried; a second request of the step is not the main loop's.
+  await sendIn(f, { turnId: 't1', index: 1 }, ['high', 'low'])
+  expect(f.turn()!.track).toEqual([
+    { level: 'high', sent: null, mark: 'up' },
+    { level: 'high', sent: 'high', mark: 'hold' },
+  ])
+  // Step 2 is the same work step (after the receipt): its request is read, but the cell keeps its first level.
+  await sendIn(f, { turnId: 't1', index: 2 }, ['medium'])
+  expect(f.turn()!.track.at(-1)).toEqual({ level: 'high', sent: 'high', mark: 'hold' })
+  expect(f.session().lastSent).toBe('medium')
+  // A request of a step of another turn writes no cell.
+  const g = standIn(seedOf(w))
+  await sendIn(g, { turnId: 't0', index: 1 }, ['high'])
+  expect(g.turn()!.track.map((c) => c.sent)).toEqual([null, null])
+  expect(g.session().lastSent).toBe('high')
+})

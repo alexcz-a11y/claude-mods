@@ -4,13 +4,14 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, TurnCompleteInput, TurnStepInput } from 'claude-code'
 
 import { ask, canAsk, partOf } from '../backend.ts'
+import { openCell } from '../board/model.ts'
 import type { Config } from '../config.ts'
 import { isLevel } from '../levels.ts'
 import type { Level } from '../levels.ts'
 import { decisionId } from '../log.ts'
 import { submitQuestions } from '../questions.ts'
 import { awaitCheck } from '../readout.ts'
-import { ioOf, record, verifies } from '../runtime.ts'
+import { failOpen, ioOf, record, verifies } from '../runtime.ts'
 import { stageOne } from '../skills.ts'
 import type { SkillOutcome } from '../skills.ts'
 import { emptySession, newTurn } from '../state.ts'
@@ -70,6 +71,11 @@ export async function dropPending($: EngineInterface): Promise<null> {
 // prompt.submit passed down (measured on 2.1.327): the pending decision is kept only for the turn its own
 // message starts, and dropped for any other.
 export async function startTurn($: EngineInterface, turnId: string, text: string): Promise<null> {
+  // The board's turn count, on its own: a write that fails must not keep the turn from starting.
+  await failOpen($, 'turn.start', null, async () => {
+    await update($, SESSION, (s) => ({ ...s, turnNo: s.turnNo + 1 }))
+    return null
+  })
   const { pending } = await read($, SESSION)
   if (pending !== null && pending.request !== text) {
     // Compared again on what update() reads: a decision for this very text written meanwhile is kept.
@@ -91,11 +97,14 @@ async function takePending($: EngineInterface, cfg: Config, e: TurnStepInput, se
   const s = settleSubmit(pending.result, { effort: e.effort, previousLevel: session.previous?.level ?? null, writes, turnId: e.turnId, id: decisionId(at), at })
   // Recorded before the turn names it for a check, so a reading cannot amend a Decision not yet in the log.
   await record($, s.decision)
-  const settled: TurnState = { ...own, base: s.base, wanted: s.wanted }
   const check = verifies(cfg) && s.decision.applied && s.wanted !== null ? { turnId: e.turnId, id: s.decision.id, level: s.wanted, queuedNote: null } : null
-  const turn = check === null ? settled : awaitCheck(settled, check)
-  await update($, TURN, () => turn)
-  return turn
+  // Built on the turn as it is now: record() has just left the decision's mark on it for the step's cell.
+  const written = await update($, TURN, (cur) => {
+    if (cur === null || cur.turnId !== own.turnId) return cur
+    const settled: TurnState = { ...cur, base: s.base, wanted: s.wanted }
+    return check === null ? settled : awaitCheck(settled, check)
+  })
+  return written !== null && written.turnId === own.turnId ? written : own
 }
 
 // A turn no message decision set (a task notification's, a peer's, submitShift off) starts from the engine's own
@@ -108,13 +117,34 @@ async function takeBase($: EngineInterface, turn: TurnState, level: Level): Prom
 // The main loop's branch of turn.step. Returns the step as it goes on.
 export async function mainStep($: EngineInterface, cfg: Config, e: TurnStepInput): Promise<TurnStepInput> {
   const session = await read($, SESSION)
+  const engineLevel = e.effort
+  // The engine's own level, before the mod writes any: the board shows it between turns. Failing alone, as the cell does.
+  if (isLevel(engineLevel) && session.sessionLevel !== engineLevel) {
+    await failOpen($, 'turn.step', null, async () => {
+      await update($, SESSION, (s) => ({ ...s, sessionLevel: engineLevel }))
+      return null
+    })
+  }
   const held = await read($, TURN)
   let turn = held !== null && held.turnId === e.turnId ? held : null
   // takePending hands back the turn it wrote, so nothing is read back.
   if (e.index === 0) turn = await takePending($, cfg, e, session, turn)
   if (e.index === 0 && turn !== null && turn.base === null && isLevel(e.effort)) turn = await takeBase($, turn, e.effort)
-  // A step whose effort is absent (the model takes none) or a number (the session uses numeric
-  // effort) passes as it came; so does every step while the mod is off or only watching.
+  const out = stepOut(cfg, session, turn, e)
+  const level = out.effort
+  if (turn !== null && isLevel(level) && openCell(turn, level) !== turn) {
+    const turnId = turn.turnId
+    await failOpen($, 'turn.step', null, async () => {
+      await update($, TURN, (cur) => (cur !== null && cur.turnId === turnId ? openCell(cur, level) : cur))
+      return null
+    })
+  }
+  return out
+}
+
+// The step as it goes on. A step whose effort is absent (the model takes none) or a number (the session uses numeric
+// effort) passes as it came; so does every step while the mod is off or only watching.
+function stepOut(cfg: Config, session: SessionState, turn: TurnState | null, e: TurnStepInput): TurnStepInput {
   if (!isLevel(e.effort) || !cfg.enabled || cfg.mode === 'shadow') return e
   // Only effort is written: the main loop's model is never changed (it would break the prompt cache).
   const level = session.lock ?? turn?.wanted ?? null

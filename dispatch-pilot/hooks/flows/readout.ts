@@ -3,6 +3,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, HttpInit } from 'claude-code'
 
+import { cellSent } from '../board/model.ts'
 import type { Level } from '../levels.ts'
 import { classify, clearCheck, modelBase, settleReading } from '../readout.ts'
 import type { OpenStep, Reading } from '../readout.ts'
@@ -63,6 +64,7 @@ async function keepReading($: EngineInterface, r: Reading, open: OpenStep | null
   if (r.kind === 'main') {
     const effort = r.effort
     await failOpen($, 'http.fetch', null, () => keepLevel($, effort))
+    await failOpen($, 'http.fetch', null, () => keepCell($, effort, open))
   }
   await failOpen($, 'http.fetch', null, () => settleCheck($, r, open))
   return null
@@ -70,6 +72,18 @@ async function keepReading($: EngineInterface, r: Reading, open: OpenStep | null
 
 async function keepLevel($: EngineInterface, effort: Level | null): Promise<null> {
   if ((await read($, SESSION)).lastSent !== effort) await update($, SESSION, (s) => ({ ...s, lastSent: effort }))
+  return null
+}
+
+// The timeline's cell of the work step under way (design 5.14) takes the level its first main-loop request carried;
+// the requests after it in the same work step leave it as it is.
+async function keepCell($: EngineInterface, effort: Level | null, open: OpenStep | null): Promise<null> {
+  if (effort === null || open === null) return null
+  const turnId = open.turnId
+  const held = await read($, TURN)
+  // Read first: update() writes whatever its callback returns.
+  if (held === null || held.turnId !== turnId || cellSent(held, effort) === held) return null
+  await update($, TURN, (cur) => (cur !== null && cur.turnId === turnId ? cellSent(cur, effort) : cur))
   return null
 }
 

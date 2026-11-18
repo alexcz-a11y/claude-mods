@@ -4,6 +4,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { Io } from './backend.ts'
+import { markOf } from './board/model.ts'
 import type { Config } from './config.ts'
 import { RECENT_KEEP, pushLog, readLog } from './log.ts'
 import type { Decision } from './log.ts'
@@ -18,6 +19,7 @@ import { emptySession } from './state.ts'
 // scan takes only a const of the file that reads or writes (eval/validate.ts checks the copies are the same text).
 const SESSION = atom({ plugin: 'dispatch-pilot', key: 'session' } as const, emptySession())
 const RECENT = atom({ plugin: 'dispatch-pilot', key: 'recent' } as const, [])
+const TURN = atom({ plugin: 'dispatch-pilot', key: 'turn' } as const, null)
 
 /** $.store key of the decision log, shared by every session on this machine. */
 export const LOG = 'log'
@@ -82,7 +84,10 @@ async function appendLog($: EngineInterface, d: Decision): Promise<void> {
   }
 }
 
-/** Appends a decision to $.store's log and to this session's recent. Never throws. */
+/**
+ * Appends a decision to $.store's log and to this session's recent; an evaluation of the main loop's level (submit,
+ * midrun) also leaves its mark on its turn, for the timeline's next cell (design 5.14). Never throws.
+ */
 export async function record($: EngineInterface, d: Decision): Promise<void> {
   // Each write fails on its own: losing one copy must not lose the other.
   try {
@@ -90,7 +95,20 @@ export async function record($: EngineInterface, d: Decision): Promise<void> {
   } catch (err) {
     trace($, 'record', err)
   }
+  if (d.kind === 'submit' || d.kind === 'midrun') await keepMark($, d)
   await inOrder(() => appendLog($, d))
+}
+
+async function keepMark($: EngineInterface, d: Decision): Promise<void> {
+  try {
+    const mark = markOf(d)
+    const held = await read($, TURN)
+    // Read first: update() writes whatever its callback returns.
+    if (held === null || held.turnId !== d.turnId || held.pendingMark === mark) return
+    await update($, TURN, (cur) => (cur !== null && cur.turnId === d.turnId ? { ...cur, pendingMark: mark } : cur))
+  } catch (err) {
+    trace($, 'record', err)
+  }
 }
 
 async function storeSent($: EngineInterface, id: string, sent: Decision['sent']): Promise<void> {
