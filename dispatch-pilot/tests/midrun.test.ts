@@ -616,6 +616,53 @@ test('发出的中途 state：recent 从早到晚、latest、current_level、ste
   expect(asked(w)[3]!.body.state.stated_next).toBe('Next I add a backoff to the retry.')
 })
 
+// A turn the message judgement did not set (controller ruling after Task 8): its base is the engine's own level at
+// step 0, so it gets mid-run checks too.
+
+for (const [name, options, origin] of [
+  ['task-notification 开始的轮', KEYS, 'task-notification'],
+  ['submitShift 关着', { ...KEYS, submitShift: false }, 'composer'],
+] as const) {
+  test(`没有发消息时的判断（${name}）：第 0 步的档就是起点，第一次脚本结果就是检查点，可以换挡`, { options }, async ($, on) => {
+    const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, SAME_FAILURE) })
+    await start($)
+    await submit($, 'Background task finished: run the upload test again', { kind: origin })
+    await stepT1($, 0)
+    // Nothing was asked for the message; step 0 only notes the engine's level, records nothing, rewrites nothing.
+    expect(w.fetched).toHaveLength(0)
+    expect(turnState(w)).toMatchObject({ base: 'medium', wanted: null })
+    expect(logged(w)).toHaveLength(0)
+
+    const rows = scriptByPoll(1, 'rerun the upload test', 'FAIL test_upload')
+    await appendAll($, rows)
+    await stepT1($, 1)
+    const poll = rows.find((r) => r.origin.kind === 'tool' && r.origin.tool === 'Poll')!
+    expect(reached(w, poll)!.message.content).toEqual([poll.message.content[0], noteBlock(NOTE_HIGH)])
+    expect(w.fetched).toHaveLength(1)
+    expect(asked(w)[0]!.body.state.current_level).toBe('medium')
+    expect(midruns(w)).toHaveLength(1)
+    expect(midruns(w)[0]).toMatchObject({ from: 'medium', to: 'high', reason: 'same-failure', applied: true, step: 1, turnId: 't1' })
+    expect(efforts(w)).toEqual(['medium', 'high'])
+  })
+}
+
+test('没有发消息时的判断、步上的 effort 缺省或是数字：没有起点，也没有检查点', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, SAME_FAILURE) })
+  await start($)
+  for (const [turnId, effort] of [['t1', undefined], ['t2', 31999]] as const) {
+    await submit($, `Background task ${turnId} finished`, { kind: 'task-notification' })
+    await step($, { turnId, index: 0, ...(effort === undefined ? {} : { effort }) })
+    const rows = scriptByPoll(turnId === 't1' ? 1 : 2, 'rerun the upload test', 'FAIL test_upload')
+    await appendAll($, rows)
+    for (const r of rows) expect(reached(w, r)).toEqual(r)
+    expect(turnState(w)).toMatchObject({ turnId, base: null, wanted: null, journal: { workSteps: 1 } })
+    await complete($, turnId)
+  }
+  expect(w.fetched).toHaveLength(0)
+  expect(logged(w)).toHaveLength(0)
+  expect(efforts(w)).toEqual([undefined, 31999])
+})
+
 // The pure parts, where the engine tests do not reach.
 
 test('noteText、withNote：一行英文说明，加在 content 末尾，不改原来的行', () => {

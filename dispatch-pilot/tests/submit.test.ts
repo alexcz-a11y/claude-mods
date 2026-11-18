@@ -334,7 +334,8 @@ test('turn.complete：每种结束方式记下的上一轮', { options: KEYS }, 
     await submit($, `message ${i}`, { kind: 'peer' })
     await step($, { turnId: id, index: 0, effort: 'medium' })
     await complete($, id, { answer: `reply ${i}`, ...how })
-    expect(session(w).previous).toEqual({ request: `message ${i}`, lastReply: `reply ${i}`, ended, level: null })
+    // Not judged (a peer's message), so the turn's level is the engine's own at step 0.
+    expect(session(w).previous).toEqual({ request: `message ${i}`, lastReply: `reply ${i}`, ended, level: 'medium' })
   }
   // The turn is cleared once it ends.
   expect(w.stateWrites.filter((s) => s.key === 'turn' && s.isSet).at(-1)?.value).toBeNull()
@@ -520,4 +521,22 @@ test('turn.start 清掉旧判断的同时，这一轮自己的判断写进来：
   await step($, { turnId: 't1', index: 0, effort: 'medium' })
   expect(efforts(w)).toEqual(['high'])
   expect(logged(w).map((d) => [d.turnId, d.to])).toEqual([['t1', 'high']])
+})
+
+test('续做：上一轮没有判断过（task-notification），它的档就是会话的档，续做从这一档起算', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: ({ body }) => drexOk('continues' in body.questions ? { ...HOLD, continues: noul(0.9) } : RAISE) })
+  await start($)
+  await submit($, 'Background task finished', { kind: 'task-notification' })
+  await step($, { turnId: 't1', index: 0, effort: 'high' })
+  await complete($, 't1', { answer: 'The build passed. Shall I deploy?' })
+  expect(session(w).previous).toMatchObject({ request: 'Background task finished', level: 'high' })
+  await submit($, 'yes, go on')
+  await step($, { turnId: 't2', index: 0, effort: 'high' })
+  await step($, { turnId: 't2', index: 1, effort: 'high' })
+
+  expect(w.fetched).toHaveLength(1)
+  expect(w.fetched[0]!.body.state.previous_turn).toMatchObject({ level: 'high' })
+  // Continuing starts from the previous turn's level, which is the session's: HOLD keeps it.
+  expect(logged(w).map((d) => [d.turnId, d.from, d.to, d.reason])).toEqual([['t2', 'high', 'high', 'hold']])
+  expect(efforts(w)).toEqual(['high', 'high', 'high'])
 })

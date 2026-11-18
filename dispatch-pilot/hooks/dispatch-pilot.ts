@@ -212,6 +212,13 @@ async function takePending($: EngineInterface, cfg: Config, e: TurnStepInput, se
   return turn
 }
 
+// A turn no message decision set (a task notification's, a peer's, submitShift off) starts from the engine's own
+// level at step 0, so the mid-run check has a level to judge. Nothing is decided here: wanted stays null, no Decision.
+async function takeBase($: EngineInterface, turn: TurnState, level: Level): Promise<TurnState> {
+  await update($, TURN, (cur) => (cur !== null && cur.turnId === turn.turnId && cur.base === null ? { ...cur, base: level } : cur))
+  return { ...turn, base: level }
+}
+
 // The main loop's branch of turn.step. Returns the step as it goes on.
 async function mainStep($: EngineInterface, cfg: Config, e: TurnStepInput): Promise<TurnStepInput> {
   // Agents' steps (e.agentId set) are left as they come; they get their own branch later.
@@ -221,6 +228,7 @@ async function mainStep($: EngineInterface, cfg: Config, e: TurnStepInput): Prom
   let turn = held !== null && held.turnId === e.turnId ? held : null
   // takePending hands back the turn it wrote, so nothing is read back.
   if (e.index === 0) turn = await takePending($, cfg, e, session, turn)
+  if (e.index === 0 && turn !== null && turn.base === null && isLevel(e.effort)) turn = await takeBase($, turn, e.effort)
   // A step whose effort is absent (the model takes none) or a number (the session uses numeric
   // effort) passes as it came; so does every step while the mod is off or only watching.
   if (!isLevel(e.effort) || !cfg.enabled || cfg.mode === 'shadow') return e
