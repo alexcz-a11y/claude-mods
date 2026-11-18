@@ -100,8 +100,8 @@ export type RowPlan = {
   turn: TurnState
   /** A note queued at an earlier checkpoint, to add to this row now. */
   note: string | null
-  /** A checkpoint: the level being judged and the state to ask about. Null: nothing to ask on this row. */
-  ask: { current: Level; state: Record<string, unknown> } | null
+  /** A checkpoint: the level being judged, the state to ask about, and the latest step in it (the progress note's input). Null: nothing to ask on this row. */
+  ask: { current: Level; state: Record<string, unknown>; latest: StepRecord } | null
 }
 
 const NONCE_LINE = /^<system>authentic event nonces for this delivery:.*<\/system>$/
@@ -161,7 +161,7 @@ export function planRow(turn: TurnState, row: Row, kind: RowKind, c: { cfg: Conf
     statedNext: journal.statedNext,
     progress: turn.progress,
   })
-  return { turn: next, note, ask: { current, state } }
+  return { turn: next, note, ask: { current, state, latest: evidence.latest } }
 }
 
 /** How a new level is carried: by a note on this row, by one queued for the next row that can carry it, or by the input itself (both null). */

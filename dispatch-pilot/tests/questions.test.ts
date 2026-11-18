@@ -66,6 +66,10 @@ test('recent 最多 5 条，从早到晚；字段形状和 latest 一致', () =>
   expect((s.latest as { outcome: string }).outcome).toBe('error')
   expect([s.current_level, s.steps_so_far, s.failed_steps]).toEqual(['low', 8, 0])
 })
+test('中途 state 的 note：progress 是另一个模型的转述，仍按结果判断', () => {
+  const s = midrunState({ request: 'r', current: 'medium', stepsSoFar: 1, failedSteps: 0, recent: [], latest: step(1), statedNext: '', progress: { done: 'a', remaining: 'b', cause_known: false } })
+  expect(s.note).toBe('Entries in "recent" are oldest first. Judge by the results, not by what the assistant says it achieved; "stated_next" is the assistant\'s own account, and "progress" is another model\'s paraphrase of the turn so far, not a result.')
+})
 test('stated_next 和 progress 空或为 null 时不放，有就放', () => {
   const base = { request: 'r', current: 'medium' as const, stepsSoFar: 1, failedSteps: 0, recent: [], latest: step(1) }
   const bare = midrunState({ ...base, statedNext: '  ', progress: null })

@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentSpawnInput, CommandRunResult, EngineInterface, HttpInit, PromptAttachmentResult, Register, SessionAppendInput, TurnCompleteInput, TurnStepInput } from 'claude-code'
+import type { AgentSpawnInput, CommandRunResult, EngineInterface, HttpInit, ModelCompleteResult, PromptAttachmentResult, Register, SessionAppendInput, TurnCompleteInput, TurnStepInput } from 'claude-code'
 
 import { settleSpawn } from './agents.ts'
 import type { Spawned } from './agents.ts'
@@ -14,6 +14,8 @@ import { DP_USAGE, RECENT_KEEP, badLevelReply, decisionId, lockReply, parseDp, p
 import type { Decision } from './log.ts'
 import { applyShift, planRow, settleCheckpoint, withNote } from './midrun.ts'
 import type { Judged, RowPlan } from './midrun.ts'
+import { nextFlight, progressPrompt, progressRequest, readCompletion, settleFlight } from './progress.ts'
+import type { ProgressFlight, ProgressInput } from './progress.ts'
 import { agentQuestions, midrunQuestions, submitQuestions } from './questions.ts'
 import { agentSent, awaitCheck, classify, clearCheck, modelBase, notePlaced, settleReading, withSent } from './readout.ts'
 import type { OpenStep, Reading } from './readout.ts'
@@ -426,14 +428,70 @@ async function endTurn($: EngineInterface, e: TurnCompleteInput): Promise<null> 
 // After a checkpoint was evaluated, whatever came of it (a shift made, a hold, a shift not made, a failed request;
 // judged.shift is the shift only when it was made): the one place later parts attach to, the progress note in the
 // background and the board's mark on the timeline. Records the decision; a shift made then waits on the check of the
-// request that carries it, set once recorded, so a reading cannot amend a Decision not yet in the log.
-async function afterCheckpoint($: EngineInterface, cfg: Config, judged: Judged): Promise<void> {
+// request that carries it, set once recorded, so a reading cannot amend a Decision not yet in the log. `input`: what
+// the progress note is written from (the turn's request and the step the checkpoint judged).
+async function afterCheckpoint($: EngineInterface, cfg: Config, judged: Judged, input: ProgressInput): Promise<void> {
   const { decision, shift } = judged
   await record($, decision)
   const turnId = decision.turnId
   if (verifies(cfg) && shift !== null && turnId !== null) {
     await update($, TURN, (cur) => awaitCheck(cur, { turnId, id: decision.id, level: shift.to, queuedNote: shift.queued }))
   }
+  if (cfg.progressNote) await failOpen($, 'progress', null, () => tickProgress($, cfg, input))
+}
+
+// The progress note's call (design 5.13): in the air, or come back and not yet read. Module level, because the call's
+// .then writes here and nowhere else: the hook that started it has ended, so $ is not its to use. A hot reload loses
+// it; that costs one note (the next checkpoint asks with the older one), or one failure left unrecorded.
+let progressFlight: ProgressFlight | null = null
+// The newest checkpoint's input, waiting for the call in the air. Module level: a hot reload costs one note.
+let progressQueued: ProgressInput | null = null
+
+// The progress note's turn, after a checkpoint (fresh: its input) or on a main-loop row once the call has come back
+// (fresh null): a call come back is read into the turn, then the next call starts or the input waits behind one.
+async function tickProgress($: EngineInterface, cfg: Config, fresh: ProgressInput | null): Promise<null> {
+  const back = progressFlight !== null && progressFlight.settled ? progressFlight : null
+  if (back !== null) {
+    // Taken before anything is awaited, so two rows at once cannot both read it.
+    progressFlight = null
+    await settleNote($, cfg, back)
+  }
+  if (fresh === null && progressQueued === null) return null
+  const blocked = (await read($, SESSION)).progressBlocked
+  const turn = await read($, TURN)
+  const at = await $.clock.now()
+  // Decided and set with nothing awaited in between, so two rows at once cannot both start a call.
+  const plan = nextFlight({ on: cfg.progressNote, blocked, busy: progressFlight !== null, queued: progressQueued, fresh })
+  progressQueued = plan.queue
+  const input = plan.start
+  if (input !== null) startNote($, cfg, input, { previous: turn !== null && turn.turnId === input.turnId ? turn.progress : null, at })
+  return null
+}
+
+// Starts the call and returns at once: no hook waits for it. Its outcome is only put in the slot, and read on a later
+// row; a call the slot no longer holds (a reload) is left alone.
+function startNote($: EngineInterface, cfg: Config, input: ProgressInput, c: { previous: TurnState['progress']; at: number }): void {
+  const mine: ProgressFlight = { turnId: input.turnId, startedAt: c.at, settled: false, note: null, refused: false, failure: null, detail: '' }
+  progressFlight = mine
+  const settle = (r: ModelCompleteResult | null): void => {
+    if (progressFlight === mine) progressFlight = { ...mine, ...readCompletion(r), settled: true }
+  }
+  const prompt = progressPrompt({ request: input.request, previous: c.previous, latest: input.latest })
+  try {
+    $.model.complete(progressRequest(cfg, prompt)).then(settle, () => settle(null))
+  } catch {
+    settle(null)
+  }
+}
+
+// A call come back: its note written on its turn, a failure recorded, a refused model blocked for the session.
+async function settleNote($: EngineInterface, cfg: Config, f: ProgressFlight): Promise<void> {
+  const at = await $.clock.now()
+  const s = settleFlight(f, await read($, TURN), { cfg, id: decisionId(at), at })
+  const progress = s.progress
+  if (progress !== null) await update($, TURN, (cur) => (cur !== null && cur.turnId === f.turnId ? { ...cur, progress } : cur))
+  if (s.block) await update($, SESSION, (cur) => ({ ...cur, progressBlocked: true }))
+  if (s.decision !== null) await record($, s.decision)
 }
 
 // The mid-run check (design 5.4) on one row, which comes back as it goes on: with a note, or as it came. Main-loop
@@ -479,7 +537,8 @@ async function onRow($: EngineInterface, cfg: Config, e: SessionAppendInput): Pr
       return next ?? cur
     })
   }
-  await afterCheckpoint($, cfg, { decision: { ...judged.decision, applied: made.yes }, shift: made.yes ? shift : null })
+  const input = { turnId: plan.turn.turnId, request: plan.turn.request, latest: plan.ask.latest }
+  await afterCheckpoint($, cfg, { decision: { ...judged.decision, applied: made.yes }, shift: made.yes ? shift : null }, input)
   return made.yes && shift !== null && shift.note !== null ? withNote(e, shift.note) : e
 }
 
@@ -620,6 +679,9 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.start', async ($, e, next) => {
+    // A new main-loop turn: no input of the last one waits for a progress note (a call still in the air is kept, and
+    // dropped when it comes back).
+    if (e.agentId === undefined) progressQueued = null
     await failOpen($, 'turn.start', null, async () => {
       // A subagent's turns are its own: the main loop's turn is not touched by them.
       if (e.agentId !== undefined) return null
@@ -663,6 +725,8 @@ export const register: Register = (on, options) => {
 
   // Each row is held here until the hook passes it on; at a checkpoint, for as long as the question is out.
   on('session.append', async ($, e, next) => {
+    // A progress note come back is read before the row, so a checkpoint on this very row asks with the newest one.
+    if (e.agentId === undefined && progressFlight !== null && progressFlight.settled) await failOpen($, 'progress', null, () => tickProgress($, cfg, null))
     const out = await failOpen($, 'session.append', e, () => onRow($, cfg, e))
     return next(out)
   })

@@ -11,6 +11,7 @@ import type { Engine } from 'claude-code/testing'
 import type {
   AgentSpawnInput,
   ModelCompleteInput,
+  ModelCompleteResult,
   On,
   PromptAttachmentInput,
   PromptOrigin,
@@ -35,8 +36,11 @@ export type WorldOptions = {
   agents?: unknown[]
   /** Mock-clock ms the n-th $.agent.list() call (from 1) waits before it answers; 0 or left out: at once. */
   listDelay?: (call: number) => number
-  /** The text $.model.complete answers with; null (or no option) refuses the call, so it rejects. */
-  complete?: (e: any) => string | null
+  /**
+   * What $.model.complete answers with: a text (an answered call), a whole ModelCompleteResult (an object), or null
+   * (or no option) to refuse the call, so it rejects. May wait first (await clock.sleep(...)).
+   */
+  complete?: (e: ModelCompleteInput) => string | ModelCompleteResult | null | Promise<string | ModelCompleteResult | null>
   /** What $.session.surfaces() answers; ['terminal'] when left out. */
   surfaces?: string[]
   /** $ calls to answer with { deny }, so the mod's call rejects: ui.status, store.get, store.set, command.register, session.surfaces. */
@@ -151,12 +155,12 @@ export function world(on: On, o: WorldOptions = {}) {
     if (ms > 0) await clock.sleep(ms)
     return { value: (o.agents ?? []) as never }
   })
-  on('model.complete', (_$, e) => {
+  on('model.complete', async (_$, e) => {
     completes.push(e)
-    const text = o.complete ? o.complete(e) : null
-    if (text === null) return { deny: 'refused by the test' }
+    const out = o.complete ? await o.complete(e) : null
+    if (out === null) return { deny: 'refused by the test' }
     const usage = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
-    return { value: { isAnswered: true as const, text, usage } as never }
+    return { value: (typeof out === 'string' ? { isAnswered: true as const, text: out, usage } : out) as never }
   })
   on('session.surfaces', () => (refused('session.surfaces') ? REFUSED : { value: (o.surfaces ?? ['terminal']) as RenderSurface[] }))
   // Not a stub: the kit keeps $.state itself. This only watches the writes on their way down; like

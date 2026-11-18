@@ -146,7 +146,7 @@ export function midrunState(i: {
   progress: ProgressNote | null
 }): Record<string, unknown> {
   const state: Record<string, unknown> = {
-    note: 'Entries in "recent" are oldest first. Judge by the results, not by what the assistant says it achieved; "stated_next" and "progress" are the assistant\'s own account.',
+    note: 'Entries in "recent" are oldest first. Judge by the results, not by what the assistant says it achieved; "stated_next" is the assistant\'s own account, and "progress" is another model\'s paraphrase of the turn so far, not a result.',
     request: clip(i.request, 600),
     current_level: i.current,
     steps_so_far: i.stepsSoFar,
