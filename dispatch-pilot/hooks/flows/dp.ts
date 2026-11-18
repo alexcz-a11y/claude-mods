@@ -36,11 +36,11 @@ async function textDp($: EngineInterface, cfg: Config): Promise<string> {
 }
 
 // The pane on screen closes; otherwise it opens. One the surface cannot place is closed again, so it does not turn up
-// later on its own, and the text version answers. The band is drawn again: with the pane open it has fewer rows.
+// later on its own, and the text version answers. The band is drawn again on an open (with the pane open it has fewer
+// rows); a close redraws in the board's ui.close hook, which every close passes, this one included.
 async function togglePane($: EngineInterface, cfg: Config): Promise<string> {
   if (await isPaneShown($)) {
     await $.ui.close({ id: PANE_ID })
-    redraw($)
     return '面板已关上。'
   }
   const opened = await $.ui.open({ id: PANE_ID, title: 'Dispatch Pilot' })

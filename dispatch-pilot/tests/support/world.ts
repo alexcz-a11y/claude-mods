@@ -205,10 +205,11 @@ export function world(on: On, o: WorldOptions = {}) {
     return { value: undefined }
   })
   on('ui.panes', () => ({ value: panes.map((p) => ({ ...p })) }))
-  on('ui.invalidate', (_$, e) => {
+  // Recorded, then passed on: the kit's own invalidate draws a mounted drawing again, as the engine does.
+  on('ui.invalidate', (_$, e, next) => {
     if (refused('ui.invalidate')) return REFUSED
     invalidated.push(e.event)
-    return { value: undefined }
+    return next(e)
   })
   // The engine's footer, beneath the mod: the labels the mod passed on.
   on('ui.render', { component: 'SessionMode' }, (_$, e, next) => {

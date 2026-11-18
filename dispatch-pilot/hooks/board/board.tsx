@@ -5,7 +5,7 @@ import { atom, read } from 'claude-code'
 import type { Elements, EngineInterface, On, ThemeKey } from 'claude-code'
 
 import type { Config } from '../config.ts'
-import { failOpen } from '../runtime.ts'
+import { failOpen, redraw } from '../runtime.ts'
 import { emptySession } from '../state.ts'
 import { boardModel } from './model.ts'
 import type { BoardModel } from './model.ts'
@@ -65,7 +65,7 @@ function drawRow(Text: TerminalText, row: Row, wrap: 'wrap' | 'truncate-end') {
   )
 }
 
-/** The board's three hooks (design 5.14), on the terminal; none while cfg.board is off. */
+/** The board's hooks (design 5.14): three drawings on the terminal and the pane's close; none while cfg.board is off. */
 export function registerBoard(on: On, cfg: Config): void {
   if (!cfg.board) return
 
@@ -112,6 +112,15 @@ export function registerBoard(on: On, cfg: Config): void {
       )
     })
     return tree ?? next(e)
+  })
+
+  // However the pane closes (/dp, the person's close key or mark), the timeline is drawn again at once, back to its
+  // five rows: with the pane gone, the last evaluation and the features would otherwise show nowhere. The close goes
+  // on as it came.
+  on('ui.close', { id: PANE_ID }, async ($, e, next) => {
+    const r = await next(e)
+    redraw($)
+    return r
   })
 
   // The footer keeps the engine's own labels (SessionMode's modes) and adds the board's, drawn dim as they are.

@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import type { Engine } from 'claude-code/testing'
+import type { Plugin } from 'claude-code/testing'
 
 import { PANE_ID, TONE_LOOK } from '../hooks/board/board.tsx'
 import { boardModel } from '../hooks/board/model.ts'
@@ -29,6 +29,21 @@ function colours(node: unknown): unknown[] {
   const n = node as { props?: Record<string, unknown>; children?: unknown[] }
   const own = n.props === undefined ? [] : ['color', 'backgroundColor'].flatMap((k) => (n.props?.[k] === undefined ? [] : [n.props[k]]))
   return [...own, ...(n.children ?? []).flatMap(colours)]
+}
+
+/**
+ * Closes the board's pane the way /dp does not: the kit's own $ raises no ui.close (its ui noun has render, scroll and
+ * focus), so another plugin's $.ui.close stands in for the person's close key or mark. Every close passes the same
+ * ui.close chain.
+ */
+const CLOSER: Plugin = {
+  name: 'pane-closer',
+  register(on) {
+    on('command.run', { command: 'close-dp-pane' }, async ($) => {
+      await $.ui.close({ id: 'dispatch-pilot' })
+      return { text: 'closed' }
+    })
+  },
 }
 
 function decision(over: Partial<Decision> = {}): Decision {
@@ -107,7 +122,7 @@ test('/dp：放不下回文字版并写明原因', { options: KEYS }, async ($, 
   expect(w.panes).toEqual([])
 })
 
-test('board 关着：不画时间轴，/dp 回文字版', { options: { ...KEYS, board: false } }, async ($, on) => {
+test('board 关着：不画时间轴，/dp 回文字版', { options: { ...KEYS, board: false }, plugins: [CLOSER] }, async ($, on) => {
   const w = world(on, { scene: SCENES.up, pane: 'placed' })
   await start($)
   const ui = await $.ui.mount(BAND)
@@ -121,6 +136,10 @@ test('board 关着：不画时间轴，/dp 回文字版', { options: { ...KEYS, 
   const foot = await $.ui.mount(FOOTER)
   expect(w.footers).toEqual([['focus']])
   await foot.unmount()
+  // No ui.close hook either: a close reaches the engine and nothing is drawn again.
+  await $.command.run({ command: 'close-dp-pane', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+  expect(w.closed).toEqual([PANE_ID])
+  expect(w.invalidated).toEqual([])
 })
 
 test('折叠着、有调查问卷、或别的端：原样交给 next', { options: KEYS }, async ($, on) => {
@@ -247,6 +266,28 @@ test('重画：开了新格、一轮结束、/dp lock 和 unlock、开关面板�
   expect(await dp($)).toBe('面板已打开。')
   expect(await dp($)).toBe('面板已关上。')
   expect(since(n)).toEqual(['ui.render', 'ui.render'])
+})
+
+test('面板不是用 /dp 关上的：马上重画，时间轴回到五行', { options: KEYS, plugins: [CLOSER] }, async ($, on) => {
+  const w = world(on, { scene: SCENES.up, pane: 'placed' })
+  await start($)
+  expect(await dp($)).toBe('面板已打开。')
+  const band = await $.ui.mount(BAND)
+  expect(await band.find({ type: 'Text', text: /上次评估/ })).toBe(undefined)
+  const n = w.invalidated.length
+  const r = await $.command.run({ command: 'close-dp-pane', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
+  expect(r.text).toBe('closed')
+  expect(w.closed).toEqual([PANE_ID])
+  expect(w.panes).toEqual([])
+  expect(w.invalidated.slice(n)).toEqual(['ui.render'])
+  // The band on screen is drawn again at once, with all five rows.
+  expect((await band.find({ type: 'Text', text: /^上次评估/ }))?.text).toMatch(/^上次评估 不变 · /)
+  expect((await band.find({ type: 'Text', text: /^生效/ }))?.text).toMatch(/^生效 发消息定档/)
+  await band.unmount()
+  const again = await $.ui.mount(BAND)
+  expect(await again.find({ type: 'Text', text: /上次评估/ })).toBeTruthy()
+  expect(await again.find({ type: 'Text', text: /生效/ })).toBeTruthy()
+  await again.unmount()
 })
 
 test('重画：record、写入 sent、读数写进格子之后', async () => {
