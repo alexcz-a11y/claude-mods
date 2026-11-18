@@ -139,7 +139,7 @@ test('六个场景：其余各项', () => {
   expect([idle.where, idle.wanted, idle.sent, idle.shifts, idle.agents, idle.skill]).toEqual(['空闲', null, 'high', [], [], null])
   expect(idle.status).toEqual({ kind: 'idle', text: '空闲' })
   // Between turns the last check is the last turn's last.
-  expect(idle.last).toMatchObject({ at: '上一轮 · 第 13 步后', mark: 'hold', by: 'Drex · 301 ms' })
+  expect(idle.last).toMatchObject({ at: '此前 · 第 13 步后', mark: 'hold', by: 'Drex · 301 ms' })
   expect(idle.next.ahead).toBe(0)
   expect(idle.features[4]).toEqual({ label: '档位核对', state: 'active', note: '' })
 
@@ -302,6 +302,13 @@ test('空闲且锁定：档位是锁定的档，状态是已锁定', () => {
 
 // Second round of rulings.
 
+test('mod 没有定档的轮：看板的档位是引擎自己的（这一步照原样带出去的）', () => {
+  const s = scenes.up
+  // A failed submit evaluation, or submitShift off: base set at step 0, nothing decided; the session's level moved since.
+  const m = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, session: { ...s.session, sessionLevel: 'high', lastSent: 'high' }, turn: { ...s.turn!, base: 'medium', wanted: null } })
+  expect([m.wanted, m.level, m.status]).toEqual(['high', 'high', { kind: 'sent', text: '已发出' }])
+})
+
 test('下次评估：关着和锁定先于空闲；空闲时按下一条消息真会遇到的写', () => {
   const s = scenes.idle
   const at = (options: Record<string, unknown>, session: Partial<BoardState['session']> = {}) => boardModel(readConfig(options), { ...s, session: { ...s.session, ...session } }).next
@@ -318,12 +325,12 @@ test('下次评估：关着和锁定先于空闲；空闲时按下一条消息�
   expect(boardModel(readConfig({ drexApiKey: 'k', enabled: false }), noEffort).next.sub).toBe('dispatch-pilot 已关闭')
 })
 
-test('上次评估：这一轮还没有评估时是 null；空闲时是上一轮的最后一次', () => {
+test('上次评估：这一轮还没有评估时是 null；空闲时是此前的最后一次', () => {
   const s = scenes.up
   const earlier = scenes.idle.recent
   expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: earlier }).last).toBe(null)
-  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn: null, recent: earlier }).last).toMatchObject({ at: '上一轮 · 第 13 步后', mark: 'hold' })
-  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn: null, recent: [earlier[0]!] }).last).toMatchObject({ at: '上一轮 · 发消息时' })
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn: null, recent: earlier }).last).toMatchObject({ at: '此前 · 第 13 步后', mark: 'hold' })
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn: null, recent: [earlier[0]!] }).last).toMatchObject({ at: '此前 · 发消息时' })
 })
 
 test('换挡之后的规则：从新档再走一档要多少，再写为什么到了这一档', () => {
@@ -337,8 +344,9 @@ test('换挡之后的规则：从新档再走一档要多少，再写为什么�
   // Down by the open question: the bar the hop from high passed.
   const lessOpen: Decision = { ...base, kind: 'submit', from: 'high', to: 'medium', reason: 'less-open', raw: { open: { type: 'score', score: 1.25, probabilities: [0.1, 0.65, 0.15, 0.1, 0] } } }
   expect(rules(lessOpen)).toEqual(['再降一档要下方合计 ≥ 0.70，现在 0.10', '降到这一档：下方合计 0.75，过了 0.70'])
-  // Down to low: no level further down.
-  expect(rules({ ...lessOpen, to: 'low', from: 'medium' })).toEqual(['降到这一档：下方合计 0.10，过了 0.70'])
+  // Down to low by the open question: no level further down; low alone carries 0.75, past the bar.
+  const toLow: Decision = { ...lessOpen, from: 'medium', to: 'low', raw: { open: { type: 'score', score: 0.35, probabilities: [0.75, 0.15, 0.05, 0.05, 0] } } }
+  expect(rules(toLow)).toEqual(['降到这一档：下方合计 0.75，过了 0.70'])
   // Up mid-run by the open question, from medium to high.
   const moreOpen: Decision = { ...base, from: 'medium', to: 'high', reason: 'more-open', raw: { open: { type: 'score', score: 2.4, probabilities: [0.02, 0.08, 0.4, 0.4, 0.1] } } }
   expect(rules(moreOpen)).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.50', '升到这一档：上方合计 0.90，过了 0.70'])

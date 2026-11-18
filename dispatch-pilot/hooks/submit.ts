@@ -14,15 +14,25 @@ import type { SessionState, TurnState } from './state.ts'
 const NO_LEVEL = 'effort 缺省或是数字，没有改'
 
 /**
- * The level the main loop's steps go at: the one choice the step's rewrite and the board both read, so they cannot
- * disagree. While the mod writes (enabled, apply): a lock, else the level decided, else the one the turn started from.
- * Off or shadow, nothing is written: the engine's own level (the last step's, session.sessionLevel), for a turn that has
- * one at all (base, set at step 0). Not turn.base itself: in shadow a "go on" message's base is the last turn's level,
- * which no step carries. Null: nothing to write, or a model that takes no effort.
+ * What the mod writes on a main-loop step: a lock, else the level decided for the turn. Null when it writes nothing: the
+ * mod off or only watching, or nothing decided (a failed evaluation, a turn no message decision set, submitShift off),
+ * and the step then goes as it came.
  */
-export function writtenLevel(cfg: Config, session: SessionState, turn: TurnState | null): Level | null {
-  if (!cfg.enabled || cfg.mode === 'shadow') return turn === null || turn.base === null ? null : (session.sessionLevel ?? turn.base)
-  return session.lock ?? turn?.wanted ?? turn?.base ?? null
+export function ownLevel(cfg: Config, session: SessionState, turn: TurnState | null): Level | null {
+  if (!cfg.enabled || cfg.mode === 'shadow') return null
+  return session.lock ?? turn?.wanted ?? null
+}
+
+/**
+ * The level the main loop's steps go at, as the board shows it: what the mod writes (ownLevel), else the engine's own
+ * level (the last step's, session.sessionLevel) for a turn that has one at all (base, set at step 0). Not turn.base
+ * itself: in shadow a "go on" message's base is the last turn's level, which no step carries. Between turns only a lock
+ * the mod writes. Null: a model that takes no effort, or between turns with no lock.
+ */
+export function stepLevel(cfg: Config, session: SessionState, turn: TurnState | null): Level | null {
+  const own = ownLevel(cfg, session, turn)
+  if (own !== null) return own
+  return turn === null || turn.base === null ? null : (session.sessionLevel ?? turn.base)
 }
 
 export type Settled = { base: Level | null; wanted: Level | null; decision: Decision }

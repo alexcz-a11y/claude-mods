@@ -10,7 +10,7 @@ import { LEVELS, isLevel } from '../levels.ts'
 import type { Level } from '../levels.ts'
 import type { Decision } from '../log.ts'
 import { notesLeft } from '../midrun.ts'
-import { writtenLevel } from '../submit.ts'
+import { stepLevel } from '../submit.ts'
 import type { Skill } from '../skills.ts'
 import type { Mark, SessionState, TrackCell, TurnState } from '../state.ts'
 
@@ -270,12 +270,13 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   const isIdle = turn === null
   const locked = session.lock !== null
   const ask = canAsk(cfg)
-  // The level the mod writes on the steps (between turns: only a lock's), so the two cannot disagree.
-  const wanted = writtenLevel(cfg, session, turn)
+  // The level the steps go at, built on what the mod writes (stepLevel on ownLevel), so the two cannot disagree.
+  const wanted = stepLevel(cfg, session, turn)
   const sent = session.lastSent
   const thisTurn = turn === null ? [] : recent.filter((d) => d.turnId === turn.turnId)
   const agents = thisTurn.filter((d) => d.kind === 'agent')
-  // Inside a turn its own last evaluation (none yet: null); between turns the last turn's.
+  // Inside a turn its own last evaluation (none yet: null); between turns the last one recorded, which may be older
+  // than the last turn (one with no evaluation), hence 此前.
   const judged = turn === null ? recent.findLast(isJudged) : thisTurn.findLast(isJudged)
   return {
     isIdle,
@@ -286,7 +287,7 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
     status: statusOf(locked, isIdle, wanted, sent),
     track: turn === null ? [] : turn.track,
     shifts: shiftsOf(thisTurn),
-    last: locked || judged === undefined ? null : lastOf(cfg, judged, turn === null ? '上一轮 · ' : ''),
+    last: locked || judged === undefined ? null : lastOf(cfg, judged, turn === null ? '此前 · ' : ''),
     next: nextOf(cfg, { session, turn, locked, ask, wanted }),
     features: featuresOf(cfg, { ...s, locked, ask, agents: agents.length }),
     backend: backendOf(cfg, recent),

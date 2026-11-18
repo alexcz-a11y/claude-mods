@@ -540,3 +540,36 @@ test('续做：上一轮没有判断过（task-notification），它的档就是
   expect(logged(w).map((d) => [d.turnId, d.from, d.to, d.reason])).toEqual([['t2', 'high', 'high', 'hold']])
   expect(efforts(w)).toEqual(['high', 'high', 'high'])
 })
+
+
+// Controller ruling (review of fcce8f2): when the mod has decided nothing, it writes nothing.
+
+test('submitShift 关着，这一轮没有自己的判断：后面的步带着引擎的另一个档位照原样过去', { options: { ...KEYS, submitShift: false } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering(RAISE) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  // The session's own level changed during the turn (/effort): the mod set none, so the step goes as it came.
+  await step($, { turnId: 't1', index: 1, effort: 'high' })
+  expect(w.fetched).toHaveLength(0)
+  expect(efforts(w)).toEqual(['medium', 'high'])
+})
+
+test('发消息的评估失败：base 有了而 wanted 没有，后面的步照原样过去', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: () => null })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  await step($, { turnId: 't1', index: 1, effort: 'low' })
+  expect(logged(w)[0]).toMatchObject({ kind: 'submit', failure: 'network', applied: false })
+  expect(efforts(w)).toEqual(['medium', 'low'])
+})
+
+test('这一轮定了档：后面的步带着引擎的另一个档位，照样改成定的档', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering(RAISE) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  await step($, { turnId: 't1', index: 1, effort: 'low' })
+  expect(efforts(w)).toEqual(['high', 'high'])
+})
