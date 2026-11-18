@@ -168,6 +168,21 @@ test('中途评估：不变记 hold，请求失败记 fail，都在下一格', {
   expect(cells(w)).toEqual([['high', 'up'], ['high', 'hold'], ['high', 'fail']])
 })
 
+test('shadow 模式：想换挡的评估没有执行，下一格记 hold，档位不变', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, () => SAME_FAILURE) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  await appendAll($, scriptByPoll(1, 'rerun the upload test', 'FAIL test_upload: expected 200, got 500'))
+  await stepT1($, 1)
+  // Both evaluations wanted a level up (shadow judges on from the level it would have set) and neither was applied:
+  // the cells say what the level did.
+  const judged = (lastOf(w, 'recent') as { kind: string; from: string; to: string; applied: boolean }[]).map((d) => [d.kind, d.from, d.to, d.applied])
+  expect(judged).toEqual([['submit', 'medium', 'high', false], ['midrun', 'high', 'xhigh', false]])
+  expect(cells(w)).toEqual([['medium', 'hold'], ['medium', 'hold']])
+  expect(efforts(w)).toEqual(['medium', 'medium'])
+})
+
 test('verifyEffort 关着：格子照开，sent 一直是 null', { options: { ...KEYS, verifyEffort: false } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, () => HOLD) })
   await start($)

@@ -167,7 +167,7 @@ test('总能算出：空的 recent、raw 为 null 或没有 open、bars 为 null
   expect(noRaw.last).toMatchObject({ probs: null, nouls: [], rules: [] })
 
   // A shift with no reason has an empty why.
-  const shift: Decision = { ...base, from: 'medium', to: 'high', reason: null, sent: 'not-sent' }
+  const shift: Decision = { ...base, from: 'medium', to: 'high', reason: null, applied: true, sent: 'not-sent' }
   expect(boardModel(cfg, { ...s, recent: [shift] }).shifts).toEqual([{ at: '第 9 步后', from: 'medium', to: 'high', why: '', isSent: false }])
 
   // A turn with no cells yet: no step taken, the readout not yet due.
@@ -237,13 +237,60 @@ test('下次评估：其余几种情形', () => {
   expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...i, session: { ...i.session, previous: { ...i.session.previous!, level: null } } }).next.sub).toBe('')
 })
 
-test('markOf：失败、不变、升、降', () => {
-  const d = scenes.up.recent.at(-1)!
+test('markOf：失败、不变、升、降；没执行的是不变', () => {
+  const d = { ...scenes.up.recent.at(-1)!, applied: true }
   expect([
     markOf({ ...d, failure: 'timeout' }),
     markOf(d),
     markOf({ ...d, from: 'medium', to: 'xhigh' }),
     markOf({ ...d, from: 'max', to: 'low' }),
     markOf({ ...d, from: null, to: null }),
-  ]).toEqual(['fail', 'hold', 'up', 'down', 'hold'])
+    markOf({ ...d, from: 'medium', to: 'xhigh', applied: false }),
+    markOf({ ...d, applied: false, failure: 'timeout' }),
+  ]).toEqual(['fail', 'hold', 'up', 'down', 'hold', 'hold', 'fail'])
+})
+
+// Controller rulings after the first review round.
+
+test('shadow 模式里想升档的决策：记号是不变，不算换挡，写「想升到 X，未执行」', () => {
+  const s = scenes.start
+  const wished = s.recent.map((d) => (d.kind === 'submit' ? { ...d, applied: false, sent: null } : d))
+  const m = boardModel(readConfig({ drexApiKey: 'k', mode: 'shadow' }), { ...s, recent: wished })
+  expect(m.shifts).toEqual([])
+  // The evaluation itself is shown as any other: its distribution, answers and rules.
+  expect(m.last).toMatchObject({ at: '发消息时', mark: 'hold', text: '想升到 high，未执行', probs: [0.02, 0.08, 0.25, 0.55, 0.1], by: 'Drex · 412 ms' })
+  expect(m.last?.rules).toEqual(['再升一档要上方合计 ≥ 0.70，现在 0.90', '降一档要下方合计 ≥ 0.70，现在 0.02'])
+  expect(m.last?.nouls.map((n) => n.reading)).toEqual(['no', 'yes', 'no'])
+})
+
+test('写入时被拒的换挡：不算换挡，写「想升到 / 想降到 X，未执行」', () => {
+  const s = scenes.notsent
+  const refused = s.recent.map((d) => (d.id === 't5-m7' ? { ...d, applied: false } : d))
+  const m = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: refused })
+  expect(m.shifts).toEqual([{ at: '第 3 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', isSent: true }])
+  expect(m.last).toMatchObject({ at: '第 7 步后', mark: 'hold', text: '想升到 xhigh，未执行', rules: ['再升一档要上方合计 ≥ 0.80，现在 0.80', '降一档要下方合计 ≥ 0.70，现在 0.05'] })
+  const down = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: [{ ...s.recent.at(-1)!, to: 'medium', applied: false }] })
+  expect([down.last?.mark, down.last?.text, down.shifts]).toEqual(['hold', '想降到 medium，未执行', []])
+})
+
+test('模型不收 effort：不评估', () => {
+  const s = SCENES.start
+  const m = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn: { ...s.turn, wanted: null, base: null, track: [] } })
+  expect(m.next).toEqual({ main: '不评估', sub: '这个模型不收 effort', ahead: 0 })
+})
+
+test('mod 关着：不评估，六行都是关', () => {
+  const m = of('up', { enabled: false })
+  expect(m.next).toEqual({ main: '不评估', sub: 'dispatch-pilot 已关闭', ahead: 0 })
+  expect(m.features.map((f) => f.state)).toEqual(['off', 'off', 'off', 'off', 'off', 'off'])
+  // Idle stays idle: the next message is still when anything could happen.
+  expect(of('idle', { enabled: false }).next.main).toBe('发出下一条消息时')
+})
+
+test('空闲且锁定：档位是锁定的档，状态是已锁定', () => {
+  const s = scenes.idle
+  const m = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, session: { ...s.session, lock: 'xhigh' } })
+  expect([m.isIdle, m.level, m.wanted, m.status]).toEqual([true, 'xhigh', 'xhigh', { kind: 'locked', text: '已锁定' }])
+  // Without a lock: the session's own level, nothing wanted.
+  expect([of('idle').level, of('idle').wanted]).toEqual(['medium', null])
 })

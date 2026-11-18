@@ -72,10 +72,13 @@ export const FAILURE_ZH: Record<Failure, string> = {
 
 const rank = (l: Level): number => LEVELS.indexOf(l)
 
-/** What one evaluation came to, as the timeline marks it. A level that is not one of the five reads as no change. */
+/**
+ * What one evaluation did to the level, as the timeline marks it (controller ruling): a Decision not applied (shadow, or
+ * a shift refused at the write) changed nothing, whatever its to says. A level not one of the five reads as no change.
+ */
 export function markOf(d: Decision): Mark {
   if (d.failure !== null) return 'fail'
-  if (!isLevel(d.from) || !isLevel(d.to) || d.from === d.to) return 'hold'
+  if (!d.applied || !isLevel(d.from) || !isLevel(d.to) || d.from === d.to) return 'hold'
   return rank(d.to) > rank(d.from) ? 'up' : 'down'
 }
 
@@ -117,6 +120,7 @@ function shiftsOf(thisTurn: readonly Decision[]): BoardModel['shifts'] {
   const out: BoardModel['shifts'] = []
   for (const d of thisTurn) {
     const mark = isJudged(d) ? markOf(d) : 'hold'
+    // Only a level that changed is a shift: a Decision not applied is never one (markOf reads it as hold).
     if ((mark !== 'up' && mark !== 'down') || !isLevel(d.from) || !isLevel(d.to)) continue
     out.push({ at: atStep(d.step), from: d.from, to: d.to, why: d.reason === null ? '' : (REASON_ZH[d.reason] ?? d.reason), isSent: d.sent === d.to })
   }
@@ -150,19 +154,28 @@ function lastOf(cfg: Config, d: Decision): NonNullable<BoardModel['last']> {
     if (m.up !== null) rules.push(`再升一档要上方合计 ≥ ${two(m.up.bar)}，现在 ${two(m.up.sum)}`)
     if (m.down !== null) rules.push(`降一档要下方合计 ≥ ${two(m.down.bar)}，现在 ${two(m.down.sum)}`)
   }
-  const text = mark === 'up' ? `升到 ${d.to}` : mark === 'down' ? `降到 ${d.to}` : '不变'
-  return { at, mark, text, probs, nouls, rules, by: `${name} · ${d.ms} ms` }
+  return { at, mark, text: changeText(d, mark), probs, nouls, rules, by: `${name} · ${d.ms} ms` }
 }
 
-function nextOf(cfg: Config, s: { session: SessionState; turn: TurnState | null; locked: boolean; ask: boolean }): BoardModel['next'] {
+// What the evaluation did to the level; one that wanted another level but was not applied says so.
+function changeText(d: Decision, mark: Mark): string {
+  if (mark === 'up') return `升到 ${d.to}`
+  if (mark === 'down') return `降到 ${d.to}`
+  if (!d.applied && isLevel(d.from) && isLevel(d.to) && d.from !== d.to) return `${rank(d.to) > rank(d.from) ? '想升到' : '想降到'} ${d.to}，未执行`
+  return '不变'
+}
+
+function nextOf(cfg: Config, s: { session: SessionState; turn: TurnState | null; locked: boolean; ask: boolean; wanted: Level | null }): BoardModel['next'] {
   const { session, turn } = s
   if (turn === null) {
     const level = session.previous?.level ?? null
     return { main: '发出下一条消息时', sub: level === null ? '' : `说「继续」这类话会从上一轮的 ${level} 起算`, ahead: 0 }
   }
+  if (!cfg.enabled) return { main: '不评估', sub: 'dispatch-pilot 已关闭', ahead: 0 }
   if (s.locked) return { main: '不评估', sub: '/dp unlock 解锁后恢复', ahead: 0 }
-  // The mod off judges nothing, as with the mid-run shift off.
-  if (!cfg.enabled || !cfg.midrunShift || !s.ask) return { main: '本轮不再评估', sub: cfg.enabled && cfg.midrunShift ? '没有可用的后端' : '中途换挡关着', ahead: 0 }
+  // No level to judge: the mid-run check asks nothing.
+  if (s.wanted === null) return { main: '不评估', sub: '这个模型不收 effort', ahead: 0 }
+  if (!cfg.midrunShift || !s.ask) return { main: '本轮不再评估', sub: cfg.midrunShift ? '没有可用的后端' : '中途换挡关着', ahead: 0 }
   const left = notesLeft(turn.midrun, cfg)
   if (left === 0) return { main: '本轮不再换挡', sub: '说明条数已用完；有新输入时仍会评估', ahead: 0 }
   if (session.codeMode) {
@@ -221,7 +234,8 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   const isIdle = turn === null
   const locked = session.lock !== null
   const ask = canAsk(cfg)
-  const wanted = turn === null ? null : (session.lock ?? turn.wanted ?? turn.base)
+  // Between turns only a lock says the level the next turn runs at.
+  const wanted = session.lock ?? (turn === null ? null : (turn.wanted ?? turn.base))
   const sent = session.lastSent
   const thisTurn = turn === null ? [] : recent.filter((d) => d.turnId === turn.turnId)
   const agents = thisTurn.filter((d) => d.kind === 'agent')
@@ -229,14 +243,14 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   return {
     isIdle,
     where: turn === null ? '空闲' : `第 ${session.turnNo} 轮 · 第 ${turn.stepNo} 步`,
-    level: turn === null ? session.sessionLevel : (sent ?? wanted),
+    level: turn === null ? (session.lock ?? session.sessionLevel) : (sent ?? wanted),
     wanted,
     sent,
     status: statusOf(locked, isIdle, wanted, sent),
     track: turn === null ? [] : turn.track,
     shifts: shiftsOf(thisTurn),
     last: locked || judged === undefined ? null : lastOf(cfg, judged),
-    next: nextOf(cfg, { session, turn, locked, ask }),
+    next: nextOf(cfg, { session, turn, locked, ask, wanted }),
     features: featuresOf(cfg, { ...s, locked, ask, agents: agents.length }),
     backend: backendOf(cfg, recent),
     agents: agents.map((d) => ({ type: d.detail, text: d.to ?? '', isVerified: isLevel(d.sent) })),
