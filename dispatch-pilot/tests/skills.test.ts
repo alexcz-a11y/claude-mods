@@ -10,11 +10,14 @@ import {
   FITS_BAR,
   LISTING_NOTE,
   NAMED_BAR,
+  NO_CANDIDATES_REPLY,
+  SEARCH_OFF_REPLY,
   SHORTLIST,
   findSkillReply,
   parseListing,
   pick,
   pickMany,
+  queryOf,
   shortlist,
   stageOne,
   stageTwo,
@@ -440,15 +443,124 @@ test('引擎这一层把附件去掉（text 为 null）：原样放行', { optio
   expect(skillWrites(w)).toEqual([])
 })
 
-test('第二份列表（/clear 之后）换掉候选', { options: KEYS }, async ($, on) => {
+test('后来的列表并进候选：同名的换成新的，新名字接在后面', { options: KEYS }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answering({ gates: NOT_WANTED }) })
   await start($)
   await attach($, listingOf(FIVE))
-  const second = await attach($, listingOf([BRAIN, WRANGLER]))
+  const brainNow = { name: BRAIN.name, description: 'Brainstorm before building anything.' }
+  const NEW = { name: 'tripo3d', description: 'Make 3D models from images.' }
+  const second = await attach($, listingOf([brainNow, NEW]))
   expect(second.text).toBe(LISTING_NOTE)
-  expect(skillWrites(w)).toEqual([FIVE, [BRAIN, WRANGLER]])
+  expect(skillWrites(w)).toEqual([FIVE, [PDF, XLSX, WRANGLER, brainNow, GSAP, NEW]])
   await submit($, TASK)
-  expect(Object.keys(w.fetched[0]!.body.questions.skill_0.criteria)).toEqual(['cloudflare:wrangler', 'superpowers:brainstorming', 'other'])
+  expect(w.fetched[0]!.body.questions.skill_0.criteria).toEqual({
+    pdf: PDF.description,
+    'gsap-core': null,
+    tripo3d: NEW.description,
+    'anthropic-skills:xlsx': XLSX.description,
+    'cloudflare:wrangler': WRANGLER.description,
+    'superpowers:brainstorming': brainNow.description,
+    other: null,
+  })
+})
+
+test('实测的情形：169 个，会话中途加了一个 skill，下一份列表只有它；候选成了 170 个，推荐和 find-skill 都还够得着旧的', { options: KEYS }, async ($, on) => {
+  const old: Skill[] = Array.from({ length: 168 }, (_, i) => ({ name: 'src' + (i % 7) + ':s' + i, description: 'Old skill ' + i + '.' }))
+  const full = [...old, PDF]
+  const added = { name: 'tripo3d', description: 'Make 3D models from images.' }
+  const w = world(on, {
+    onSubmit: turns($),
+    answer: answering({ gates: WANTED, first: { pdf: 0.6, tripo3d: 0.2 }, which: 'pdf', fits: { pdf: 0.9, tripo3d: 0.4 } }),
+  })
+  await start($)
+  expect((await attach($, listingOf(full))).text).toBe(LISTING_NOTE)
+  // The delta: the same preamble, one entry.
+  expect((await attach($, listingOf([added]))).text).toBe(LISTING_NOTE)
+  const held = skillWrites(w).at(-1) as Skill[]
+  expect(held).toHaveLength(170)
+  expect(held.slice(0, 169)).toEqual(full)
+  expect(held[169]).toEqual(added)
+
+  await submit($, TASK)
+  const options = Object.keys(w.fetched[0]!.body.questions.skill_0.criteria)
+  expect(options).toHaveLength(171)
+  expect(options).toContain('src3:s3')
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+
+  const r = await findSkill($, 'Query: pdf form')
+  expect(r.text).toBe(findSkillReply('pdf form', [PDF, added], null))
+})
+
+test('mod 自己的 find-skill 不当候选', { options: KEYS }, async ($, on) => {
+  const w = world(on)
+  await start($)
+  const own = [
+    { name: 'dispatch-pilot:find-skill', description: "Searches this session's skills for the ones that fit a piece of work." },
+    { name: 'find-skill', description: "Searches this session's skills for the ones that fit a piece of work." },
+  ]
+  expect((await attach($, listingOf([PDF, ...own, XLSX]))).text).toBe(LISTING_NOTE)
+  expect(skillWrites(w)).toEqual([[PDF, XLSX]])
+})
+
+test('Jev 只有一个候选：不问 skill_0，门控过了直接进第二次；第二次不问 which，只看 fits', { options: { backend: 'jev', jevApiKey: 'k-jev' } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, fits: { pdf: 0.9 }, model: 'jev-1.14.0' }) })
+  await sendWithListing($, w, [PDF])
+
+  expect(Object.keys(w.fetched[0]!.body.questions)).toEqual(['open', 'mechanical', 'unknown_cause', ...GATE_IDS])
+  expect(Object.keys(w.fetched[1]!.body.questions)).toEqual(['fits_0'])
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, failure: null })
+  expect(efforts(w)).toEqual(['high'])
+
+  // find-skill: no first request at all, the one candidate is the shortlist.
+  const r = await findSkill($, 'Query: pdf form')
+  expect(w.fetched).toHaveLength(3)
+  expect(Object.keys(w.fetched[2]!.body.questions)).toEqual(['fits_0'])
+  expect(r.text).toBe(findSkillReply('pdf form', [PDF], null))
+})
+
+test('短名单只有一个：Jev 不问 which，fits 自己定；Drex 照常问（多一个 other）', () => {
+  expect(Object.keys(stageTwo([PDF], 'jev'))).toEqual(['fits_0'])
+  expect(Object.keys(stageTwo([PDF], 'drex'))).toEqual(['which', 'fits_0'])
+  expect(Object.keys(stageTwo([PDF], 'drex').which!.criteria)).toEqual(['pdf', 'other'])
+  expect(stageOne([PDF], 'jev', true).skill_0).toBeUndefined()
+  expect(Object.keys(stageOne([PDF], 'drex', true).skill_0!.criteria)).toEqual(['pdf', 'other'])
+  expect(shortlist([PDF], {})).toEqual([PDF])
+  expect(pick([PDF], { fits_0: { type: 'noul', noul: 0.9 } })).toEqual(PDF)
+  expect(pick([PDF], { fits_0: { type: 'noul', noul: 0.2 } })).toBeNull()
+})
+
+test('一次合并的请求、fallback 开着：第一家的回答一部分不能用，也算答了，不改问另一家，能用的部分照样作数', { options: { drexApiKey: 'k-drex', jevApiKey: 'k-jev', fallback: true } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 }, drop: ['open'] }) })
+  await sendWithListing($, w)
+
+  expect(w.fetched.map((f) => f.url)).toEqual([DREX_URL, DREX_URL])
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(submitDecisions(w)[0]).toMatchObject({ failure: 'bad-answer', backend: 'drex', applied: false })
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', backend: 'drex', applied: true })
+})
+
+test('queryOf 取第一个 Query: 之后的全部', () => {
+  expect(queryOf('Query: what does "Query: " mean in this log')).toBe('what does "Query: " mean in this log')
+  expect(queryOf('Base directory: /x\n\nQuery: pdf form\n')).toBe('pdf form')
+  expect(queryOf('pdf form')).toBe('pdf form')
+})
+
+test('find-skill：skills 关着时回答搜索关了，用会话自己的列表', { options: { ...KEYS, skills: false } }, async ($, on) => {
+  const w = world(on, { answer: answering({}) })
+  await start($)
+  const r = await findSkill($, 'Query: pdf form')
+  expect(r.text).toBe(SEARCH_OFF_REPLY)
+  expect(r.text).toContain("session's own skill listing")
+  expect(w.fetched).toHaveLength(0)
+})
+
+test('find-skill：shadow 时同样回答搜索关了', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+  const w = world(on, { answer: answering({}) })
+  await start($)
+  const r = await findSkill($, 'Query: pdf form')
+  expect(r.text).toBe(SEARCH_OFF_REPLY)
+  expect(w.fetched).toHaveLength(0)
 })
 
 // The readings, as pure functions.
@@ -601,7 +713,8 @@ test('find-skill：还没有候选时不发请求，照实回答', { options: KE
   await start($)
   const r = await findSkill($, 'Query: pdf form')
   expect(w.fetched).toHaveLength(0)
-  expect(r.text).toBe(findSkillReply('pdf form', [], null))
+  expect(r.text).toBe(NO_CANDIDATES_REPLY)
+  expect(r.text).not.toContain('No skill in this session fits')
 })
 
 test('别的 plugin 的 find-skill：原样放行', { options: KEYS }, async ($, on) => {

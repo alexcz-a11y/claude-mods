@@ -85,7 +85,9 @@ function batches(skills: Skill[]): Skill[][] {
 }
 
 // A choice over skills, each option its description (null when the listing gives none). Drex's has an option
-// other for "none fits"; Jev's has none: its documents answer that with the nouls beside the choice.
+// other for "none fits"; Jev's has none: its documents answer that with the nouls beside the choice. A Jev choice
+// needs 2 to 255 options, so Jev is asked no choice over a single skill (a refused question would fail the whole
+// request, the effort's part with it).
 function options(skills: Skill[], backend: Backend): Record<string, string | null> {
   const criteria: Record<string, string | null> = {}
   for (const s of skills) criteria[s.name] = s.description === '' ? null : s.description
@@ -93,13 +95,15 @@ function options(skills: Skill[], backend: Backend): Record<string, string | nul
   return criteria
 }
 
+const choosable = (skills: Skill[], backend: Backend): boolean => backend === 'drex' || skills.length >= 2
+
 const yesNo = (instructions: string): Question => ({ type: 'noul', instructions, criteria: { ...SKILL_NOUL_CRITERIA } })
 
 /** The first request's skill questions: one choice per batch (skill_<n>), and with the gate the four nouls. */
 export function stageOne(skills: Skill[], backend: Backend, withGate: boolean): Record<string, Question> {
   const questions: Record<string, Question> = {}
   batches(bySource(skills)).forEach((batch, i) => {
-    questions['skill_' + i] = { type: 'choice', instructions: SKILL_CHOICE, criteria: options(batch, backend) }
+    if (choosable(batch, backend)) questions['skill_' + i] = { type: 'choice', instructions: SKILL_CHOICE, criteria: options(batch, backend) }
   })
   if (withGate) for (const [id, text] of Object.entries(SKILL_GATES)) questions[id] = yesNo(text)
   return questions
@@ -120,8 +124,12 @@ function gateOf(answers: Record<string, Answer>): { acts?: number; procedure?: n
   }
 }
 
-/** The SHORTLIST skills the batches gave most, their probabilities taken together; other and unknown names left out. */
+/**
+ * The SHORTLIST skills the batches gave most, their probabilities taken together; other and unknown names left out.
+ * A single candidate is the shortlist whatever the answers (on Jev it was asked no choice).
+ */
 export function shortlist(skills: Skill[], answers: Record<string, Answer>): Skill[] {
+  if (skills.length === 1) return [...skills]
   const p = new Map<string, number>()
   for (const [id, a] of Object.entries(answers)) {
     if (!id.startsWith('skill_') || a.type !== 'choice') continue
@@ -134,9 +142,10 @@ export function shortlist(skills: Skill[], answers: Record<string, Answer>): Ski
     .slice(0, SHORTLIST)
 }
 
-/** The second request: which of the shortlist, and one fits noul per skill (fits_<i>, in shortlist order). */
+/** The second request: which of the shortlist (none on Jev for a shortlist of one), and one fits noul per skill (fits_<i>, in shortlist order). */
 export function stageTwo(short: Skill[], backend: Backend): Record<string, Question> {
-  const questions: Record<string, Question> = { which: { type: 'choice', instructions: SKILL_RERANK, criteria: options(short, backend) } }
+  const questions: Record<string, Question> = {}
+  if (choosable(short, backend)) questions.which = { type: 'choice', instructions: SKILL_RERANK, criteria: options(short, backend) }
   short.forEach((s, i) => {
     questions['fits_' + i] = yesNo(skillFits(s.name, s.description))
   })
@@ -150,11 +159,12 @@ function bestFit(short: Skill[], answers: Record<string, Answer>): number | unde
   return known.length === 0 ? undefined : Math.max(...known)
 }
 
-/** The suggestion: which's choice, once the best fits reaches FITS_BAR; null for other, or when none fits. */
+/** The suggestion: which's choice, once the best fits reaches FITS_BAR; null for other, or when none fits. A shortlist of one asked no which (Jev): its fits alone decides. */
 export function pick(short: Skill[], answers: Record<string, Answer>): Skill | null {
   const best = bestFit(short, answers)
   if (best === undefined || best < FITS_BAR) return null
   const which = answers.which
+  if (which === undefined && short.length === 1) return short[0]!
   if (which?.type !== 'choice' || which.choice === 'other') return null
   return short.find((s) => s.name === which.choice) ?? null
 }
@@ -196,9 +206,17 @@ export function findSkillReply(query: string, found: Skill[], failure: Failure |
   return [`Skills that fit "${query}", best first:`, ...lines, 'Load one with the Skill tool by its exact name.'].join('\n')
 }
 
-/** find-skill's query: what follows "Query: " in the skill's text (SKILL.md's one line), else the whole text. */
+/** find-skill's answer when no listing has been folded in this session (no key, or none arrived yet). */
+export const NO_CANDIDATES_REPLY =
+  "Dispatch Pilot has recorded no skills in this session, so find-skill has nothing to search. Use the session's own skill listing: load a skill from it with the Skill tool by its exact name."
+
+/** find-skill's answer while the mod is off, its skills switch is off, or it runs in shadow: the listing was left whole. */
+export const SEARCH_OFF_REPLY =
+  "The skill search is turned off in Dispatch Pilot. Use the session's own skill listing: load a skill from it with the Skill tool by its exact name."
+
+/** find-skill's query: what follows the first "Query: " in the skill's text (SKILL.md's one line), else the whole text. */
 export function queryOf(text: string): string {
-  const at = text.lastIndexOf('Query: ')
+  const at = text.indexOf('Query: ')
   return (at === -1 ? text : text.slice(at + 'Query: '.length)).trim()
 }
 
@@ -210,6 +228,25 @@ export function isFindSkill(e: { skill: string; pluginName?: string }): boolean 
   return e.pluginName === 'dispatch-pilot' && /(^|:)find-skill$/.test(e.skill)
 }
 
+// How this mod's own find-skill can appear in a listing; it is never a candidate.
+const OWN = ['find-skill', 'dispatch-pilot:find-skill']
+
+/**
+ * The candidates after a main-loop listing. The engine sends the listing as a delta (measured on 2.1.327: 169 entries,
+ * then a listing of the one skill added mid-session), so the held ones are kept: an entry of the listing replaces the
+ * held one of the same name in place, new names are appended in listing order. This mod's find-skill is left out.
+ */
+export function mergeSkills(held: readonly Skill[], listed: readonly Skill[]): Skill[] {
+  const out = held.filter((s) => !OWN.includes(s.name))
+  for (const s of listed) {
+    if (OWN.includes(s.name)) continue
+    const at = out.findIndex((h) => h.name === s.name)
+    if (at === -1) out.push(s)
+    else out[at] = s
+  }
+  return out
+}
+
 // The reading of a message's two requests, and the Decision they make.
 
 const fmt = (p: number | undefined): string => (p === undefined ? '—' : p.toFixed(2))
@@ -217,7 +254,8 @@ const fmt = (p: number | undefined): string => (p === undefined ? '—' : p.toFi
 /** After the first request: the shortlist to ask the second about, or why there is none (for the Decision). */
 export function readStageOne(skills: Skill[], r: AskResult, withGate: boolean): { short: Skill[] } | { detail: string } {
   if (!r.ok) return { detail: failureText(r) }
-  if (!Object.keys(r.answers).some((id) => id.startsWith('skill_'))) return { detail: 'skill 题的回答缺题或类型不对' }
+  // A single candidate needs no choice answer (shortlist takes it as it is).
+  if (skills.length > 1 && !Object.keys(r.answers).some((id) => id.startsWith('skill_'))) return { detail: 'skill 题的回答缺题或类型不对' }
   if (withGate) {
     const g = gateOf(r.answers)
     if (!wantsSkill(g)) {

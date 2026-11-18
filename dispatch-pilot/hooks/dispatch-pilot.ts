@@ -19,7 +19,26 @@ import { emptySession, newTurn } from './state.ts'
 import type { SessionState, TurnState } from './state.ts'
 import { agentState, clip, submitState } from './statebuild.ts'
 import type { PreviousTurn } from './statebuild.ts'
-import { LISTING_NOTE, SECOND_LATE, SECOND_MIN_MS, findSkillReply, isFindSkill, parseListing, pickMany, queryOf, readStageOne, readStageTwo, shortlist, skillDecision, stageOne, stageTwo, suggestionBlock } from './skills.ts'
+import {
+  LISTING_NOTE,
+  NO_CANDIDATES_REPLY,
+  SEARCH_OFF_REPLY,
+  SECOND_LATE,
+  SECOND_MIN_MS,
+  findSkillReply,
+  isFindSkill,
+  mergeSkills,
+  parseListing,
+  pickMany,
+  queryOf,
+  readStageOne,
+  readStageTwo,
+  shortlist,
+  skillDecision,
+  stageOne,
+  stageTwo,
+  suggestionBlock,
+} from './skills.ts'
 import type { Skill, SkillOutcome } from './skills.ts'
 import { settleSubmit } from './submit.ts'
 
@@ -189,10 +208,10 @@ async function recordSkill($: EngineInterface, o: SkillOutcome, c: { turnId: str
 // The main loop's skill listing: its skills are kept as the candidates, and the main agent reads LISTING_NOTE instead.
 // Null: the listing is left as it came.
 async function foldListing($: EngineInterface, text: string): Promise<PromptAttachmentResult | null> {
-  const skills = parseListing(text)
-  if (skills.length === 0) return null
-  // A later listing (after /clear, a compaction) replaces the candidates.
-  await update($, SKILLS, () => skills)
+  const listed = parseListing(text)
+  if (listed.length === 0) return null
+  // A later listing is a delta (a skill added mid-session): merged into the candidates, never replacing them.
+  await update($, SKILLS, (held) => mergeSkills(held, listed))
   return { text: LISTING_NOTE }
 }
 
@@ -202,12 +221,14 @@ async function findSkill($: EngineInterface, cfg: Config, text: string): Promise
   const query = queryOf(text)
   if (query === '') return findSkillReply('', [], null)
   const skills = await read($, SKILLS)
-  if (skills.length === 0) return findSkillReply(query, [], null)
+  if (skills.length === 0) return NO_CANDIDATES_REPLY
   const state = submitState({ request: query, previous: null })
   const t0 = await $.clock.now()
-  const first = await ask(ioOf($), cfg, { state, questions: stageOne(skills, cfg.backend, false) }, cfg.submitTimeoutMs)
-  if (!first.ok) return findSkillReply(query, [], first.reason)
-  const short = shortlist(skills, first.answers)
+  // A single candidate on Jev has no choice to ask: it is the shortlist without a first request.
+  const questions = stageOne(skills, cfg.backend, false)
+  const first: AskResult | null = Object.keys(questions).length === 0 ? null : await ask(ioOf($), cfg, { state, questions }, cfg.submitTimeoutMs)
+  if (first !== null && !first.ok) return findSkillReply(query, [], first.reason)
+  const short = shortlist(skills, first?.answers ?? {})
   if (short.length === 0) return findSkillReply(query, [], null)
   const left = cfg.submitTimeoutMs - ((await $.clock.now()) - t0)
   if (left < SECOND_MIN_MS) return findSkillReply(query, [], 'timeout')
@@ -450,7 +471,9 @@ export const register: Register = (on, options) => {
   })
 
   on('skill.prompt', { skill: /(^|:)find-skill$/ }, async ($, e, next) => {
-    if (!isFindSkill(e) || !cfg.enabled || !cfg.skills || cfg.mode === 'shadow') return next(e)
+    if (!isFindSkill(e)) return next(e)
+    // The listing was left whole in these cases: the body ("Query: …") would tell the agent nothing.
+    if (!cfg.enabled || !cfg.skills || cfg.mode === 'shadow') return { text: SEARCH_OFF_REPLY }
     const text = await failOpen($, 'skill.prompt', null, () => findSkill($, cfg, e.text))
     return text === null ? next(e) : { text }
   })
