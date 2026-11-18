@@ -1,6 +1,6 @@
 // The decision log and the text form of /dp. Pure functions: no $ calls, so all of it is unit-testable.
 // Text for people is Chinese; reason and failure codes are shown as the codes they are.
-import type { Answer, Failure } from './backend.ts'
+import type { Answer, Failure, Miss } from './backend.ts'
 import type { Config } from './config.ts'
 import type { Reason, Thresholds } from './decide.ts'
 import { LEVELS, isLevel } from './levels.ts'
@@ -75,6 +75,21 @@ const LEVEL_LIST = LEVELS.join('、')
 const KIND_ZH: Record<string, string> = { submit: '发消息', midrun: '中途', agent: 'agent', skill: 'skill', progress: '进展记录' }
 
 const backendName = (b: string): string => (b === 'drex' ? 'Drex' : b === 'jev' ? 'Jev' : b)
+
+function missText(m: Miss): string {
+  const b = backendName(m.backend)
+  if (m.reason === 'no-key') return `${b} 没有密钥`
+  if (m.reason === 'timeout') return `${b} 没有在时限内回答`
+  if (m.reason === 'http') return m.status === undefined ? `${b} 的请求失败` : `${b} 回答 HTTP ${m.status}`
+  if (m.reason === 'network') return `连不上 ${b}`
+  if (m.reason === 'bad-answer') return `${b} 的回答缺题或类型不对`
+  return `${b} 回答的模型不是固定的版本`
+}
+
+/** A failed request, for a Decision's detail: with a fallback asked, why the first backend did not answer, then why the other did not. */
+export function failureText(r: Miss & { firstFailure?: Miss }): string {
+  return r.firstFailure ? `${missText(r.firstFailure)}；${missText(r)}` : missText(r)
+}
 
 function clockText(at: number): string {
   const t = new Date(at)

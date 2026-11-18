@@ -30,6 +30,11 @@ export type AskResult =
   | { ok: true; answers: Record<string, Answer>; model: string; backend: Backend; ms: number; firstFailure?: Miss }
   | ({ ok: false; ms: number; firstFailure?: Miss } & Miss)
 
+/** A noul answer's probability; undefined for a missing or other answer. */
+export const noulOf = (a: Answer | undefined): number | undefined => (a?.type === 'noul' ? a.noul : undefined)
+/** A score answer's probabilities by level; empty for a missing or other answer. */
+export const scoreOf = (a: Answer | undefined): readonly number[] => (a?.type === 'score' ? a.probabilities : [])
+
 type Got = { answers: Record<string, Answer>; model: string }
 
 const keyOf = (cfg: Config, b: Backend): string => (b === 'drex' ? cfg.drexApiKey : cfg.jevApiKey)

@@ -16,6 +16,7 @@ import type {
   PromptOrigin,
   RenderSurface,
   SessionAppendInput,
+  SessionAppendMessage,
   TurnCompleteInput,
   TurnCompleteReason,
   TurnStepInput,
@@ -44,6 +45,11 @@ export type WorldOptions = {
    * test raises turn.start from here. Returning { drop } refuses the prompt.
    */
   onSubmit?: (e: { text: string; turnId: string | undefined }) => unknown
+  /**
+   * Runs when the mod writes a state key, before the write goes down to the kit's store (whose version check
+   * comes after it). A test raises another event from here to land a write in the middle of the mod's update().
+   */
+  onStateSet?: (e: { key: string; value: unknown }) => unknown
 }
 
 export type SentStep = { turnId: string; index: number; effort: unknown; model: string; agentId: string | undefined }
@@ -131,6 +137,7 @@ export function world(on: On, o: WorldOptions = {}) {
   // Not a stub: the kit keeps $.state itself. This only watches the writes on their way down; like
   // every $ call's, the answer comes back as { value } or { deny }.
   on('state.set', async (_$, e, next) => {
+    await o.onStateSet?.({ key: e.key, value: e.value })
     const r = await next(e)
     stateWrites.push({ key: e.key, id: e.id, value: e.value, isSet: 'value' in r && r.value?.isSet === true })
     return r
@@ -150,9 +157,10 @@ export function world(on: On, o: WorldOptions = {}) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage: null }
   })
   on('turn.complete', (_$, e) => ({ text: e.answer }))
-  on('session.append', (_$, e) => {
+  // A session.append hook must relay next(e) (one that answers without it is skipped): the kit keeps the row.
+  on('session.append', (_$, e, next) => {
     appended.push(e)
-    return { message: e.message, uuid: e.uuid }
+    return next(e)
   })
   on('agent.spawn', (_$, e) => {
     spawned.push(e)
@@ -223,6 +231,29 @@ export function complete($: Engine, turnId: string, o: { answer?: string; isAbor
   const ending = reason === 'refusal' ? { reason, refusal: { category: null, explanation: null } } : { reason }
   const input = { turnId, answer: o.answer ?? '', durationMs: 1000, isAborted, ...ending, ...(o.agentId === undefined ? {} : { agentId: o.agentId }) }
   return $.turn.complete(input as TurnCompleteInput)
+}
+
+/**
+ * An onSubmit that starts each message's turn as the engine does, inside prompt.submit's next(e) with the text that
+ * reached it (measured on 2.1.327): t1, t2, … in order; a prompt delivered into a running turn (turnId set) starts none.
+ */
+export function turns($: Engine) {
+  let n = 0
+  return (e: { text: string; turnId: string | undefined }) => (e.turnId === undefined ? turnStart($, `t${++n}`, e.text) : undefined)
+}
+
+/** Appends one row (a subagent's with agentId) and returns the row as it reached the engine. */
+export async function append($: Engine, row: SessionAppendInput): Promise<SessionAppendMessage> {
+  const r = await $.session.append(row)
+  if (r.message === undefined) throw new Error(`the row was refused: ${r.deny}`)
+  return r.message
+}
+
+/** Appends rows one after another, as the engine does, and returns them as they reached the engine. */
+export async function appendAll($: Engine, rows: SessionAppendInput[]): Promise<SessionAppendMessage[]> {
+  const out: SessionAppendMessage[] = []
+  for (const row of rows) out.push(await append($, row))
+  return out
 }
 
 /** Runs /dp with the given arguments and returns the text it answered with. */

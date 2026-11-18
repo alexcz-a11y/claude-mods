@@ -1,16 +1,19 @@
 import { atom, read, update } from 'claude-code'
-import type { CommandRunResult, EngineInterface, Register, TurnStepInput } from 'claude-code'
+import type { CommandRunResult, EngineInterface, Register, SessionAppendInput, TurnCompleteInput, TurnStepInput } from 'claude-code'
 
-import { ask } from './backend.ts'
-import type { Answer, AskResult, Io, Miss } from './backend.ts'
+import { ask, noulOf, scoreOf } from './backend.ts'
+import type { AskResult, Io } from './backend.ts'
 import { readConfig } from './config.ts'
 import type { Config } from './config.ts'
 import { readNoul, submitLevel, thresholdsFor } from './decide.ts'
+import { kindOf, rowOf } from './journal.ts'
 import { isLevel } from './levels.ts'
 import type { Level } from './levels.ts'
-import { DP_USAGE, RECENT_KEEP, badLevelReply, decisionId, lockReply, parseDp, pushLog, readLog, renderDp, renderLog, unlockReply } from './log.ts'
+import { DP_USAGE, RECENT_KEEP, badLevelReply, decisionId, failureText, lockReply, parseDp, pushLog, readLog, renderDp, renderLog, unlockReply } from './log.ts'
 import type { Decision } from './log.ts'
-import { submitQuestions } from './questions.ts'
+import { applyShift, planRow, settleCheckpoint, withNote } from './midrun.ts'
+import type { Judged, RowPlan } from './midrun.ts'
+import { midrunQuestions, submitQuestions } from './questions.ts'
 import type { Question } from './questions.ts'
 import { emptySession, newTurn } from './state.ts'
 import type { SessionState, TurnState } from './state.ts'
@@ -154,27 +157,15 @@ async function dropPending($: EngineInterface): Promise<null> {
 // message starts, and dropped for any other.
 async function startTurn($: EngineInterface, turnId: string, text: string): Promise<null> {
   const { pending } = await read($, SESSION)
-  if (pending !== null && pending.request !== text) await update($, SESSION, (s) => ({ ...s, pending: null }))
+  if (pending !== null && pending.request !== text) {
+    // Compared again on what update() reads: a decision for this very text written meanwhile is kept.
+    await update($, SESSION, (s) => (s.pending !== null && s.pending.request !== text ? { ...s, pending: null } : s))
+  }
   await update($, TURN, () => newTurn(turnId, text))
   return null
 }
 
-const BACKEND_NAME = { drex: 'Drex', jev: 'Jev' } as const
-
-function missText(m: Miss): string {
-  const b = BACKEND_NAME[m.backend]
-  if (m.reason === 'no-key') return `${b} 没有密钥`
-  if (m.reason === 'timeout') return `${b} 没有在时限内回答`
-  if (m.reason === 'http') return m.status === undefined ? `${b} 的请求失败` : `${b} 回答 HTTP ${m.status}`
-  if (m.reason === 'network') return `连不上 ${b}`
-  if (m.reason === 'bad-answer') return `${b} 的回答缺题或类型不对`
-  return `${b} 回答的模型不是固定的版本`
-}
-
 const NO_LEVEL = 'effort 缺省或是数字，没有改'
-
-const noulOf = (a: Answer | undefined): number | undefined => (a?.type === 'noul' ? a.noul : undefined)
-const scoreOf = (a: Answer | undefined): readonly number[] => (a?.type === 'score' ? a.probabilities : [])
 
 type Settled = { base: Level | null; wanted: Level | null; decision: Decision }
 
@@ -188,8 +179,7 @@ function settle(
   const common = { id: c.id, at: c.at, kind: 'submit' as const, backend: r.backend, ms: r.ms, turnId: c.turnId, step: 0, sent: null }
   if (!r.ok) {
     // A failed request changes nothing: the turn runs at the session's own level.
-    const detail = r.firstFailure ? `${missText(r.firstFailure)}；${missText(r)}` : missText(r)
-    const decision: Decision = { ...common, model: null, raw: null, from: own, to: own, reason: null, detail, bars: null, failure: r.reason, requestId: r.requestId ?? null, applied: false }
+    const decision: Decision = { ...common, model: null, raw: null, from: own, to: own, reason: null, detail: failureText(r), bars: null, failure: r.reason, requestId: r.requestId ?? null, applied: false }
     return { base: own, wanted: null, decision }
   }
   if (own === null) {
@@ -244,6 +234,65 @@ function endedOf(e: { reason: string; isAborted: boolean }): PreviousTurn['ended
   return e.reason === 'answer' ? 'answered' : 'error'
 }
 
+// A main-loop turn ends. Only the turn held here ends here: the end of one never seen starting (or with none held)
+// writes no previous and keeps the held turn.
+async function endTurn($: EngineInterface, e: TurnCompleteInput): Promise<null> {
+  if (e.agentId !== undefined) return null
+  const held = await read($, TURN)
+  if (held === null || held.turnId !== e.turnId) return null
+  const previous: PreviousTurn = {
+    request: held.request,
+    lastReply: clip(e.answer, LAST_REPLY_TOKENS),
+    ended: endedOf(e),
+    level: held.wanted ?? held.base,
+  }
+  await update($, SESSION, (s) => ({ ...s, previous }))
+  await update($, TURN, (cur) => (cur !== null && cur.turnId === e.turnId ? null : cur))
+  return null
+}
+
+// After a checkpoint was evaluated, whatever came of it (a shift, a hold, a failed request): the one place later
+// parts attach to, the progress note in the background and the board's mark on the timeline. Records the decision.
+async function afterCheckpoint($: EngineInterface, judged: Judged): Promise<void> {
+  await record($, judged.decision)
+}
+
+// The mid-run check (design 5.4) on one row, which comes back as it goes on: with a note, or as it came. Main-loop
+// rows only, and only while a turn is held, so the turn's own prompt row (which comes before turn.start) is never
+// taken for input. What happens is planned in midrun.ts; this reads state, asks, and writes.
+async function onRow($: EngineInterface, cfg: Config, e: SessionAppendInput): Promise<SessionAppendInput> {
+  if (e.agentId !== undefined) return e
+  const row = rowOf(e)
+  const kind = kindOf(row)
+  // Most rows (reminders, queue records, notices, a subagent's) change nothing: no state is read for them.
+  if (kind === 'other') return e
+  const held = await read($, TURN)
+  if (held === null) return e
+  const session = await read($, SESSION)
+  const codeMode = session.codeMode || kind === 'receipt'
+  const judging = cfg.enabled && cfg.midrunShift && session.lock === null
+  // Planned on what update() reads, so a write in between is built on rather than lost.
+  const box: { plan: RowPlan | null } = { plan: null }
+  await update($, TURN, (cur) => {
+    box.plan = cur !== null && cur.turnId === held.turnId ? planRow(cur, row, kind, { cfg, codeMode, judging }) : null
+    return box.plan?.turn ?? cur
+  })
+  const plan = box.plan
+  if (plan === null) return e
+  if (codeMode && !session.codeMode) await update($, SESSION, (s) => ({ ...s, codeMode: true }))
+  if (plan.note !== null) return withNote(e, plan.note)
+  if (plan.ask === null) return e
+  // The row is held while the question is out: this ask is the only wait here.
+  const result = await ask(ioOf($), cfg, { state: plan.ask.state, questions: midrunQuestions() }, cfg.midrunTimeoutMs)
+  const at = await $.clock.now()
+  const judged = settleCheckpoint(result, { turn: plan.turn, kind, current: plan.ask.current, cfg, id: decisionId(at), at })
+  const shift = judged.shift
+  // Written before the row goes on: the next step reads the level from the turn.
+  if (shift !== null) await update($, TURN, (cur) => (cur !== null && cur.turnId === plan.turn.turnId ? applyShift(cur, shift) : cur))
+  await afterCheckpoint($, judged)
+  return shift !== null && shift.note !== null ? withNote(e, shift.note) : e
+}
+
 export const register: Register = (on, options) => {
   const cfg = readConfig(options)
 
@@ -296,21 +345,14 @@ export const register: Register = (on, options) => {
     return yield* next(out)
   })
 
+  // Each row is held here until the hook passes it on; at a checkpoint, for as long as the question is out.
+  on('session.append', async ($, e, next) => {
+    const out = await failOpen($, 'session.append', e, () => onRow($, cfg, e))
+    return next(out)
+  })
+
   on('turn.complete', async ($, e, next) => {
-    await failOpen($, 'turn.complete', null, async () => {
-      if (e.agentId !== undefined) return null
-      const held = await read($, TURN)
-      const turn = held !== null && held.turnId === e.turnId ? held : null
-      const previous: PreviousTurn = {
-        request: turn?.request ?? '',
-        lastReply: clip(e.answer, LAST_REPLY_TOKENS),
-        ended: endedOf(e),
-        level: turn ? (turn.wanted ?? turn.base) : null,
-      }
-      await update($, SESSION, (s) => ({ ...s, previous }))
-      await update($, TURN, () => null)
-      return null
-    })
+    await failOpen($, 'turn.complete', null, () => endTurn($, e))
     return next(e)
   })
 }

@@ -1,7 +1,8 @@
 // Reads the rows the engine appends to the session (session.append) into a small record of the current
-// turn: which steps ran, with which tools, whether they failed and how their results began. Task 8 decides
+// turn: which steps ran, with which tools, whether they failed and how their results began. midrun.ts decides
 // from it when to judge the effort again. Pure: no $ calls. The row shapes are the engine's, measured on
-// 2.1.326/2.1.327 (design 3.2, E7 and E13); only main-loop rows count, a subagent's row is 'other'.
+// 2.1.326/2.1.327 (design 3.2, E7 and E13; the rows of a real Code Mode turn in the plan's real-rows.md); only
+// main-loop rows count, a subagent's row is 'other'.
 import { clip } from './statebuild.ts'
 import type { StepRecord } from './statebuild.ts'
 import type { TurnJournal } from './state.ts'
@@ -29,8 +30,10 @@ const RESULT_TOKENS = 600
 const ERROR_TOKENS = 200
 
 const RECEIPT = /^\(dispatched #\d+\)$/
-// A script's result event. The quotes may arrive backslash-escaped (text that was JSON-encoded on the way).
-const SCRIPT_EVENT = /kind=\\?"repl-eval\\?"/g
+// A script's result event, and the status event of a script still running. The quotes may arrive
+// backslash-escaped (text that was JSON-encoded on the way).
+const SCRIPT_EVENT = /kind=\\?"repl-eval\\?"/
+const STATUS_EVENT = /kind=\\?"repl-status\\?"/
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
 
 // A row whose message is not the shape the types promise: kindOf classes it as 'other'.
@@ -73,11 +76,6 @@ export function rowOf(e: { door: string; origin: { kind: string; tool?: string }
   }
 }
 
-function hasScriptEvent(text: string): boolean {
-  SCRIPT_EVENT.lastIndex = 0
-  return SCRIPT_EVENT.test(text)
-}
-
 export function kindOf(row: Row): RowKind {
   if (row.agentId !== null) return 'other'
   switch (row.door) {
@@ -89,12 +87,14 @@ export function kindOf(row: Row): RowKind {
       if (row.role !== 'user') return 'other'
       // A REPL row that is no receipt (a refused or failed call) ends its step like any tool result.
       if (row.tool === 'REPL') return RECEIPT.test(row.text.trim()) ? 'receipt' : 'tool-result'
-      // A Poll that returns while the script still runs has no result event and ends nothing.
-      if (row.tool === 'Poll') return hasScriptEvent(row.text) ? 'script-result-poll' : 'other'
+      // A Poll that returns while the script still runs (or with late output only) has no result and ends nothing.
+      if (row.tool === 'Poll') return scriptResult(row.text) !== null ? 'script-result-poll' : 'other'
       return 'tool-result'
     case 'delivery':
       if (row.role !== 'user') return 'other'
-      if (hasScriptEvent(row.text)) return 'script-result-delivery'
+      if (scriptResult(row.text) !== null) return 'script-result-delivery'
+      // A script's events with no result (a status, late output) are no input either.
+      if (SCRIPT_EVENT.test(row.text) || STATUS_EVENT.test(row.text)) return 'other'
       return row.text.trim() !== '' ? 'new-input' : 'other'
     case 'prompt':
       return 'new-input'
@@ -104,22 +104,29 @@ export function kindOf(row: Row): RowKind {
 }
 
 /**
- * The result of the first script event in the text: what its <result> or <error> holds, not its <log> lines.
- * The first, not the last: a result may itself quote such events (a script that read a log of them).
+ * The result of the first script event in the text that has one: what its <result> or <error> holds, not its <log>
+ * lines. An event with neither (output logged after the script ended) is passed over. The first, not the last: a
+ * result may itself quote such events (a script that read a log of them).
  */
 export function scriptResult(text: string): { ok: boolean; result: string } | null {
-  SCRIPT_EVENT.lastIndex = 0
-  const marker = SCRIPT_EVENT.exec(text)
-  if (marker === null) return null
-  const event = text.slice(marker.index)
-  const open = /<(result|error)>/.exec(event)
-  if (open === null) return null
-  const tag = open[1]!
-  const body = event.slice(open.index + open[0].length)
-  // The event's own closing: the tag right before </event>. Failing that, the last closing tag, else the rest.
-  const ownEnd = new RegExp(`</${tag}>(?:\\s|\\\\n)*</event>`).exec(body)
-  const end = ownEnd !== null ? ownEnd.index : body.lastIndexOf(`</${tag}>`)
-  return { ok: tag === 'result', result: end < 0 ? body : body.slice(0, end) }
+  let rest = text
+  for (let marker = SCRIPT_EVENT.exec(rest); marker !== null; marker = SCRIPT_EVENT.exec(rest)) {
+    const event = rest.slice(marker.index)
+    // Whichever this event reaches first: its result or error, or its own end.
+    const first = /<(result|error)>|<\/event>/.exec(event)
+    if (first === null) return null
+    const tag = first[1]
+    if (tag === undefined) {
+      rest = event.slice(first.index + first[0].length)
+      continue
+    }
+    const body = event.slice(first.index + first[0].length)
+    // The event's own closing: the tag right before </event>. Failing that, the last closing tag, else the rest.
+    const ownEnd = new RegExp(`</${tag}>(?:\\s|\\\\n)*</event>`).exec(body)
+    const end = ownEnd !== null ? ownEnd.index : body.lastIndexOf(`</${tag}>`)
+    return { ok: tag === 'result', result: end < 0 ? body : body.slice(0, end) }
+  }
+  return null
 }
 
 function firstLine(text: string): string {
@@ -180,7 +187,9 @@ function endStep(j: TurnJournal, step: StepRecord, work: boolean, errorLine: str
 }
 
 function onScriptResult(j: TurnJournal, row: Row): TurnJournal {
-  const res = scriptResult(row.text) ?? { ok: true, result: '' }
+  const res = scriptResult(row.text)
+  // An event with neither a result nor an error ends nothing.
+  if (res === null) return { ...j }
   const open = j.open
   // Only a script whose receipt came is a work step; a Poll that only waited is not.
   const work = open !== null && open.tools[0] === 'REPL'

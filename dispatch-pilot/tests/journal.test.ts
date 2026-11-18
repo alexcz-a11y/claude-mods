@@ -6,6 +6,8 @@ import { estimateTokens } from '../hooks/statebuild.ts'
 import {
   assistantText,
   assistantToolUse,
+  attachmentRow,
+  deliveryEvent,
   deliveryResult,
   emptyDelivery,
   innerCall,
@@ -14,6 +16,8 @@ import {
   promptRow,
   queueRow,
   replReceipt,
+  scriptByDelivery,
+  scriptByPoll,
   toolResult,
 } from './support/rows.ts'
 
@@ -280,4 +284,76 @@ test('applyRow 不改它收到的记录', () => {
     j = next
   }
   expect(before).toEqual(copy)
+})
+
+// The shapes of real-rows.md (a real Code Mode turn on 2.1.327).
+
+test('real-rows.md 的行：delivery 是 poll_events 附件，Poll 结果可带 tools-used 行，queue 和 attachment 行不算', () => {
+  const delivered = deliveryResult(1, '1')
+  expect(delivered.message).toMatchObject({ type: 'attachment', name: 'poll_events', role: 'user' })
+  expect(delivered.origin).toEqual({ kind: 'engine' })
+  expect(rowOf(delivered).text.startsWith('<system-reminder>\n<system>authentic event nonces for this delivery: N1')).toBe(true)
+  expect(kind(delivered)).toBe('script-result-delivery')
+  expect(scriptResult(rowOf(delivered).text)).toEqual({ ok: true, result: '1' })
+
+  const empty = emptyDelivery()
+  expect(empty.message).toMatchObject({ type: 'attachment', name: 'poll_events', role: 'user', content: [] })
+  expect(kind(empty)).toBe('other')
+
+  const polled = pollResult(2, '2', { toolsUsed: 'Poll' })
+  expect(rowOf(polled).text).toContain('</system>\n<tools-used-before-summary>Poll</tools-used-before-summary>\n<event nonce="N2" kind="repl-eval"')
+  expect(kind(polled)).toBe('script-result-poll')
+  expect(scriptResult(rowOf(polled).text)).toEqual({ ok: true, result: '2' })
+
+  // A queue row holds the bare event, ok or failed: never the result, never input.
+  for (const q of [queueRow(3, '3'), queueRow(3, 'Error: x', { error: true })]) {
+    expect(rowOf(q).text.startsWith('<event nonce="N3" kind="repl-eval"')).toBe(true)
+    expect(q.message).toMatchObject({ type: 'user', role: 'user' })
+    expect(kind(q)).toBe('other')
+  }
+  // Engine reminders mid-turn come on door attachment, with or without text.
+  expect(kind(attachmentRow('output_style', 'Concise output style is active.'))).toBe('other')
+  expect(kind(attachmentRow('prompt_snapshot'))).toBe('other')
+  expect(attachmentRow('prompt_snapshot').message.role).toBeUndefined()
+
+  // A delivery holding only a repl-status event is no input; one holding anything else is.
+  expect(kind(deliveryEvent('repl-status', '#1 still running'))).toBe('other')
+  expect(kind(deliveryEvent('task-notification', 'agent-1 finished: 3 files changed'))).toBe('new-input')
+  // The same row classed twice gives the same kind (no regex state carried between calls).
+  expect([kind(polled), kind(polled), kind(delivered), kind(delivered)]).toEqual(['script-result-poll', 'script-result-poll', 'script-result-delivery', 'script-result-delivery'])
+})
+
+test('真实顺序的一次脚本（经 Poll、经 delivery）各记一步、一次脚本结果，queue 行不重复算', () => {
+  const byPoll = feed(scriptByPoll(1, 'run the tests', '3 passed', { inner: [innerToolUse('Bash'), innerCall('Bash')] }))
+  expect(byPoll.steps).toEqual([{ did: 'run the tests', tools: ['REPL', 'Bash'], ok: true, result: '3 passed' }])
+  expect([byPoll.workSteps, byPoll.scriptResults, byPoll.failedSteps]).toEqual([1, 1, 0])
+  const byDelivery = feed(scriptByDelivery(2, 'build', 'Error: tsc failed', { error: true }), byPoll)
+  expect(byDelivery.steps.at(-1)).toEqual({ did: 'build', tools: ['REPL'], ok: false, result: 'Error: tsc failed' })
+  expect([byDelivery.workSteps, byDelivery.scriptResults, byDelivery.failedSteps]).toEqual([2, 2, 1])
+  expect(byDelivery.open).toBeNull()
+})
+
+test('repl-eval 事件里既没有 <result> 也没有 <error>：不结束这一步', () => {
+  // Output a script logs after it ended comes as a repl-eval event with only <log> lines.
+  const late = '<system>authentic event nonces for this delivery: L1 — …</system>\n<event nonce="L1" kind="repl-eval" eval="1" status="late">\n<log>still flushing</log>\n</event>'
+  expect(scriptResult(late)).toBeNull()
+  const lateRow = toolResult('Poll', late)
+  expect(kind(lateRow)).toBe('other')
+  // Not input either, when it comes on a delivery row.
+  expect(kind(deliveryEvent('repl-eval', '<log>still flushing</log>'))).toBe('other')
+
+  const running = feed([assistantToolUse('REPL', { description: 'long build' }), replReceipt(1)])
+  // Even if handed in as a result, it ends nothing.
+  for (const as of ['script-result-poll', 'script-result-delivery'] as const) {
+    const j = applyRow(running, rowOf(lateRow), as)
+    expect(j).toEqual(running)
+    expect(j.open).toEqual({ did: 'long build', tools: ['REPL'], failed: false })
+  }
+  // A real result after it still ends the step.
+  expect(feed([lateRow, pollResult(1, 'built')], running).steps).toEqual([{ did: 'long build', tools: ['REPL'], ok: true, result: 'built' }])
+
+  // An event with no result before one that has it: the one with the result counts.
+  const both = `${late}\n<event nonce="L1" kind="repl-eval" eval="2" status="settled">\n<result>done</result>\n</event>`
+  expect(scriptResult(both)).toEqual({ ok: true, result: 'done' })
+  expect(kind(toolResult('Poll', both))).toBe('script-result-poll')
 })

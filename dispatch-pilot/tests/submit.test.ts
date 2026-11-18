@@ -1,12 +1,12 @@
 import { expect, test } from 'claude-code/testing'
-import type { Engine, MockClock } from 'claude-code/testing'
+import type { MockClock } from 'claude-code/testing'
 
 import { DREX_URL } from '../hooks/backend.ts'
 import { START } from '../hooks/decide.ts'
 import type { Decision } from '../hooks/log.ts'
 import type { SessionState } from '../hooks/state.ts'
 import { estimateTokens } from '../hooks/statebuild.ts'
-import { KEYS, complete, dp, drexOk, noul, score, start, step, submit, turnStart, world } from './support/world.ts'
+import { KEYS, complete, dp, drexOk, noul, score, start, step, submit, turnStart, turns, world } from './support/world.ts'
 
 type World = ReturnType<typeof world>
 
@@ -28,15 +28,6 @@ const answering =
   (a: Record<string, unknown>, continues = 0.1) =>
   ({ body }: { body: any }) =>
     drexOk('continues' in body.questions ? { ...a, continues: noul(continues) } : a)
-
-// The engine starts a message's turn inside prompt.submit's next(e), with the text that reached the
-// bottom (measured on 2.1.327). A world given onSubmit: turns($) does the same: each prompt that reaches
-// its prompt.submit raises turn.start there, as t1, t2, … in order; one delivered into a running turn
-// (turnId set) starts none.
-function turns($: Engine) {
-  let n = 0
-  return (e: { text: string; turnId: string | undefined }) => (e.turnId === undefined ? turnStart($, `t${++n}`, e.text) : undefined)
-}
 
 const TASK = 'Fix the flaky retry in the uploader'
 const OPUS = 'claude-opus-5-5'
@@ -481,4 +472,52 @@ test('送进正在跑的一轮的消息（e.turnId 有值）：不发请求，�
   // The running turn keeps the level its own message decided.
   expect(efforts(w)).toEqual(['high', 'high'])
   expect(logged(w).map((d) => d.turnId)).toEqual(['t1'])
+})
+
+// Controller fixes after Task 6's review.
+
+test('turn.complete 对不上手上的轮（或手上没有轮）：不写 previous，也不清掉手上的轮', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  const writes = w.stateWrites.length
+  // The end of a turn this mod never saw start changes nothing.
+  await complete($, 't-other', { answer: 'not ours' })
+  expect(w.stateWrites.slice(writes)).toEqual([])
+  await step($, { turnId: 't1', index: 1, effort: 'medium' })
+  expect(efforts(w)).toEqual(['high', 'high'])
+  await complete($, 't1', { answer: 'Fixed.' })
+  expect(session(w).previous).toEqual({ request: TASK, lastReply: 'Fixed.', ended: 'answered', level: 'high' })
+  // With no turn held, an end writes nothing either: previous stays the real one.
+  const after = w.stateWrites.length
+  await complete($, 't1', { answer: 'again' })
+  await complete($, 't2', { answer: 'never started' })
+  expect(w.stateWrites.slice(after)).toEqual([])
+  expect(session(w).previous).toMatchObject({ request: TASK, lastReply: 'Fixed.' })
+})
+
+test('turn.start 清掉旧判断的同时，这一轮自己的判断写进来：update 里重新比对，留下它', { options: KEYS }, async ($, on) => {
+  let armed = false
+  const w = world(on, {
+    answer: () => drexOk(RAISE),
+    // Lands the judgement of the turn's own message in the middle of turn.start's write that clears the old one.
+    onStateSet: async (e) => {
+      if (!armed || e.key !== 'session' || (e.value as SessionState).pending !== null) return
+      armed = false
+      await submit($, 'Now the downloader')
+    },
+  })
+  await start($)
+  // A judged message that started no turn leaves its decision pending.
+  await submit($, TASK)
+  expect(session(w).pending).toMatchObject({ request: TASK })
+  armed = true
+  await turnStart($, 't1', 'Now the downloader')
+  expect(armed).toBe(false)
+  // The decision written meanwhile belongs to this turn: kept, and taken by its first step.
+  expect(session(w).pending).toMatchObject({ request: 'Now the downloader' })
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  expect(efforts(w)).toEqual(['high'])
+  expect(logged(w).map((d) => [d.turnId, d.to])).toEqual([['t1', 'high']])
 })
