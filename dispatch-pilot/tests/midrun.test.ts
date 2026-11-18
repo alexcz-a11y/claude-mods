@@ -818,3 +818,13 @@ test('applyShift：后一条排着的说明替换前一条时只算一条；前�
   const onRow = applyShift({ ...base, pendingNote: null }, { to: 'xhigh', note: NEW, queued: null }, { asked: 'high', cfg, locked: false })
   expect(onRow).toMatchObject({ wanted: 'xhigh', pendingNote: null, midrun: { notes: 2 } })
 })
+
+test('applyShift：说明用完时，后一条排着的说明照样替换还排着的旧说明（不占新条数）；没有旧说明时不换', () => {
+  const cfg = readConfig({ midrunMaxNotes: 1 })
+  const OLD = '[dispatch-pilot] effort is now high: the same failure came back after a fix.'
+  const NEW = noteText('xhigh', 'contradicts-plan')
+  const spent: TurnState = { ...newTurn('t1', 'x'), wanted: 'high', journal: { ...emptyJournal(), workSteps: 5 }, midrun: { ...emptyCounters(), notes: 1, lastShiftAt: 1 } }
+  const replaced = applyShift({ ...spent, pendingNote: OLD }, { to: 'xhigh', note: null, queued: NEW }, { asked: 'high', cfg, locked: false })
+  expect(replaced).toMatchObject({ wanted: 'xhigh', pendingNote: NEW, midrun: { notes: 1, lastShiftAt: 5 } })
+  expect(applyShift({ ...spent, pendingNote: null }, { to: 'xhigh', note: null, queued: NEW }, { asked: 'high', cfg, locked: false })).toBeNull()
+})

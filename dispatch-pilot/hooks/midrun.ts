@@ -218,7 +218,8 @@ export function settleCheckpoint(r: AskResult, c: CheckpointContext): Judged {
 export function applyShift(turn: TurnState, s: Shift, c: { asked: Level; cfg: Config; locked: boolean }): TurnState | null {
   const noted = s.note !== null || s.queued !== null
   if (c.locked || (turn.wanted ?? turn.base) !== c.asked || !gapOk(turn.midrun, turn.journal)) return null
-  if (noted && notesLeft(turn.midrun, c.cfg) === 0) return null
+  // A note that replaces one still queued takes no new one, so only a note with none queued needs a note left.
+  if (noted && turn.pendingNote === null && notesLeft(turn.midrun, c.cfg) === 0) return null
   // A note still queued names the level this shift replaces, so it is never placed: the shift's own queued note
   // takes its place, or none (a note on this row, or input that needs none). It was counted when it was queued, so
   // the note that replaces it is not counted again.
