@@ -90,7 +90,7 @@
     "skills": {
       "type": "boolean",
       "title": "skill 推荐",
-      "description": "收起完整的 skill 列表，在你发消息时最多推荐一个 skill；其他的用 dispatch-pilot:find-skill 查。",
+      "description": "收起完整的 skill 列表，在你发消息时最多推荐一个 skill（第一条消息早于列表时，等列表到了再判断）；其他的用 dispatch-pilot:find-skill 查，没查成时它列出全部候选。shadow 里只判断和记录，列表不收起。",
       "default": true
     },
     "midrunEverySteps": {

@@ -12,8 +12,10 @@ import {
   NAMED_BAR,
   NO_CANDIDATES_REPLY,
   SEARCH_OFF_REPLY,
+  SEARCH_FAILED_BUDGET,
   SHORTLIST,
   findSkillReply,
+  searchFailedReply,
   parseListing,
   pick,
   pickMany,
@@ -25,7 +27,8 @@ import {
   wantsSkill,
 } from '../hooks/skills.ts'
 import type { Skill } from '../hooks/skills.ts'
-import { KEYS, dp, drexOk, noul, score, start, step, submit, turns, world } from './support/world.ts'
+import { estimateTokens } from '../hooks/statebuild.ts'
+import { KEYS, complete, dp, drexOk, noul, score, start, step, submit, turnStart, turns, world } from './support/world.ts'
 
 type World = ReturnType<typeof world>
 
@@ -177,12 +180,13 @@ test('skills 关着：列表原样', { options: { ...KEYS, skills: false } }, as
   expect(skillWrites(w)).toEqual([])
 })
 
-test('shadow：列表原样', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+test('shadow：列表原样交给主 agent，候选照样记下', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
   const w = world(on)
   await start($)
   const r = await attach($, listingOf(FIVE))
   expect(r.text).toBe(listingOf(FIVE))
-  expect(skillWrites(w)).toEqual([])
+  // Recorded (merged) all the same, so a message is still judged for skills (final review I4c).
+  expect(skillWrites(w)).toEqual([FIVE])
 })
 
 test('发消息：一次请求里既有 effort 题也有 skill_0 和四道门控题', { options: KEYS }, async ($, on) => {
@@ -397,9 +401,11 @@ test('find-skill：不问门控题，回答里最多三个 skill 名；后端失
   down.yes = true
   const failed = await findSkill($, 'Query: pdf form')
   expect(w.fetched).toHaveLength(3)
-  expect(failed.text).toBe(findSkillReply('pdf form', [], 'network'))
+  // The search did not run: the reply says so, then names every recorded candidate with its description (final review
+  // I4b), so the agent is never worse off than with the listing itself.
+  expect(failed.text).toBe(searchFailedReply('pdf form', 'network', FIVE))
   expect(failed.text).toContain('did not run')
-  expect(failed.text).not.toContain('cloudflare:wrangler')
+  for (const s of FIVE) expect(failed.text).toContain(s.description === '' ? '- ' + s.name : '- ' + s.name + ': ' + s.description)
 })
 
 // Beyond the brief's twelve: listings as they really come.
@@ -697,15 +703,16 @@ test('第二次请求用的是剩下的时间：到点按超时记', { options: 
   expect(skillDecisions(w)[0]).toMatchObject({ to: null, failure: 'timeout', applied: false, ms: 4000 })
 })
 
-test('shadow：列表没有收起，发消息时只问 effort 题，不加推荐', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
-  const w = world(on, { onSubmit: turns($), answer: answering({}) })
+test('shadow：列表没有收起；发消息时照样问 skill 题、记下 skill 决定（未执行），不加推荐', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6, 'anthropic-skills:xlsx': 0.2, 'cloudflare:wrangler': 0.1 }, which: 'pdf', fits: { pdf: 0.9 } }) })
   await sendWithListing($, w)
 
-  expect(w.fetched).toHaveLength(1)
-  expect(Object.keys(w.fetched[0]!.body.questions)).toEqual(['open', 'mechanical', 'unknown_cause'])
+  expect(w.fetched).toHaveLength(2)
+  expect(Object.keys(w.fetched[0]!.body.questions)).toEqual(['open', 'mechanical', 'unknown_cause', 'skill_0', ...GATE_IDS])
   expect(w.submitted[0]!.context).toBeUndefined()
   expect(submitDecisions(w)[0]).toMatchObject({ to: 'high', applied: false })
-  expect(skillDecisions(w)).toHaveLength(0)
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: false, turnId: 't1' })
 })
 
 test('find-skill：还没有候选时不发请求，照实回答', { options: KEYS }, async ($, on) => {
@@ -748,4 +755,99 @@ test('锁定时只问 skill 题', { options: KEYS }, async ($, on) => {
   expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
   expect(efforts(w)).toEqual(['high'])
   expect(submitDecisions(w)).toHaveLength(0)
+})
+
+// Final review I4.
+
+test('find-skill 没查成时的回答：照实说，再列出候选和说明；太长时截短说明，再长只列名字，总在预算之内', () => {
+  const small = searchFailedReply('pdf form', 'timeout', FIVE)
+  expect(small.split('\n')[0]).toContain('The skill search for "pdf form" did not run: the decision model did not answer in time.')
+  expect(small).toContain('- pdf: ' + PDF.description)
+  expect(small).toContain('- gsap-core')
+  // 169 skills with long descriptions: each description cut to a share, the whole within the budget.
+  const many = Array.from({ length: 169 }, (_, i) => ({ name: 'plugin-' + i + ':skill-' + i, description: 'Use this when the work needs ' + 'a very particular procedure '.repeat(12) + i }))
+  const cut = searchFailedReply('pdf form', 'http', many)
+  expect(estimateTokens(cut)).toBeLessThanOrEqual(SEARCH_FAILED_BUDGET)
+  expect(cut).toContain('descriptions shortened')
+  for (const s of many) expect(cut).toContain('- ' + s.name + ': Use this when')
+  // So many that even a short share does not fit: names only, and still within the budget.
+  const huge = Array.from({ length: 900 }, (_, i) => ({ name: 'some-plugin:skill-number-' + i, description: 'Does a thing.' }))
+  const names = searchFailedReply('pdf form', 'network', huge)
+  expect(estimateTokens(names)).toBeLessThanOrEqual(SEARCH_FAILED_BUDGET)
+  expect(names).toContain('names only')
+  expect(names).toContain('- some-plugin:skill-number-0\n')
+  expect(names).not.toContain('Does a thing.')
+  // No candidate recorded: the reply says the search did not run, and lists nothing.
+  expect(searchFailedReply('pdf form', 'network', [])).toBe(findSkillReply('pdf form', [], 'network'))
+})
+
+/** The session's first message, sent before any listing came (measured: the listing follows the first prompt.submit). */
+async function firstMessageThenListing($: Engine) {
+  await start($)
+  await submit($, TASK)
+  return attach($, listingOf(FIVE))
+}
+
+const SUGGESTS_PDF = { gates: WANTED, first: { pdf: 0.6, 'anthropic-skills:xlsx': 0.2, 'cloudflare:wrangler': 0.1 }, which: 'pdf', fits: { pdf: 0.9 } }
+
+test('会话的第一份列表在第一条消息之后才到：到时判断这条消息，推荐接在收起的那句话后面，记在这一轮上', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering(SUGGESTS_PDF) })
+  const r = await firstMessageThenListing($)
+
+  // At submit no candidate was recorded: the message's request asked the effort questions only.
+  expect(Object.keys(w.fetched[0]!.body.questions)).toEqual(['open', 'mechanical', 'unknown_cause'])
+  expect(w.submitted[0]!.context).toBeUndefined()
+  // At the listing: the two skill requests on that turn's message, as at submit.
+  expect(w.fetched).toHaveLength(3)
+  expect(Object.keys(w.fetched[1]!.body.questions)).toEqual(['skill_0', ...GATE_IDS])
+  expect(w.fetched[1]!.body.state.request).toBe(TASK)
+  expect(Object.keys(w.fetched[2]!.body.questions)).toEqual(['which', 'fits_0', 'fits_1', 'fits_2'])
+  expect(r.text).toBe(LISTING_NOTE + '\n\n' + suggestionBlock(PDF))
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ kind: 'skill', to: 'pdf', applied: true, turnId: 't1', failure: null })
+
+  // Once per turn: a later listing in the same turn (a skill added) only folds.
+  const again = await attach($, listingOf([{ name: 'new-skill', description: 'Added mid-session.' }]))
+  expect([again.text, w.fetched.length, skillDecisions(w).length]).toEqual([LISTING_NOTE, 3, 1])
+})
+
+test('到时判断：不推荐时只有收起的那句话；下一轮的消息在发出时判断，之后的列表只收起', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: NOT_WANTED }) })
+  const r = await firstMessageThenListing($)
+  expect([r.text, skillDecisions(w).length, skillDecisions(w)[0]?.to]).toEqual([LISTING_NOTE, 1, null])
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  await complete($, 't1')
+  // The next turn's message is judged at its own submit (candidates are there now): no second look at a listing.
+  await submit($, 'And the second form too')
+  expect(Object.keys(w.fetched.at(-1)!.body.questions)).toEqual(['open', 'mechanical', 'unknown_cause', 'continues', 'skill_0', ...GATE_IDS])
+  const n = w.fetched.length
+  expect((await attach($, listingOf([PDF]))).text).toBe(LISTING_NOTE)
+  expect(w.fetched).toHaveLength(n)
+})
+
+test('到时判断的请求失败：照常收起，记下一条失败的 skill 决定', { options: KEYS }, async ($, on) => {
+  const answer = answering({ gates: WANTED })
+  const w = world(on, { onSubmit: turns($), answer: (req) => ('open' in req.body.questions ? answer(req) : null) })
+  const r = await firstMessageThenListing($)
+  expect(r.text).toBe(LISTING_NOTE)
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: null, failure: 'network', turnId: 't1', applied: false })
+})
+
+test('到时判断：shadow 不做（列表原样、候选记下，不发 skill 请求）', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering(SUGGESTS_PDF) })
+  const r = await firstMessageThenListing($)
+  expect(r.text).toBe(listingOf(FIVE))
+  expect(skillWrites(w)).toEqual([FIVE])
+  expect(w.fetched).toHaveLength(1)
+  expect(skillDecisions(w)).toHaveLength(0)
+})
+
+test('到时判断只给人发的消息：别的来源开始的一轮，列表到时只收起', { options: KEYS }, async ($, on) => {
+  const w = world(on, { answer: answering(SUGGESTS_PDF) })
+  await start($)
+  await submit($, 'A background task finished.', { kind: 'task-notification' })
+  await turnStart($, 't1', 'A background task finished.')
+  const r = await attach($, listingOf(FIVE))
+  expect([r.text, w.fetched.length, skillDecisions(w).length]).toEqual([LISTING_NOTE, 0, 0])
 })

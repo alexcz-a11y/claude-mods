@@ -86,6 +86,8 @@ export type DpTurnState = {
   pendingMark: DpMark | null
   lastJudged: DpDecision | null
   shifts: DpDecision[]
+  /** Its message came before any skill listing: judged at the first listing in this turn. */
+  skillsDue: boolean
 }
 
 export type DpAgentState = { effort: DpLevel | null; model: DpTier | null; isEffortExplicit: boolean | null; decisionId: string | null; steps: number }

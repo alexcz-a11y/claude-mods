@@ -102,6 +102,7 @@ function turn(o: {
     track: o.track,
     pendingMark: null,
     ...judgedOf(o.recent, o.turnId),
+    skillsDue: false,
   }
 }
 

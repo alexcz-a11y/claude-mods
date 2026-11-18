@@ -4,6 +4,7 @@
 import { noulOf } from './backend.ts'
 import type { AskResult, Answer, Backend, Failure } from './backend.ts'
 import { failureText } from './log.ts'
+import { estimateTokens } from './statebuild.ts'
 import type { Decision } from './log.ts'
 import { SKILL_CHOICE, SKILL_GATES, SKILL_NOUL_CRITERIA, SKILL_RERANK, skillFits } from './questions.ts'
 import type { Question } from './questions.ts'
@@ -200,10 +201,66 @@ const FAILURE_EN: Record<Failure, string> = {
 
 export function findSkillReply(query: string, found: Skill[], failure: Failure | null): string {
   if (query === '') return 'find-skill needs a few words on the work as its args, such as "fill in a form in a PDF file". Load it again with them.'
-  if (failure !== null) return `The skill search for "${query}" did not run: ${FAILURE_EN[failure]}. Nothing is known about which skills fit. Go on without one, or load a skill you already know by its exact name.`
+  if (failure !== null) return searchFailedReply(query, failure, [])
   if (found.length === 0) return `No skill in this session fits "${query}". Go on without one.`
   const lines = found.map((s) => (s.description === '' ? '- ' + s.name : '- ' + s.name + ': ' + s.description))
   return [`Skills that fit "${query}", best first:`, ...lines, 'Load one with the Skill tool by its exact name.'].join('\n')
+}
+
+/** The most find-skill's reply weighs (estimateTokens) when it lists the candidates because its search did not run. */
+export const SEARCH_FAILED_BUDGET = 6000
+/** A description is cut no shorter than this share; below it, names only. */
+const MIN_SHARE = 8
+
+const entryLine = (s: Skill, description: string): string => (description === '' ? '- ' + s.name : '- ' + s.name + ': ' + description)
+
+// The head of a description within `tokens` (an ellipsis after it), the start being what says what a skill is for.
+function cutDescription(text: string, tokens: number): string {
+  if (estimateTokens(text) <= tokens) return text
+  const chars = Array.from(text)
+  let lo = 0
+  let hi = chars.length
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (estimateTokens(chars.slice(0, mid).join('') + '…') <= tokens) lo = mid
+    else hi = mid - 1
+  }
+  return lo === 0 ? '' : chars.slice(0, lo).join('').trimEnd() + '…'
+}
+
+/**
+ * find-skill's answer when its search did not run (final review I4b): it says so, then lists the candidates the
+ * session's listings named, so the agent is never worse off than with the listing the mod folded. Within
+ * SEARCH_FAILED_BUDGET: the descriptions whole, else each cut to an even share, else names only, else the first names
+ * that fit and how many there are.
+ */
+export function searchFailedReply(query: string, failure: Failure, skills: readonly Skill[]): string {
+  const lead = `The skill search for "${query}" did not run: ${FAILURE_EN[failure]}. Nothing is known about which skills fit.`
+  if (skills.length === 0) return `${lead} Go on without one, or load a skill you already know by its exact name.`
+  const head = (note: string): string => `${lead} These are the skills this session's listing named${note}: if one fits the work, load it with the Skill tool by its exact name, else go on without one.`
+  const reply = (note: string, lines: readonly string[]): string => [head(note), ...lines].join('\n')
+  const whole = reply('', skills.map((s) => entryLine(s, s.description)))
+  if (estimateTokens(whole) <= SEARCH_FAILED_BUDGET) return whole
+  const names = skills.map((s) => entryLine(s, ''))
+  const SHORT = ' (descriptions shortened)'
+  let share = Math.floor((SEARCH_FAILED_BUDGET - estimateTokens(reply(SHORT, names))) / skills.length)
+  while (share >= MIN_SHARE) {
+    const cut = reply(SHORT, skills.map((s) => entryLine(s, cutDescription(s.description, share))))
+    if (estimateTokens(cut) <= SEARCH_FAILED_BUDGET) return cut
+    share = Math.floor(share * 0.9)
+  }
+  const bare = reply(' (names only: their descriptions do not fit)', names)
+  if (estimateTokens(bare) <= SEARCH_FAILED_BUDGET) return bare
+  // Even the names do not fit: the first that do. Each line's estimate plus its line break bounds the whole from above.
+  const note = (k: number): string => ` (names only, the first ${k} of ${skills.length})`
+  let used = estimateTokens(head(note(skills.length)))
+  const kept: string[] = []
+  for (const line of names) {
+    used += estimateTokens(line) + 1
+    if (used > SEARCH_FAILED_BUDGET) break
+    kept.push(line)
+  }
+  return reply(note(kept.length), kept)
 }
 
 /** find-skill's answer when no listing has been folded in this session (no key, or none arrived yet). */

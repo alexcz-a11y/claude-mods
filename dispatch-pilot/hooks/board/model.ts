@@ -265,9 +265,19 @@ function nextOf(cfg: Config, s: { session: SessionState; turn: TurnState | null;
   return { main: `再 ${n} 步`, sub: `每 ${every} 步评估一次 · 同一失败复现或连续两步失败会提前`, ahead: n }
 }
 
+/** What shadow mode does: judge and record, change nothing (design 5.10). */
+const SHADOW_NOTE = '只记录，不改'
+
+// This turn's skill: its name, and in shadow (recorded, not suggested) the words that say so.
+function skillOf(thisTurn: readonly Decision[]): string | null {
+  const d = thisTurn.findLast((x) => x.kind === 'skill' && x.to !== null)
+  if (d === undefined || d.to === null) return null
+  return d.applied ? d.to : `${d.to}（${SHADOW_NOTE}）`
+}
+
 function featuresOf(cfg: Config, s: BoardState & { locked: boolean; ask: boolean; agents: number }): BoardModel['features'] {
   const noBackend = s.ask ? null : '没有可用的后端'
-  const judging = noBackend ?? (cfg.mode === 'shadow' ? '只记录，不改' : null)
+  const judging = noBackend ?? (cfg.mode === 'shadow' ? SHADOW_NOTE : null)
   const every = s.session.codeMode
     ? cfg.midrunEveryScripts === 0
       ? '按脚本结果的评估关着'
@@ -281,7 +291,7 @@ function featuresOf(cfg: Config, s: BoardState & { locked: boolean; ask: boolean
     [cfg.submitShift, true, judging, ''],
     [cfg.midrunShift, true, judging, every],
     [cfg.agentShift, true, judging, s.agents > 0 ? `本轮 ${s.agents} 个` : ''],
-    [cfg.skills, false, noBackend ?? (s.skills.length === 0 ? '还没拿到 skill 列表' : null), `${s.skills.length} 个候选`],
+    [cfg.skills, false, noBackend ?? (s.skills.length === 0 ? '还没拿到 skill 列表' : cfg.mode === 'shadow' ? SHADOW_NOTE : null), `${s.skills.length} 个候选`],
     [cfg.verifyEffort, false, unread, ''],
     [cfg.progressNote, false, s.session.progressBlocked ? '模型被拒绝' : null, ''],
   ]
@@ -339,6 +349,6 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
     backend: backendOf(cfg, recent),
     // Read back only what the mod set (a model, an effort): an agent it left alone has nothing to check.
     agents: agents.map((d) => ({ type: agentTypeOf(d), text: d.to ?? '', reading: d.applied ? readoutOf(d.sent, null) : null })),
-    skill: thisTurn.findLast((d) => d.kind === 'skill' && d.to !== null)?.to ?? null,
+    skill: skillOf(thisTurn),
   }
 }

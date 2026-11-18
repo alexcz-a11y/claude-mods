@@ -548,3 +548,12 @@ test('不收 effort 只从第 1 步起才这样说', () => {
   expect(at(0).status.kind).toBe('starting')
   expect(at(0).next.sub).not.toBe('这个模型不收 effort')
 })
+
+// Final review I4c: in shadow a message's skill is judged and recorded, and the board says nothing was changed.
+test('shadow：功能里 skill 那一行写「只记录，不改」，这条消息记下的 skill 也这样标', () => {
+  const s = scenes.start
+  const recent = s.recent.map((d) => (d.kind === 'skill' ? { ...d, applied: false } : d))
+  const m = boardModel(readConfig({ drexApiKey: 'k', mode: 'shadow' }), { ...s, recent })
+  expect(m.features[3]).toEqual({ label: 'skill 推荐', state: 'inactive', note: '只记录，不改' })
+  expect(m.skill).toBe('superpowers:systematic-debugging（只记录，不改）')
+})

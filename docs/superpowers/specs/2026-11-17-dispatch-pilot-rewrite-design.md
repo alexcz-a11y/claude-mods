@@ -307,10 +307,11 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 
 ### 5.6 skill
 
-- `prompt.attachment` 收到主循环的 `skill_listing` 时，解析出里面的 skill 名和说明，按名字并进会话状态里的候选集；这样候选只含引擎允许模型调用的 skill。引擎给的是增量（实测：第一次 169 条，会话中途加一个 skill 时再来一条只有它的列表），所以候选只合并、不整个替换，同名的新条目替换旧的，mod 从不清空它。然后把这条附件换成固定的一句：说明列表被收起，合适的 skill 会随消息推荐，其他的用 `dispatch-pilot:find-skill` 查。agent 的列表原样放行。
+- `prompt.attachment` 收到主循环的 `skill_listing` 时，解析出里面的 skill 名和说明，按名字并进会话状态里的候选集；这样候选只含引擎允许模型调用的 skill。引擎给的是增量（实测：第一次 169 条，会话中途加一个 skill 时再来一条只有它的列表），所以候选只合并、不整个替换，同名的新条目替换旧的，mod 从不清空它。然后把这条附件换成固定的一句：说明列表被收起，合适的 skill 会随消息推荐，其他的用 `dispatch-pilot:find-skill` 查。agent 的列表原样放行。`shadow` 里列表照样解析、并进候选集，但原样放行（5.10 节）。
 - 发消息时的推荐照 TypeSafe cookbook 的结构和门槛（3.4 节）。第一次请求和 effort 题合并成同一次请求。需要第二次请求时才发。最多推荐一个 skill，放进 `prompt.submit` 的 `context`，内容是 skill 名、说明和「用 Skill 工具加载」的一句。不推荐时什么也不加。
+- 晚到的第一份列表：会话的第一份列表在第一次 `prompt.submit` 之后才到（实测），这时候选集是空的，那条消息只问了 effort 题。这条消息（人发的、开了一轮的）开的那一轮记一个标记；这一轮里第一份主循环的列表到达时，并进候选之后就用它判断这条消息：同样的两步请求，合起来在 `submitTimeoutMs` 之内，推荐的那段接在收起列表的那句话后面，skill 决定记在这一轮上。每轮最多一次，`shadow` 里不做；请求失败时照常收起，记一条失败的 skill 决定。
 - Drex 没有 skill 配方，用同一结构；门槛初值同 cookbook，校准后各存各的。「都不合适」的处理各照各的文档：Jev 用陪伴的 Noul，不加 "other" 选项；Drex 在选项里加一个 `other`。
-- `find-skill`：plugin 自带的 skill（`skills/find-skill/SKILL.md`），`skill.prompt` 收到它时，用参数里的几个词对候选集做同样的两步判断，回答最多三个合适的 skill 名和说明。
+- `find-skill`：plugin 自带的 skill（`skills/find-skill/SKILL.md`），`skill.prompt` 收到它时，用参数里的几个词对候选集做同样的两步判断，回答最多三个合适的 skill 名和说明。判断请求没成（失败、超时、第二次请求赶不上时限）时，回答照实说没查成，再列出候选集里全部的 skill 名和说明；超过约 6000 token 时每条说明截成一样长，还放不下就只列名字。列表已经被收起，没查成时不能让主 agent 比原样拿到列表时知道得更少。
 - 候选超过 255 个时（Drex 每题上限）按来源分批问。
 
 ### 5.7 后端
@@ -338,11 +339,11 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 
 ### 5.10 配置（`userConfig`）
 
-`enabled`、`board`（看板，默认开；关掉后不画任何界面，只剩 `/dp` 的文字版）、`mode`（`apply` 或 `shadow`，后者只判断和记录、不改任何东西；默认 `apply`）、`backend`、`fallback`（默认关）、`drexApiKey`、`jevApiKey`（sensitive）、`drexModel`、`jevModel`、`midrunEverySteps`（普通会话，默认 8）、`midrunEveryScripts`（Code Mode 会话，默认 1）、`midrunMaxNotes`、`verifyEffort`（默认开）、`progressNote`（校准前关，默认值由校准定）、`progressNoteModel`（默认 `haiku`）、`agentModels`、`fableAgents`（默认关）、三个时限，以及四个布尔开关 `submitShift`、`midrunShift`、`agentShift`、`skills`，分别开关发消息定档、中途换挡、agent 定档和 skill 一组功能，默认都开。没有密钥的后端视为不可用；两个都没有时 mod 什么也不做，并在 `/dp` 里说明。
+`enabled`、`board`（看板，默认开；关掉后不画任何界面，只剩 `/dp` 的文字版）、`mode`（`apply` 或 `shadow`，后者只判断和记录、不改任何东西；默认 `apply`。shadow 里 skill 列表照样并进候选集但原样放行，发消息时照样问 skill 的题、记 skill 决定，不加推荐，看板上 skill 那一行写「只记录，不改」）、`backend`、`fallback`（默认关）、`drexApiKey`、`jevApiKey`（sensitive）、`drexModel`、`jevModel`、`midrunEverySteps`（普通会话，默认 8）、`midrunEveryScripts`（Code Mode 会话，默认 1）、`midrunMaxNotes`、`verifyEffort`（默认开）、`progressNote`（校准前关，默认值由校准定）、`progressNoteModel`（默认 `haiku`）、`agentModels`、`fableAgents`（默认关）、三个时限，以及四个布尔开关 `submitShift`、`midrunShift`、`agentShift`、`skills`，分别开关发消息定档、中途换挡、agent 定档和 skill 一组功能，默认都开。没有密钥的后端视为不可用；两个都没有时 mod 什么也不做，并在 `/dp` 里说明。
 
 ### 5.11 放行规则
 
-以下情况一律放行（不改 effort、不改模型、不加说明、不换 skill 列表以外的任何东西），并记一条记录：请求失败、超时、回答缺字段或题的类型不对、Drex 回答的 `model` 和固定版本不一致、模型不接受 effort（`e.effort` 缺省）、`mode` 为 `shadow`。hook 自己抛错时引擎会跳过它，所以每个 hook 的主体都包在一层兜底里，保证总是走到 `next(e)`。
+以下情况一律放行（不改 effort、不改模型、不加说明、不换 skill 列表以外的任何东西），并记一条记录：请求失败、超时、回答缺字段或题的类型不对、Drex 回答的 `model` 和固定版本不一致、模型不接受 effort（`e.effort` 缺省）、`mode` 为 `shadow`。skill 的请求失败时列表照样收起（收起不靠判断），推荐没有；`find-skill` 的判断没成时列出候选（5.6 节）。hook 自己抛错时引擎会跳过它，所以每个 hook 的主体都包在一层兜底里，保证总是走到 `next(e)`。
 
 ### 5.12 实际发出的档位（运行时读数）
 
@@ -558,3 +559,4 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 29. **什么都没问、什么都没改的 agent 派出不记决策。** 只有上限改了模型的照样记一条（5.5 节）。
 30. **三种读数，三种字。** 换挡和 agent 的读数分「已发出」「没发出」「未核对」三种，各有各的字；「（还没发出）」只留给说明还排着、没放上行的换挡。状态行和脚部标签取这一步自己格子的读数，这一步还没读到就是「未核对」，不拿更早一步的读数（同一模型的 agent 在跑时主循环的读数会认不准）。agent 只在 mod 给它定了模型或 effort 时才有读数，模型从 `lastRequest.model` 读回，按层级比（5.12、5.14 节）。
 31. **一次回答的结果是一个工作步。** 普通会话里一次回答并行调了几个工具，回答之后的第一条结果结束这一步，下一条回答之前到达的其余结果并进这一步的记录（工具名加进去，有一条失败就算失败，结果文字取失败的那条，否则取最后一条），不再给工作步、失败步和连续失败计数；并进来的结果只有把这一步变成失败时才可能是检查点，而且只按失败成簇算，不按步数算。按每条结果数步时，三条并行结果会算成三步，「再 N 步」和换挡间隔在一次请求之内就走完，两条并行的失败会被当成连续两步报错（GLOSSARY、5.14 节）。Code Mode 的回执和脚本结果不变。
+32. **skill 的三处补齐。** 第一条消息早于第一份列表时，到列表来时再判断那条消息（每轮一次，不在 shadow 里做）；`find-skill` 没查成时列出记下的候选（约 6000 token 以内），因为列表已经收起，查不成就什么也不给会让主 agent 比不装 mod 时更差；shadow 里列表记下候选、照样问 skill 的题并记决定、不加推荐，这样 shadow 跑出来的记录能看出 skill 推荐会怎么判断（5.6、5.10、5.11 节）。代价：晚到的那次判断让那份列表的附件多等两次请求（合起来不超过 `submitTimeoutMs`）。

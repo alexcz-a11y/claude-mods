@@ -49,8 +49,9 @@ export const register: Register = (on, options) => {
   on('prompt.attachment', { type: 'skill_listing' }, async ($, e, next) => {
     const r = await next(e)
     const text = r.text
-    if (e.agentId !== undefined || !cfg.enabled || !cfg.skills || cfg.mode === 'shadow' || !canAsk(cfg) || text === null) return r
-    return (await failOpen($, 'prompt.attachment', null, () => foldListing($, text))) ?? r
+    // In shadow the listing is recorded and left whole (foldListing): its messages are judged, nothing is changed.
+    if (e.agentId !== undefined || !cfg.enabled || !cfg.skills || !canAsk(cfg) || text === null) return r
+    return (await failOpen($, 'prompt.attachment', null, () => foldListing($, cfg, text))) ?? r
   })
 
   on('skill.prompt', { skill: /(^|:)find-skill$/ }, async ($, e, next) => {

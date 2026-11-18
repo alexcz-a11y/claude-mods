@@ -103,6 +103,8 @@ export type TurnState = {
   /** This turn's last submit or mid-run Decision, and its shifts made (markOf up or down; SHIFTS_KEEP at most): the board's. */
   lastJudged: Decision | null
   shifts: Decision[]
+  /** Its message was sent before any skill listing was recorded, and is judged at the first one in this turn (once). */
+  skillsDue: boolean
 }
 
 /** One per dispatched agent, by agentId. model: the tier the mod gave it at its spawn (null: none), read back with its effort. */
@@ -141,6 +143,7 @@ export function newTurn(turnId: string, request: string): TurnState {
     pendingMark: null,
     lastJudged: null,
     shifts: [],
+    skillsDue: false,
   }
 }
 

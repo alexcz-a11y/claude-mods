@@ -19,7 +19,7 @@ import type { SessionState, TurnState } from '../state.ts'
 import { clip, submitState } from '../statebuild.ts'
 import type { PreviousTurn } from '../statebuild.ts'
 import { ownLevel, settleSubmit } from '../submit.ts'
-import { suggestSkill } from './skills.ts'
+import { holdUnjudged, suggestSkill, takeUnjudged } from './skills.ts'
 
 // The state atoms this file reads and writes, one line each and alike in every file that declares them: the module
 // scan takes only a const of the file that reads or writes (eval/validate.ts checks the copies are the same text).
@@ -45,6 +45,9 @@ export async function judgeMessage($: EngineInterface, cfg: Config, m: { text: s
   // No backend to ask (the chosen one has no key): as with the switch off, nothing is asked and nothing recorded.
   const effortAsked = cfg.submitShift && session.lock === null && canAsk(cfg)
   const skills = cfg.skills && canAsk(cfg) ? await read($, SKILLS) : []
+  // No candidate yet (a session's first listing comes after its first message): judged at that listing (final review
+  // I4a). Shadow suggests nothing, so it waits for no listing.
+  if (cfg.skills && canAsk(cfg) && skills.length === 0 && cfg.mode === 'apply') holdUnjudged(text)
   if (!effortAsked && skills.length === 0) return null
   // Every question this message is asked goes into the one map and the one request; each part then reads the
   // answers it needs (the effort: open, mechanical, unknown_cause, continues; the skill: skill_<n> and the gate).
@@ -82,7 +85,8 @@ export async function startTurn($: EngineInterface, turnId: string, text: string
     // Compared again on what update() reads: a decision for this very text written meanwhile is kept.
     await update($, SESSION, (s) => (s.pending !== null && s.pending.request !== text ? { ...s, pending: null } : s))
   }
-  await update($, TURN, () => newTurn(turnId, text))
+  const skillsDue = takeUnjudged(text)
+  await update($, TURN, () => ({ ...newTurn(turnId, text), skillsDue }))
   return null
 }
 
