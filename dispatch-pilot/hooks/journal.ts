@@ -1,7 +1,7 @@
 // Reads the rows the engine appends to the session (session.append) into a small record of the current
 // turn: which steps ran, with which tools, whether they failed and how their results began. midrun.ts decides
 // from it when to judge the effort again. Pure: no $ calls. The row shapes are the engine's, measured on
-// 2.1.326/2.1.327 (design 3.2, E7 and E13; the rows of a real Code Mode turn in the plan's real-rows.md); only
+// 2.1.326/2.1.327 (design 3.2, E7 and E13; the rows of a real Code Mode turn in docs/research/dispatch-pilot-real-rows.md); only
 // main-loop rows count, a subagent's row is 'other'.
 import { clip } from './statebuild.ts'
 import type { StepRecord } from './statebuild.ts'

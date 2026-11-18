@@ -1,8 +1,7 @@
 // Builds session.append rows in the shapes the engine sends them, so tests feed the mod real rows.
-// Sources: the rows of a real Code Mode turn on 2.1.327 (.superpowers/sdd/2026-11-18-dispatch-pilot-rewrite/
-// real-rows.md), the generated types (SessionAppendInput, SessionAppendMessage, SessionAppendOrigin), design 3.2
-// rows E7 and E13, and image-pane's called() for the two rows of an ordinary tool call. Main-loop rows carry
-// no agentId; add one to make a subagent's row.
+// Sources: the rows of a real Code Mode turn on 2.1.327 (docs/research/dispatch-pilot-real-rows.md), the generated
+// types (SessionAppendInput, SessionAppendMessage, SessionAppendOrigin), design 3.2 rows E7 and E13, and image-pane's
+// called() for the two rows of an ordinary tool call. Main-loop rows carry no agentId; add one to make a subagent's row.
 import type { SessionAppendInput } from 'claude-code'
 
 const MODEL = { kind: 'model', model: 'claude-opus-5-5' } as const
@@ -63,7 +62,7 @@ export function deliveryResult(n: number, result: string, o: { error?: boolean }
   return delivery(replEvent(n, result, o.error))
 }
 
-/** The poll_events delivery row that comes with a Poll result: it has no blocks (E13, real-rows.md). */
+/** The poll_events delivery row that comes with a Poll result: it has no blocks (E13, dispatch-pilot-real-rows.md). */
 export function emptyDelivery(): SessionAppendInput {
   return delivery(null)
 }
@@ -77,7 +76,7 @@ export function deliveryEvent(kind: string, body: string, n = 90): SessionAppend
   return delivery(`${nonceLine(n)}\n<event nonce="N${n}" kind="${kind}" at="2026-11-18T12:56:20.570Z">\n${body}\n</event>`)
 }
 
-/** The queue record of a script's result event: the bare event, no row of the conversation (types, real-rows.md). */
+/** The queue record of a script's result event: the bare event, no row of the conversation (types, dispatch-pilot-real-rows.md). */
 export function queueRow(n: number, result: string, o: { error?: boolean } = {}): SessionAppendInput {
   return {
     message: { type: 'user', role: 'user', content: [{ type: 'text', text: evalEvent(n, result, o.error) }] },
@@ -88,7 +87,7 @@ export function queueRow(n: number, result: string, o: { error?: boolean } = {})
 }
 
 /**
- * An engine reminder appended mid-turn (output_style, date, …): door attachment, origin engine (real-rows.md).
+ * An engine reminder appended mid-turn (output_style, date, …): door attachment, origin engine (dispatch-pilot-real-rows.md).
  * With no text it is a record with no role and no blocks (prompt_snapshot, credential_org).
  */
 export function attachmentRow(name: string, text?: string): SessionAppendInput {
@@ -144,7 +143,7 @@ export function promptRow(text: string): SessionAppendInput {
 }
 
 /**
- * One Code Mode script whose step also called Poll, in the order real-rows.md shows: the REPL and Poll tool_use
+ * One Code Mode script whose step also called Poll, in the order dispatch-pilot-real-rows.md shows: the REPL and Poll tool_use
  * rows, the receipt, the calls inside the script, the queue record, the empty delivery, Poll's result, a reminder.
  */
 export function scriptByPoll(n: number, description: string, result: string, o: { error?: boolean; inner?: SessionAppendInput[] } = {}): SessionAppendInput[] {
@@ -161,7 +160,7 @@ export function scriptByPoll(n: number, description: string, result: string, o: 
 }
 
 /**
- * One Code Mode script whose step called no Poll (real-rows.md, step 0): the receipt, a snapshot record, the queue
+ * One Code Mode script whose step called no Poll (dispatch-pilot-real-rows.md, step 0): the receipt, a snapshot record, the queue
  * record, the delivery carrying the result, a reminder, and the queue record once more.
  */
 export function scriptByDelivery(n: number, description: string, result: string, o: { error?: boolean; inner?: SessionAppendInput[] } = {}): SessionAppendInput[] {

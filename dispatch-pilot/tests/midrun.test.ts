@@ -670,7 +670,7 @@ test('这一轮自己的 prompt 行在 turn.start 之前到：不算新输入', 
     answer: answers(SUBMIT_HOLD, HOLD),
     onSubmit: async (e) => {
       if (e.turnId !== undefined) return undefined
-      // The engine appends the prompt's row and its reminders inside prompt.submit, before turn.start (real-rows.md).
+      // The engine appends the prompt's row and its reminders inside prompt.submit, before turn.start (dispatch-pilot-real-rows.md).
       const rows = [promptRow(e.text), attachmentRow('date', "Today's date is 2026-11-18.")]
       own.push(...rows)
       await appendAll($, rows)

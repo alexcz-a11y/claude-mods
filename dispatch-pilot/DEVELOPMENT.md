@@ -70,7 +70,7 @@ dispatch-pilot/
 
 ## Code Mode 一轮里的行
 
-一次实测（2.1.327，交互会话，Sonnet 5.5，探针记下每一行 `session.append`）：模型依次跑三个脚本，每个等 6 秒；一轮进行中又打了一条消息。逐行的记录在 `.superpowers/sdd/2026-11-18-dispatch-pilot-rewrite/real-rows.md`，`tests/support/rows.ts` 照它造行。看到的：
+一次实测（2.1.327，交互会话，Sonnet 5.5，探针记下每一行 `session.append`）：模型依次跑三个脚本，每个等 6 秒；一轮进行中又打了一条消息。逐行的记录在 `docs/research/dispatch-pilot-real-rows.md`，`tests/support/rows.ts` 照它造行。看到的：
 
 - 见到的 door：`hook-context`、`prompt`、`attachment`、`response`、`tool-result`、`queue`、`delivery`、`notice`。一轮中途引擎的提醒走 `attachment`（origin `engine`），不走 `delivery`。
 - 这一轮自己的 prompt 行（连同它的 attachment 行和 hook-context 行）在 `turn.start` 之前到达。
@@ -171,4 +171,9 @@ E1 到 E9 是 2.1.326（2026-11-17），E6 和 E10 到 E18 是 2.1.327（2026-11
 
 ## 实机验证
 
-在普通会话和 Code Mode 会话里实际跑完三项换挡和 skill 推荐之后填写。
+下面都是没有密钥时实测的（2.1.327，tmux 里的交互会话），所以一次判断请求也没有发出过。**带着真实密钥在普通会话和 Code Mode 会话里实际跑完三项换挡和 skill 推荐的验证还没有做。**
+
+- **普通会话**（haiku，另加一个只挂 `http.fetch` 的一次性探针）：引擎的请求到 hook 时 `next.origin.plugin` 是 `engine`，请求体是字符串；`JSON.parse` 一次 0–3 ms（请求体 9 KB 到 207 KB）。主循环的请求带 `thread` 和 `output_config.effort`，旁路的请求（323 B、4 KB、约 200 KB）不带 `thread`；`body.model` 就是这一步的模型（`claude-haiku-5-5`）。一轮结束后时间轴那一行是「▮▮▯▯▯ medium  – 空闲   上一轮结束在 medium   下次评估 不评估 · 没有可用的后端 · 普通会话」。加载 `dispatch-pilot:find-skill` 时由 mod 的 `skill.prompt` hook 回答（模型读到的是「还没有记下 skill」那一句，不是字面的 Query 行）。调试日志里没有 dispatch-pilot 的错误。
+- **Code Mode 会话**（haiku，三个脚本）：Code Mode 的提示照常出现；一轮进行中时间轴每步多一格（第 1 步 … 第 5 步），在 medium 读到「✓ 已发出」，读数在 Code Mode 里也能用；会话类型在第一条回执行之前写「普通会话」，之后是「Code Mode 会话」；取值 ≤ 1 ms。`find-skill` 在 Code Mode 里同样由 mod 回答（mod 不调 `next`，排在它后面加载的探针看不到这个事件）。当时发现没有密钥时 mod 仍在发消息时和每个检查点评估，每次以没有密钥失败并记一条失败（「评 ×××××」）；之后改成没有可用的后端时不评估、不记录（`tests/midrun.test.ts` 里「没有可用的后端」的几条）。
+- **探针**（一次性的 mod）：挂 `ui.render`（AbovePrompt、SessionMode）不挡 Code Mode，band 画在提示符上方，SessionMode 的文字在脚部那一行的右端；`turn.start` 在 `prompt.submit` 的 `next(e)` 里触发（submit 的 hook 进入 → `turn.start` → submit 的 `next` 返回 → 第 0 步），`e.text` 就是 `prompt.submit` 往下传的文字，一轮进行中打的消息排队，到它自己那一轮开始时才触发它的 `prompt.submit`，mod 注册的本地命令不触发 `prompt.submit`；Code Mode 一轮里的行、skill 列表的增量和热重载见上面各条。
+- **agent 的模型**（2026-11-18）：见上面「调用没写模型的 agent 用它自己定义里的模型」。

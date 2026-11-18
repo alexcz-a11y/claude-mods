@@ -132,7 +132,7 @@
     "progressNote": {
       "type": "boolean",
       "title": "进展记录",
-      "description": "每个中途检查点之后，另调一次模型写一行进展，放进看板。尚未校准，默认关；开着时会多发一次给会话自己的模型的调用。",
+      "description": "每个中途检查点之后，另调一次模型写一份进展记录，放进下一次中途判断交给决策模型的 state，不显示在看板上。尚未校准，默认关；开着时会多发一次给会话自己的模型的调用。",
       "default": false
     },
     "progressNoteModel": {

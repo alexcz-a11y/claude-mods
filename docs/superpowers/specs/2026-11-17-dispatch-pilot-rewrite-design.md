@@ -40,7 +40,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 - Code Mode 是实验功能，只在有 TUI 的交互终端里可用，`claude -p` 这类方式不生效。
 - 2.1.326 及以前，它不和挂了 `tool.call`、`agent.spawn` 等事件的 mod 一起开。2.1.327 起不再因此拒绝启动（release note："Changed Code Mode to no longer refuse to start when an installed mod hooks tool calls"）；实测见 3.2 节 E10 到 E12。本 mod 因此要求 2.1.327 及以上。
 - 不论普通会话还是 Code Mode 会话，都不打开 OpenTelemetry（用户 2026-11-18 的要求，避免泄漏隐私）。mod 自己不开，测试和校准也不开。另一个事实：开了它的会话里 Code Mode 不可用（2.1.327 启动提示）。
-- 本设计仍不注册 `tool.call` 一类的事件，也不用 `$.tool.register`：依据从结果行读（5.4 节），脚本内部的调用上不挂任何 hook，也就不会给它们加等待。
+- 本设计仍不注册 `tool.call` 一类的事件，也不用 `$.tool.register`：依据从结果行读（5.4 节），脚本内部的调用本身不挂任何 hook。它们的结果行仍要经过 mod 的 `session.append` hook，那里会读写状态；这给每条结果行添了多少时间没有测过。
 - Anthropic 没有专讲 Claude Code Code Mode 的博客，官方只有文档页（https://code.claude.com/docs/en/code-mode ）和 changelog。收益来自更少的固定工具说明和不进上下文的中间结果。本设计按第 2 节的反目标来保护它。
 
 ### 3.2 引擎行为（E1 到 E9：2.1.326，2026-11-17；E6 和 E10 到 E18：2.1.327，2026-11-18。都用一次性探针在 tmux 里的交互会话实测，探针不进仓库）
@@ -435,7 +435,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 ## 7. 测试
 
 - `claude plugin test`：每个 hook 的行为、`decide` 的各种分布、两个后端的请求体和回答解析、放行规则、限制（说明条数、间隔、上限）、5.12 节的读数（给 hook 一个来源为 `engine` 的请求，看它记下的档位，并确认请求原样放行）。发往决策模型的 `$.http.fetch` 全部打桩，不联网。
-- 一条静态检查：hooks 模块里没有 `tool.call`、`tool.check`、`tool.run`、`tool.judge`，也没有 `$.tool.register`，以保证不给脚本内部的调用加等待。接进 `scripts/check.sh`。
+- 一条静态检查：hooks 模块里没有 `tool.call`、`tool.check`、`tool.run`、`tool.judge`，也没有 `$.tool.register`，以保证脚本内部的调用本身不挂 hook（它们的结果行仍经过 `session.append`，那里读写状态，开销没有测过）。接进 `scripts/check.sh`。
 - 看板：数据函数用六个场景做单元测试；两个端各用 `$.ui.mount` 挂载时间轴和面板，断言档位、状态、下次评估、功能状态这几处的文字，以及面板开着时时间轴只有 3 行。
 - 实机：普通会话和 Code Mode 会话各跑一遍三项换挡和 skill 推荐，记进 DEVELOPMENT.md。换挡有没有发出去，看 mod 自己记下的实际档位（5.12 节，`/dp log`），不用输出量或思考量来推断。实机测试不开 OpenTelemetry。
 

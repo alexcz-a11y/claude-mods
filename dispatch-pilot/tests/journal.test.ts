@@ -286,9 +286,9 @@ test('applyRow 不改它收到的记录', () => {
   expect(before).toEqual(copy)
 })
 
-// The shapes of real-rows.md (a real Code Mode turn on 2.1.327).
+// The shapes of docs/research/dispatch-pilot-real-rows.md (a real Code Mode turn on 2.1.327).
 
-test('real-rows.md 的行：delivery 是 poll_events 附件，Poll 结果可带 tools-used 行，queue 和 attachment 行不算', () => {
+test('dispatch-pilot-real-rows.md 的行：delivery 是 poll_events 附件，Poll 结果可带 tools-used 行，queue 和 attachment 行不算', () => {
   const delivered = deliveryResult(1, '1')
   expect(delivered.message).toMatchObject({ type: 'attachment', name: 'poll_events', role: 'user' })
   expect(delivered.origin).toEqual({ kind: 'engine' })

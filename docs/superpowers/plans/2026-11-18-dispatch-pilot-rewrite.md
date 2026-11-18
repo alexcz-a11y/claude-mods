@@ -1250,7 +1250,7 @@ Expected: 两条 `grep` 各打印出文件名；每个文件里时间轴的行�
 - `dispatch-pilot/README.md`（写给使用者）：做什么（三项换挡、skill 一组功能）；要求 Claude Code 2.1.327；安装；配置表（Task 1 的那张，加一列说明）；Code Mode 会话里的行为（每次脚本结果判断一次、说明行长什么样）；发出去的内容（发给 Nace 或 TypeSafe 的 state 有哪些字段；`progressNote` 开着时另有发给会话自己模型的调用；不开 OpenTelemetry）；看板怎么读（时间轴的格子和记号、面板的分区）和 `/dp` 的用法；门槛是初值、尚未校准；测试时的 Claude Code 版本。
 - `dispatch-pilot/DEVELOPMENT.md`：文件划分（本计划的「文件结构」）；测试怎么写（`tests/support/world.ts` 和 `rows.ts` 的用法）；设计 3.2 节 E1 到 E18 的表原样搬来；和 cookbook 不同的那一处（Task 10）；看板怎么目测（Task 15 的探针插件）；实机验证的结果留给 Task 17 填。
 - ADR 0030（0029 在 `dp/switch-note` 分支上已经被占用）：这次重写做了什么决定、取代 ADR 0028（两个 plugin）以及旧看板（ADR 0004、0011、0012）、看图核对、失败升档这些旧决定的哪几条；旧 ADR 不改。
-- `CLAUDE.md`：Code Mode 那一条改成 2.1.327 的事实（挂这些事件不再挡 Code Mode；dispatch-pilot 仍然不挂 `tool.call` 一类事件，理由是不给脚本内部的调用加等待；`eval/validate.ts` 检查）；删掉 extras 和 ADR 0028 的说法；`board-scenes` 那条命令的说明改成新看板的时间轴和面板；热重载那一条里的例子换成现在的模块级变量（读数的 `openMain`、进展记录的在途调用）；加一条「任何会话、任何测试都不打开 OpenTelemetry」。
+- `CLAUDE.md`：Code Mode 那一条改成 2.1.327 的事实（挂这些事件不再挡 Code Mode；dispatch-pilot 仍然不挂 `tool.call` 一类事件，理由是脚本内部的调用本身不挂 hook，它们的结果行仍经过 `session.append`，那里读写状态，开销没有测过；`eval/validate.ts` 检查）；删掉 extras 和 ADR 0028 的说法；`board-scenes` 那条命令的说明改成新看板的时间轴和面板；热重载那一条里的例子换成现在的模块级变量（读数的 `openMain`、进展记录的在途调用）；加一条「任何会话、任何测试都不打开 OpenTelemetry」。
 - `GLOSSARY.md`：去掉只属于旧实现的词条，加上「检查点」「说明行」「分档题」「条件题」「进展记录」「实际档位」「时间轴」「分区面板」，「看板」一条照新看板重写。
 - 根 `README.md`：去掉安装 extras 的那一行，更新 dispatch-pilot 的一句介绍。`marketplace.json` 的说明同步。
 
