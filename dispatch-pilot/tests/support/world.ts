@@ -33,6 +33,8 @@ export type WorldOptions = {
   store?: Record<string, unknown>
   /** What $.agent.list() answers. */
   agents?: unknown[]
+  /** Mock-clock ms the n-th $.agent.list() call (from 1) waits before it answers; 0 or left out: at once. */
+  listDelay?: (call: number) => number
   /** The text $.model.complete answers with; null (or no option) refuses the call, so it rejects. */
   complete?: (e: any) => string | null
   /** What $.session.surfaces() answers; ['terminal'] when left out. */
@@ -143,8 +145,10 @@ export function world(on: On, o: WorldOptions = {}) {
     commands.push({ name: e.name, description: e.description })
     return { value: { command: e.name } }
   })
-  on('agent.list', () => {
+  on('agent.list', async () => {
     listed.calls += 1
+    const ms = o.listDelay?.(listed.calls) ?? 0
+    if (ms > 0) await clock.sleep(ms)
     return { value: (o.agents ?? []) as never }
   })
   on('model.complete', (_$, e) => {

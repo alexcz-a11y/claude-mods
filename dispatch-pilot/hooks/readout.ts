@@ -64,26 +64,33 @@ export function classify(i: { originPlugin: string | undefined; url: string; bod
   return { kind: 'main', effort: isRecord(config) && isLevel(config.effort) ? config.effort : null }
 }
 
-/** The check a turn waits on: the Decision's id and the level it should bring. queued: its note waits for a row, so no request carries the level yet. */
+/** The check a turn waits on: the Decision's id and the level the next main-loop request should carry. */
 export type Awaited = NonNullable<TurnState['unverified']>
 
+type CheckOf = { turnId: string; id: string; level: Level; queuedNote: string | null }
+
 /**
- * The turn waiting on a check of a Decision just recorded (a newer one takes the place of any before it, which stays as
- * it is). `queuedNote`: the note the shift queued, if it did; the check waits with it while it is still the turn's
- * pendingNote. Unchanged when the turn is no longer that turn or no longer at that level.
+ * The turn once a shift's Decision is recorded (controller ruling). A shift whose note is queued keeps its check beside
+ * that note (queuedCheck) and leaves the turn's check alone: until the note is on a row the requests carry the old
+ * level, and they still check the Decision before it. Any other shift's check takes the turn's (an older one stays as
+ * it is). Unchanged when the turn is no longer that turn or no longer at that level.
  */
-export function awaitCheck(turn: TurnState, c: { turnId: string; id: string; level: Level; queuedNote: string | null }): TurnState
-export function awaitCheck(turn: TurnState | null, c: { turnId: string; id: string; level: Level; queuedNote: string | null }): TurnState | null
-export function awaitCheck(turn: TurnState | null, c: { turnId: string; id: string; level: Level; queuedNote: string | null }): TurnState | null {
+export function awaitCheck(turn: TurnState, c: CheckOf): TurnState
+export function awaitCheck(turn: TurnState | null, c: CheckOf): TurnState | null
+export function awaitCheck(turn: TurnState | null, c: CheckOf): TurnState | null {
   if (turn === null || turn.turnId !== c.turnId || (turn.wanted ?? turn.base) !== c.level) return turn
-  const queued = c.queuedNote !== null && turn.pendingNote === c.queuedNote
-  return { ...turn, unverified: { id: c.id, level: c.level, queued } }
+  const check = { id: c.id, level: c.level }
+  if (c.queuedNote !== null && turn.pendingNote === c.queuedNote) return { ...turn, queuedCheck: { ...check, note: c.queuedNote } }
+  // A queued check whose note is gone (placed, or dropped by this shift) waits on nothing any more.
+  const queuedCheck = turn.queuedCheck !== null && turn.queuedCheck.note === turn.pendingNote ? turn.queuedCheck : null
+  return { ...turn, unverified: check, queuedCheck }
 }
 
-/** The turn once its queued note is on a row: from the next request on, the level is sent and can be checked. */
-export function notePlaced(turn: TurnState): TurnState {
-  const w = turn.unverified
-  return w !== null && w.queued ? { ...turn, unverified: { ...w, queued: false } } : turn
+/** The turn once a queued note is on a row: its shift's check becomes the turn's, due from the next request on. */
+export function notePlaced(turn: TurnState, note: string): TurnState {
+  const q = turn.queuedCheck
+  if (q === null) return turn
+  return q.note === note ? { ...turn, unverified: { id: q.id, level: q.level }, queuedCheck: null } : { ...turn, queuedCheck: null }
 }
 
 /** What a reading writes on the Decision it checks: the level when the request carried it, 'not-sent' when it carried another or none, 'unverified' when it could not be told for the main loop's. */
@@ -98,12 +105,12 @@ export function sentOf(r: Reading, level: Level): Decision['sent'] {
  * - an unsure one read while the turn's main step is open writes unverified and keeps the check, so a later main
  *   reading replaces it: unverified stays only when no clean main reading came;
  * - an unsure one read between steps (an agent's, a side request) does nothing.
- * A request read before a queued note is on its row says nothing of that Decision, nor does one read in a step of a
- * turn other than the one held. `open`: the main step open when the request was read.
+ * A request read in a step of a turn other than the one held does nothing either. `open`: the main step open when the
+ * request was read.
  */
 export function settleReading(turn: TurnState | null, r: Reading, open: OpenStep | null): { awaited: Awaited; sent: Decision['sent']; clears: boolean } | null {
   const awaited = turn?.unverified ?? null
-  if (turn === null || awaited === null || awaited.queued || r.kind === 'ignore') return null
+  if (turn === null || awaited === null || r.kind === 'ignore') return null
   if (r.kind === 'unsure' && !r.stepOpen) return null
   if (open?.turnId !== turn.turnId) return null
   return { awaited, sent: sentOf(r, awaited.level), clears: r.kind === 'main' }
@@ -122,7 +129,7 @@ export function withSent(log: readonly Decision[], id: string, sent: Decision['s
 /** The turn with that check cleared; unchanged when it waits on another by now. */
 export function clearCheck(turn: TurnState | null, awaited: Awaited): TurnState | null {
   const w = turn?.unverified ?? null
-  return turn !== null && w !== null && w.id === awaited.id && w.queued === awaited.queued ? { ...turn, unverified: null } : turn
+  return turn !== null && w !== null && w.id === awaited.id ? { ...turn, unverified: null } : turn
 }
 
 /**

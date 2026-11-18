@@ -70,8 +70,9 @@ export type DpTurnState = {
   journal: DpTurnJournal
   midrun: DpMidrunCounters
   pendingNote: string | null
+  queuedCheck: { id: string; level: DpLevel; note: string } | null
   progress: DpProgressNote | null
-  unverified: { id: string; level: DpLevel; queued: boolean } | null
+  unverified: { id: string; level: DpLevel } | null
   stepNo: number
   track: DpTrackCell[]
   pendingMark: DpMark | null

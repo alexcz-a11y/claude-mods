@@ -62,6 +62,11 @@ const LOG = 'log'
 /** Where a message a person sent comes from: only these are judged when sent (design 5.3). */
 const PERSON: readonly string[] = ['composer', 'sdk', 'bridge']
 
+/** Whether the readout runs (design 5.12): verifyEffort on, and the mod enabled (controller ruling: off, it does nothing at all). */
+function verifies(cfg: Config): boolean {
+  return cfg.enabled && cfg.verifyEffort
+}
+
 /** How much of the last answer the next message's judgement sees of it. */
 const LAST_REPLY_TOKENS = 300
 
@@ -295,7 +300,7 @@ async function takePending($: EngineInterface, cfg: Config, e: TurnStepInput, se
   // Recorded before the turn names it for a check, so a reading cannot amend a Decision not yet in the log.
   await record($, s.decision)
   const settled: TurnState = { ...own, base: s.base, wanted: s.wanted }
-  const check = cfg.verifyEffort && s.decision.applied && s.wanted !== null ? { turnId: e.turnId, id: s.decision.id, level: s.wanted, queuedNote: null } : null
+  const check = verifies(cfg) && s.decision.applied && s.wanted !== null ? { turnId: e.turnId, id: s.decision.id, level: s.wanted, queuedNote: null } : null
   const turn = check === null ? settled : awaitCheck(settled, check)
   await update($, TURN, () => turn)
   return turn
@@ -357,16 +362,19 @@ async function keepAgent($: EngineInterface, s: Spawned, agentId: string): Promi
   return null
 }
 
+/** A step as it goes on, and the agent whose check is due beside it (null: none). */
+type Stepped = { step: TurnStepInput; check: AgentState | null }
+
 // An agent's branch of turn.step: the effort decided at its spawn, on every step whose effort is a level, unless the
 // agent's own definition or call set one. The engine starts the agent inside agent.spawn's next(e), so its first
 // step can come before that next has answered with the agentId (measured: usually about 70 ms after, design 9).
 // Such a step finds no entry and goes as it came; the entry is written as soon as next answers, and the steps after
 // it carry the effort. Nothing is held for it: the step has no tool_use_id to tie it to the spawn waiting.
-async function agentStep($: EngineInterface, cfg: Config, e: TurnStepInput, agentId: string): Promise<TurnStepInput> {
+async function agentStep($: EngineInterface, cfg: Config, e: TurnStepInput, agentId: string): Promise<Stepped> {
   const held = await read($, { plugin: 'dispatch-pilot', key: 'agents', id: agentId } as const)
-  if (held === undefined) return e
-  // At the second step the mod saw, the first one's request is the agent's last. A failed check leaves the step alone.
-  if (cfg.verifyEffort && held.steps === 1) await failOpen($, 'turn.step', null, () => checkAgent($, agentId, held))
+  if (held === undefined) return { step: e, check: null }
+  // At the second step the mod saw, the first one's request is the agent's last: the check is due, beside this step.
+  const check = verifies(cfg) && held.steps === 1 ? held : null
   const effort = held.effort
   const writes = cfg.enabled && cfg.mode === 'apply' && effort !== null && isLevel(e.effort)
   let explicit = held.isEffortExplicit
@@ -379,7 +387,7 @@ async function agentStep($: EngineInterface, cfg: Config, e: TurnStepInput, agen
     const was = cur ?? held
     return { ...was, steps: was.steps + 1, isEffortExplicit: was.isEffortExplicit ?? explicit }
   })
-  return writes && explicit !== true && effort !== null ? { ...e, effort } : e
+  return { step: writes && explicit !== true && effort !== null ? { ...e, effort } : e, check }
 }
 
 // An agent's check (design 5.12): $.agent.list()'s lastRequest, the documented reading, read once after the first step
@@ -423,7 +431,7 @@ async function afterCheckpoint($: EngineInterface, cfg: Config, judged: Judged):
   const { decision, shift } = judged
   await record($, decision)
   const turnId = decision.turnId
-  if (cfg.verifyEffort && shift !== null && turnId !== null) {
+  if (verifies(cfg) && shift !== null && turnId !== null) {
     await update($, TURN, (cur) => awaitCheck(cur, { turnId, id: decision.id, level: shift.to, queuedNote: shift.queued }))
   }
 }
@@ -447,7 +455,7 @@ async function onRow($: EngineInterface, cfg: Config, e: SessionAppendInput): Pr
   await update($, TURN, (cur) => {
     box.plan = cur !== null && cur.turnId === held.turnId ? planRow(cur, row, kind, { cfg, codeMode, judging }) : null
     // A queued note placed on this row: from the next request on, its level is sent, so its check is due.
-    return box.plan === null ? cur : box.plan.note === null ? box.plan.turn : notePlaced(box.plan.turn)
+    return box.plan === null ? cur : box.plan.note === null ? box.plan.turn : notePlaced(box.plan.turn, box.plan.note)
   })
   const plan = box.plan
   if (plan === null) return e
@@ -515,16 +523,26 @@ export function readout($: EngineInterface, e: { url: string; init?: HttpInit },
   if (reading.kind === 'ignore') return null
   // Marked before anything is awaited, so a second request of the same step is never read as its own.
   if (reading.kind === 'main' && open !== null) openMain = { ...open, matched: true }
-  return failOpen($, 'http.fetch', null, () => keepReading($, reading, open))
+  return keepReading($, reading, open)
 }
 
 // What a reading writes: the session's current level (a main-loop reading only), and the check it settles, on both
-// copies of the Decision.
+// copies of the Decision. Each fails on its own: a level that could not be written keeps no Decision from its check.
 async function keepReading($: EngineInterface, r: Reading, open: OpenStep | null): Promise<null> {
   if (r.kind === 'main') {
     const effort = r.effort
-    if ((await read($, SESSION)).lastSent !== effort) await update($, SESSION, (s) => ({ ...s, lastSent: effort }))
+    await failOpen($, 'http.fetch', null, () => keepLevel($, effort))
   }
+  await failOpen($, 'http.fetch', null, () => settleCheck($, r, open))
+  return null
+}
+
+async function keepLevel($: EngineInterface, effort: Level | null): Promise<null> {
+  if ((await read($, SESSION)).lastSent !== effort) await update($, SESSION, (s) => ({ ...s, lastSent: effort }))
+  return null
+}
+
+async function settleCheck($: EngineInterface, r: Reading, open: OpenStep | null): Promise<null> {
   const settled = settleReading(await read($, TURN), r, open)
   if (settled === null) return null
   // An unsure reading in the open step marks the Decision and leaves the check for the main reading.
@@ -619,13 +637,17 @@ export const register: Register = (on, options) => {
   // The one turn.step hook (no matcher may be registered twice): the main loop's branch, and an agent's (e.agentId set).
   on('turn.step', async function* ($, e, next) {
     const agentId = e.agentId
-    const out = await failOpen($, 'turn.step', e, () => (agentId === undefined ? mainStep($, cfg, e) : agentStep($, cfg, e, agentId)))
+    const plan = await failOpen<Stepped>($, 'turn.step', { step: e, check: null }, async () => (agentId === undefined ? { step: await mainStep($, cfg, e), check: null } : agentStep($, cfg, e, agentId)))
+    // An agent's check runs beside its step, which does not wait for it; the hook returns once both are done.
+    const held = plan.check
+    const checking = held !== null && agentId !== undefined ? failOpen($, 'turn.step', null, () => checkAgent($, agentId, held)) : null
     // Open for the readout while the step's request may go.
-    const close = cfg.verifyEffort ? openStep(out) : null
+    const close = verifies(cfg) ? openStep(plan.step) : null
     try {
-      return yield* next(out)
+      return yield* next(plan.step)
     } finally {
       close?.()
+      if (checking !== null) await checking
     }
   })
 
@@ -647,13 +669,13 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const agentId = e.agentId
-    await failOpen($, 'turn.complete', null, () => (agentId !== undefined && cfg.verifyEffort ? endAgent($, agentId) : endTurn($, e)))
+    await failOpen($, 'turn.complete', null, () => (agentId !== undefined && verifies(cfg) ? endAgent($, agentId) : endTurn($, e)))
     return next(e)
   })
 
   // Every request the engine and the plugins send passes here. Each goes on as it came; the readout is written beside
-  // it (design 5.12).
-  if (cfg.verifyEffort) {
+  // it (design 5.12). Not registered at all while the readout is off (verifyEffort, or the mod, off).
+  if (verifies(cfg)) {
     on('http.fetch', async ($, e, next) => {
       const keeping = readout($, e, next.origin.plugin)
       try {

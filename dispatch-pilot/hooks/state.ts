@@ -76,12 +76,11 @@ export type TurnState = {
   journal: TurnJournal
   midrun: MidrunCounters
   pendingNote: string | null
+  /** The check of the shift whose note is queued (note: that pendingNote); it becomes unverified once the note is on a row. */
+  queuedCheck: { id: string; level: Level; note: string } | null
   progress: ProgressNote | null
-  /**
-   * The Decision whose level the next main-loop request is checked against (Task 11), and that level. queued: its note
-   * still waits for a row that can carry it, so no request carries the level yet.
-   */
-  unverified: { id: string; level: Level; queued: boolean } | null
+  /** The Decision whose level the next main-loop request is checked against (Task 11), and that level. */
+  unverified: { id: string; level: Level } | null
   stepNo: number
   track: TrackCell[]
   pendingMark: Mark | null
@@ -113,6 +112,7 @@ export function newTurn(turnId: string, request: string): TurnState {
     journal: emptyJournal(),
     midrun: emptyCounters(),
     pendingNote: null,
+    queuedCheck: null,
     progress: null,
     unverified: null,
     stepNo: 0,

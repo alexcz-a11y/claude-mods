@@ -125,13 +125,20 @@ function changeText(d: Decision): string {
   return d.reason && d.reason !== 'hold' ? `${s} · ${d.reason}` : s
 }
 
+// A Decision with a level to read out: the main loop's (submit, midrun) once applied, an agent's when it decided an
+// effort (its to reads `<model> · <effort>`, `—` for none: one that only changed the model has nothing to read out).
+function readsOut(d: Decision): boolean {
+  if (!d.applied) return false
+  if (d.kind === 'submit' || d.kind === 'midrun') return true
+  return d.kind === 'agent' && typeof d.to === 'string' && !d.to.endsWith('· —')
+}
+
 // What the check of a Decision found: the level the request carried, or that it carried another; a level the mod
-// set (a shift made, an agent's effort) that no reading confirmed is unverified.
+// set that no reading confirmed is unverified.
 function sentText(d: Decision): string {
   if (d.sent === 'not-sent') return ' · 未发出'
   if (typeof d.sent === 'string' && d.sent !== 'unverified') return ` · 实际 ${d.sent}`
-  const checked = d.applied && (d.kind === 'submit' || d.kind === 'midrun' || d.kind === 'agent')
-  return checked || d.sent === 'unverified' ? ' · 未核对' : ''
+  return readsOut(d) || d.sent === 'unverified' ? ' · 未核对' : ''
 }
 
 function decisionLine(d: Decision): string {
