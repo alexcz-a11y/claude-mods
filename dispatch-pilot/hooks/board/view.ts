@@ -192,6 +192,7 @@ const STATUS: Record<BoardModel['status']['kind'], { mark: string; tone: Tone }>
   unverified: { mark: '–', tone: 'dim' },
   locked: { mark: '■', tone: 'info' },
   idle: { mark: '–', tone: 'dim' },
+  starting: { mark: '–', tone: 'dim' },
   none: { mark: '–', tone: 'dim' },
 }
 
@@ -238,6 +239,8 @@ function nextParts(m: BoardModel): Part[] {
 // The scale goes right after the track: a row too narrow for everything keeps it before the next evaluation, since
 // the cells cannot be read without it.
 function trackRows(m: BoardModel, columns: number, maxCells?: number): Row[] {
+  // No cell yet (the first step has not come, or the model takes no effort): no row with an empty 步 label.
+  if (m.track.length === 0) return []
   const fit = fitTrack(m.track, trackRoom(columns, maxCells))
   const scale = fit.per > 1 ? [text(`  每格 ${fit.per} 步`, 'dim')] : []
   const shift = m.shifts.at(-1)

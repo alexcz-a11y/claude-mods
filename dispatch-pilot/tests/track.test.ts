@@ -7,7 +7,7 @@ import { openStep, readout } from '../hooks/flows/readout.ts'
 import type { SessionState, TrackCell, TurnState } from '../hooks/state.ts'
 import { assistantToolUse, deliveryResult, replReceipt, scriptByPoll, toolResult } from './support/rows.ts'
 import { seedOf, standIn } from './support/standin.ts'
-import { KEYS, appendAll, dp, drexOk, noul, score, start, step, submit, turns, world } from './support/world.ts'
+import { KEYS, appendAll, complete, dp, drexOk, noul, score, start, step, submit, turns, world } from './support/world.ts'
 
 type World = ReturnType<typeof world>
 
@@ -259,4 +259,37 @@ test('没有密钥：一轮里每格都没有记号，pendingMark 从没写过�
   expect(turnWrites.filter((t) => t.pendingMark !== null)).toHaveLength(0)
   expect(efforts(w)).toEqual(['medium', 'medium', 'medium', 'medium'])
   expect(w.fetched).toHaveLength(0)
+})
+
+// The board built from what the mod wrote (controller ruling): between turn.start and step 0 the turn is starting.
+const boardOf = (w: World, options: Record<string, unknown> = KEYS) => boardModel(readConfig(options), { session: session(w), turn: turnState(w), recent: [], skills: [] })
+
+test('turn.start 之后、第 0 步之前看板是 starting；第 0 步带档位之后不是', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, () => HOLD) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  await complete($, 't1')
+  // The last turn's step left the session's level: the next turn's first row shows it while its own is unknown.
+  await submit($, 'Now the downloader')
+  expect(turnState(w)).toMatchObject({ turnId: 't2', stepNo: 0, track: [] })
+  expect(boardOf(w).status).toEqual({ kind: 'starting', text: '定档中' })
+  expect(boardOf(w).where).toBe('第 2 轮 · 刚开始')
+  expect(boardOf(w).level).toBe('medium')
+  await step($, { turnId: 't2', index: 0, effort: 'medium' })
+  expect(turnState(w).stepNo).toBe(1)
+  expect(boardOf(w).status.kind).not.toBe('starting')
+  expect(boardOf(w).status.kind).not.toBe('none')
+  expect(boardOf(w).level).toBe('medium')
+})
+
+test('第 0 步没有档位（模型不收 effort）：之后看板才说不收 effort', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, () => HOLD) })
+  await start($)
+  await submit($, TASK)
+  expect(boardOf(w).status.kind).toBe('starting')
+  expect(boardOf(w).level).toBe(null)
+  await step($, { turnId: 't1', index: 0 })
+  expect(turnState(w).stepNo).toBe(1)
+  expect(boardOf(w).status).toEqual({ kind: 'none', text: '这个模型不收 effort' })
 })

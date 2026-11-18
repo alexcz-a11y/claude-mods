@@ -38,6 +38,7 @@ export const NO_BACKEND = [
   ['没有密钥', {}],
   ['只有 Jev 的密钥，fallback 关', { jevApiKey: 'k-jev' }],
   ['只有 Jev 的密钥，fallback 开', { jevApiKey: 'k-jev', fallback: true }],
+  ['选了 Jev，只有 Drex 的密钥，fallback 关', { backend: 'jev', drexApiKey: 'k-drex' }],
   ['选了 Jev，只有 Drex 的密钥，fallback 开', { backend: 'jev', drexApiKey: 'k-drex', fallback: true }],
 ] as const
 

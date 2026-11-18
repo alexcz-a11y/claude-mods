@@ -332,3 +332,21 @@ test('一轮里不再评估：轨道那一行放得下时写出原因，太窄�
   expect(narrow).toBeDefined()
   expect(desktopTexts(narrow!)).toEqual(['   下次评估 ', '本轮不再评估'])
 })
+
+// A turn whose first step has not arrived (controller ruling): no cell yet, so no track row; the quiet mark.
+test('一轮刚开始：第一行和功能行，没有空的「步」那一行；终端和 Desktop；脚部标签', () => {
+  const s = SCENES.start
+  const m = boardModel(CFG, { ...s, session: { ...s.session, sessionLevel: 'medium' }, turn: { ...s.turn!, base: null, wanted: null, track: [], stepNo: 0 }, recent: [] })
+  const rows = timelineRows(m, { columns: 120, isPaneOpen: false })
+  expect(rows.map((r) => r.id)).toEqual(['now', 'last', 'features'])
+  expect(rowText(rows[0]!)).toBe('▮▮▯▯▯ medium  – 定档中   第 7 轮 · 刚开始 · Code Mode 会话')
+  expect(rows[0]!.parts.find((p) => p.t === 'text' && p.text.includes('定档中'))).toMatchObject({ tone: 'dim' })
+  expect(rowText(rows[1]!)).toBe('上次评估 本轮还没有评估')
+  expect(timelineRows(m, { columns: 120, isPaneOpen: true }).map((r) => r.id)).toEqual(['now'])
+  expect(desktopTimelineRows(m, { columns: 120, isPaneOpen: false }).map((r) => r.id)).toEqual(['now', 'last', 'features'])
+  expect(footerLabel(m)).toBe('dp medium –')
+  expect(sectionsOf(m).now).toEqual(['▮▮▯▯▯ medium', '– 定档中', '第 7 轮 · 刚开始 · Code Mode 会话'])
+  // A turn on a model that takes no effort has no cell either: no empty track row.
+  const noEffort = boardModel(CFG, { ...s, turn: { ...s.turn!, base: null, wanted: null, track: [] }, recent: [] })
+  expect(timelineRows(noEffort, { columns: 120, isPaneOpen: false }).map((r) => r.id)).toEqual(['now', 'last', 'features'])
+})

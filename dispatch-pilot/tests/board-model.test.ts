@@ -170,10 +170,10 @@ test('总能算出：空的 recent、raw 为 null 或没有 open、bars 为 null
   const shift: Decision = { ...base, from: 'medium', to: 'high', reason: null, applied: true, sent: 'not-sent' }
   expect(boardModel(cfg, { ...s, recent: [shift] }).shifts).toEqual([{ at: '第 9 步后', from: 'medium', to: 'high', why: '', isSent: false }])
 
-  // A turn with no cells yet: no step taken, the readout not yet due.
+  // A turn with no cells yet: no step taken (starting: the level last seen), the readout not yet due.
   const fresh = boardModel(cfg, { ...s, session: { ...s.session, lastSent: null }, turn: { ...s.turn!, track: [], stepNo: 0 } })
-  expect([fresh.track, fresh.where, fresh.status.kind, fresh.level]).toEqual([[], '第 7 轮 · 第 0 步', 'unverified', 'high'])
-  expect(fresh.status.text).toBe('未核对')
+  expect([fresh.track, fresh.where, fresh.status.kind, fresh.level]).toEqual([[], '第 7 轮 · 刚开始', 'starting', 'medium'])
+  expect(fresh.status.text).toBe('定档中')
   expect(fresh.features[4]).toEqual({ label: '档位核对', state: 'active', note: '' })
   // Cells but no reading: the readout reads nothing.
   const unread = boardModel(cfg, { ...s, session: { ...s.session, lastSent: null } })
@@ -374,4 +374,45 @@ test('Jev 标「未校准」：后端行（可用和失败时）、上次评估�
   // Backend jev chosen, but this decision was answered by Drex (the fallback): Drex's wording, unchanged.
   expect(boardModel(jev, scenes.up).last).toMatchObject({ by: 'Drex · 312 ms' })
   expect(boardModel(readConfig({ drexApiKey: 'k' }), scenes.up).backend).toEqual({ isOk: true, text: 'Drex drex-max-v1.1 · 可用' })
+})
+
+// A turn whose first step has not arrived (controller ruling): its level is not known yet, which is not "no effort".
+const starting = (session: Partial<BoardState['session']> = {}): BoardState => {
+  const s = scenes.start
+  return { ...s, session: { ...s.session, sessionLevel: 'medium', ...session }, turn: { ...s.turn!, base: null, wanted: null, track: [], stepNo: 0 }, recent: [] }
+}
+
+test('一轮刚开始、第一步还没来：定档中或这一轮刚开始，档位是上次见到的，不说不收 effort', () => {
+  const judged = boardModel(readConfig({ drexApiKey: 'k' }), starting())
+  expect([judged.level, judged.status, judged.where]).toEqual(['medium', { kind: 'starting', text: '定档中' }, '第 7 轮 · 刚开始'])
+  expect(judged.track).toEqual([])
+  expect(judged.last).toBe(null)
+  // Computed as for any turn: Code Mode checks at the next script result.
+  expect(judged.next).toEqual({ main: '下一份脚本结果到达时', sub: '每 1 份脚本结果评估一次 · 本轮还可换挡 4 次', ahead: 1 })
+  // No message is judged: submitShift off, or no usable backend.
+  const notJudged = boardModel(readConfig({ drexApiKey: 'k', submitShift: false }), starting())
+  expect([notJudged.level, notJudged.status]).toEqual(['medium', { kind: 'starting', text: '这一轮刚开始' }])
+  const noKey = boardModel(readConfig({}), starting())
+  expect([noKey.status, noKey.next]).toEqual([{ kind: 'starting', text: '这一轮刚开始' }, { main: '本轮不再评估', sub: '没有可用的后端', ahead: 0 }])
+  // The session has sent no step yet: no level to show.
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), starting({ sessionLevel: null })).level).toBe(null)
+})
+
+test('一轮刚开始：锁定时是已锁定和锁定的档；mod 关着时照旧写已关闭', () => {
+  const locked = boardModel(readConfig({ drexApiKey: 'k' }), starting({ lock: 'xhigh' }))
+  expect([locked.level, locked.status, locked.where]).toEqual(['xhigh', { kind: 'locked', text: '已锁定' }, '第 7 轮 · 刚开始'])
+  expect(locked.next).toEqual({ main: '不评估', sub: '/dp unlock 解锁后恢复', ahead: 0 })
+  const off = boardModel(readConfig({ drexApiKey: 'k', enabled: false }), starting())
+  expect([off.level, off.status]).toEqual(['medium', { kind: 'starting', text: '这一轮刚开始' }])
+  expect(off.next).toEqual({ main: '不评估', sub: 'dispatch-pilot 已关闭', ahead: 0 })
+  expect(off.features.map((f) => f.state)).toEqual(['off', 'off', 'off', 'off', 'off', 'off'])
+})
+
+test('不收 effort 只从第 1 步起才这样说', () => {
+  const s = starting()
+  const at = (stepNo: number) => boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn: { ...s.turn!, stepNo } })
+  expect([at(1).status, at(1).next]).toEqual([{ kind: 'none', text: '这个模型不收 effort' }, { main: '不评估', sub: '这个模型不收 effort', ahead: 0 }])
+  expect(at(1).where).toBe('第 7 轮 · 第 1 步')
+  expect(at(0).status.kind).toBe('starting')
+  expect(at(0).next.sub).not.toBe('这个模型不收 effort')
 })

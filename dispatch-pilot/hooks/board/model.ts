@@ -30,7 +30,7 @@ export type BoardModel = {
   level: Level | null
   wanted: Level | null
   sent: Level | null
-  status: { kind: 'sent' | 'mismatch' | 'unverified' | 'locked' | 'idle' | 'none'; text: string }
+  status: { kind: 'sent' | 'mismatch' | 'unverified' | 'locked' | 'idle' | 'starting' | 'none'; text: string }
   track: readonly TrackCell[]
   shifts: { at: string; from: Level; to: Level; why: string; isSent: boolean }[]
   last: { at: string; mark: Mark; text: string; probs: number[] | null; nouls: { label: string; value: number; reading: 'yes' | 'no' | 'unsure' }[]; rules: string[]; by: string } | null
@@ -112,9 +112,12 @@ const atStep = (step: number | null): string => (step === null || step === 0 ? '
 const isJudged = (d: Decision): boolean => d.kind === 'submit' || d.kind === 'midrun'
 const two = (n: number): string => n.toFixed(2)
 
-function statusOf(locked: boolean, idle: boolean, wanted: Level | null, sent: Level | null): BoardModel['status'] {
-  if (locked) return { kind: 'locked', text: '已锁定' }
-  if (idle) return { kind: 'idle', text: '空闲' }
+// starting: the turn's first step has not come (its level is not known yet, which is not a model without effort); judging:
+// its message is being judged meanwhile.
+function statusOf(s: { locked: boolean; idle: boolean; starting: boolean; judging: boolean }, wanted: Level | null, sent: Level | null): BoardModel['status'] {
+  if (s.locked) return { kind: 'locked', text: '已锁定' }
+  if (s.idle) return { kind: 'idle', text: '空闲' }
+  if (s.starting) return { kind: 'starting', text: s.judging ? '定档中' : '这一轮刚开始' }
   if (wanted === null) return { kind: 'none', text: '这个模型不收 effort' }
   if (sent === null) return { kind: 'unverified', text: '未核对' }
   if (sent !== wanted) return { kind: 'mismatch', text: `要 ${wanted}，实际发出 ${sent}` }
@@ -197,7 +200,7 @@ function changeText(d: Decision, mark: Mark): string {
   return '不变'
 }
 
-function nextOf(cfg: Config, s: { session: SessionState; turn: TurnState | null; locked: boolean; ask: boolean; wanted: Level | null }): BoardModel['next'] {
+function nextOf(cfg: Config, s: { session: SessionState; turn: TurnState | null; locked: boolean; ask: boolean; wanted: Level | null; starting: boolean }): BoardModel['next'] {
   const { session, turn } = s
   if (!cfg.enabled) return { main: '不评估', sub: 'dispatch-pilot 已关闭', ahead: 0 }
   if (s.locked) return { main: '不评估', sub: '/dp unlock 解锁后恢复', ahead: 0 }
@@ -211,8 +214,8 @@ function nextOf(cfg: Config, s: { session: SessionState; turn: TurnState | null;
     if (cfg.midrunShift) return { main: '下一轮中途', sub: '发消息定档关着', ahead: 0 }
     return { main: '不评估', sub: '发消息定档和中途换挡都关着', ahead: 0 }
   }
-  // No level to judge: the mid-run check asks nothing.
-  if (s.wanted === null) return { main: '不评估', sub: '这个模型不收 effort', ahead: 0 }
+  // No level to judge: the mid-run check asks nothing. Not before the first step, whose level is not known yet.
+  if (s.wanted === null && !s.starting) return { main: '不评估', sub: '这个模型不收 effort', ahead: 0 }
   if (!cfg.midrunShift || !s.ask) return { main: '本轮不再评估', sub: cfg.midrunShift ? '没有可用的后端' : '中途换挡关着', ahead: 0 }
   const left = notesLeft(turn.midrun, cfg)
   if (left === 0) return { main: '本轮不再换挡', sub: '说明条数已用完；有新输入时仍会评估', ahead: 0 }
@@ -281,18 +284,22 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   // Inside a turn its own last evaluation (none yet: null); between turns the last one recorded, which may be older
   // than the last turn (one with no evaluation), hence 此前.
   const judged = turn === null ? recent.findLast(isJudged) : thisTurn.findLast(isJudged)
+  // The turn's first step has not come: its level is not known yet; the message may still be being judged.
+  const starting = turn !== null && turn.stepNo === 0
+  const judging = cfg.enabled && cfg.submitShift && ask && !locked
   return {
     isIdle,
-    where: turn === null ? '空闲' : `第 ${session.turnNo} 轮 · 第 ${turn.stepNo} 步`,
+    where: turn === null ? '空闲' : starting ? `第 ${session.turnNo} 轮 · 刚开始` : `第 ${session.turnNo} 轮 · 第 ${turn.stepNo} 步`,
     sessionKind: session.codeMode ? 'Code Mode 会话' : '普通会话',
-    level: turn === null ? (wanted ?? session.sessionLevel) : (sent ?? wanted),
+    // Before the first step: the level last seen (the lock, else the session's own).
+    level: turn === null ? (wanted ?? session.sessionLevel) : starting ? (session.lock ?? session.sessionLevel) : (sent ?? wanted),
     wanted,
     sent,
-    status: statusOf(locked, isIdle, wanted, sent),
+    status: statusOf({ locked, idle: isIdle, starting, judging }, wanted, sent),
     track: turn === null ? [] : turn.track,
     shifts: shiftsOf(thisTurn),
     last: locked || judged === undefined ? null : lastOf(cfg, judged, turn === null ? '此前 · ' : ''),
-    next: nextOf(cfg, { session, turn, locked, ask, wanted }),
+    next: nextOf(cfg, { session, turn, locked, ask, wanted, starting }),
     features: featuresOf(cfg, { ...s, locked, ask, agents: agents.length }),
     backend: backendOf(cfg, recent),
     agents: agents.map((d) => ({ type: d.detail, text: d.to ?? '', isVerified: isLevel(d.sent) })),
