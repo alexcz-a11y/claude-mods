@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { OPEN_LEVELS, agentQuestions, midrunQuestions, submitQuestions } from '../hooks/questions.ts'
-import { STATE_BUDGET, agentState, clip, estimateTokens, midrunState, submitState } from '../hooks/statebuild.ts'
+import { STATE_BUDGET, agentState, clip, estimateTokens, fitState, midrunState, submitState } from '../hooks/statebuild.ts'
 
 test('每处问的题', () => {
   expect(Object.keys(submitQuestions(false))).toEqual(['open', 'mechanical', 'unknown_cause'])
@@ -101,4 +101,40 @@ test('中途 state：五条很长的结果、很长的 progress 也不超预算'
     statedNext: long, progress: { done: long, remaining: long, cause_known: false },
   })
   expect(estimateTokens(JSON.stringify(s))).toBeLessThanOrEqual(STATE_BUDGET)
+})
+
+test('fitState：放得下就原样返回', () => {
+  const s = submitState({ request: 'short', previous: null })
+  expect(fitState(s)).toBe(s)
+})
+test('fitState：满是引号和换行的 state，转义后超预算，截到预算内', () => {
+  const quotes = '"'.repeat(5000)
+  const lines = 'line\n'.repeat(2000)
+  const s = midrunState({
+    request: quotes, current: 'high', stepsSoFar: 12, failedSteps: 3,
+    recent: [1, 2, 3, 4, 5].map((n) => ({ did: 'step ' + n, tools: ['Bash'], ok: false, result: lines })),
+    latest: { did: 'run tests', tools: ['Bash'], ok: false, result: quotes },
+    statedNext: lines, progress: { done: quotes, remaining: lines, cause_known: false },
+  })
+  // Each field is within its own clip budget, but escaping doubles every quote and newline.
+  expect(estimateTokens(JSON.stringify(s))).toBeGreaterThan(STATE_BUDGET)
+  const fitted = fitState(s)
+  expect(estimateTokens(JSON.stringify(fitted))).toBeLessThanOrEqual(STATE_BUDGET)
+  // Same shape: only string values got shorter.
+  expect(Object.keys(fitted)).toEqual(Object.keys(s))
+  expect((fitted.recent as unknown[]).length).toBe(5)
+  expect([fitted.current_level, fitted.steps_so_far, fitted.failed_steps]).toEqual(['high', 12, 3])
+  expect((fitted.latest as { did: string }).did).toBe('run tests')
+  // The input is not changed.
+  expect(estimateTokens(JSON.stringify(s))).toBeGreaterThan(STATE_BUDGET)
+})
+test('fitState：工具名的列表截到 12 个，最长的字符串先截', () => {
+  const tools = Array.from({ length: 40 }, (_, i) => 'mcp__server__tool_number_' + i)
+  const s = { note: 'n', latest: { tools, result: '"'.repeat(9000) }, short: 'keep me' }
+  const fitted = fitState(s)
+  expect(estimateTokens(JSON.stringify(fitted))).toBeLessThanOrEqual(STATE_BUDGET)
+  expect(fitted.latest.tools).toEqual(tools.slice(0, 12))
+  expect(fitted.short).toBe('keep me')
+  expect(fitted.note).toBe('n')
+  expect(fitted.latest.result.includes(' … ')).toBe(true)
 })

@@ -54,6 +54,63 @@ export function clip(text: string, maxTokens: number): string {
   return chars.slice(0, head).join('') + MARKER + chars.slice(tail).join('')
 }
 
+// Lists of strings (tool names) are cut to this many entries before any text is shortened.
+const MAX_LIST = 12
+
+type Slot = { holder: Record<string, unknown> | unknown[]; key: string | number; value: string; spent: boolean }
+
+function copyJson(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(copyJson)
+  if (v !== null && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, copyJson(x)]))
+  return v
+}
+
+// Cuts long string lists and collects every string value, however deep.
+function walk(v: unknown, slots: Slot[]): void {
+  if (Array.isArray(v)) {
+    if (v.length > MAX_LIST && v.every((x) => typeof x === 'string')) v.length = MAX_LIST
+    v.forEach((x, i) => (typeof x === 'string' ? slots.push({ holder: v, key: i, value: x, spent: false }) : walk(x, slots)))
+  } else if (v !== null && typeof v === 'object') {
+    const o = v as Record<string, unknown>
+    for (const [k, x] of Object.entries(o)) {
+      if (typeof x === 'string') slots.push({ holder: o, key: k, value: x, spent: false })
+      else walk(x, slots)
+    }
+  }
+}
+
+const sentCost = (v: unknown): number => estimateTokens(JSON.stringify(v))
+
+// The builders clip each field by its raw text, but JSON escaping (a quote or a newline becomes
+// two characters) can still push the serialized state over STATE_BUDGET. This shortens the longest
+// strings, a step at a time toward the next longest, until the serialized state fits.
+export function fitState<T>(state: T): T {
+  if (sentCost(state) <= STATE_BUDGET) return state
+  const copy = copyJson(state) as T
+  const slots: Slot[] = []
+  walk(copy, slots)
+  for (let round = 0; round < 1000; round++) {
+    const over = sentCost(copy) - STATE_BUDGET
+    if (over <= 0) break
+    const open = slots.filter((s) => !s.spent).sort((a, b) => sentCost(b.value) - sentCost(a.value))
+    const top = open[0]
+    if (!top) break
+    const cost = sentCost(top.value)
+    const next = open[1] ? sentCost(open[1].value) : 0
+    // Cut only what is over, but no lower than the next longest (at least a tenth each round),
+    // so the cuts spread over the longest fields instead of emptying one.
+    const target = Math.max(cost - over, Math.min(next, Math.floor(cost * 0.9)))
+    const shorter = clip(top.value, Math.floor((estimateTokens(top.value) * target) / cost))
+    if (sentCost(shorter) >= cost) {
+      top.spent = true
+      continue
+    }
+    top.value = shorter
+    ;(top.holder as Record<string | number, unknown>)[top.key] = shorter
+  }
+  return copy
+}
+
 export type PreviousTurn = { request: string; lastReply: string; ended: 'answered' | 'error' | 'interrupted'; level: Level | null }
 export type StepRecord = { did: string; tools: string[]; ok: boolean; result: string }
 export type ProgressNote = { done: string; remaining: string; cause_known: boolean }
