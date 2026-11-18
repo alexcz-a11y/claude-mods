@@ -28,15 +28,18 @@
 
 在仓库根目录执行。命令里的 `command claude` 绕过带参数的 alias。
 
-1. 在 tmux 里开一个 180 列的会话。宽度够时面板停靠在右边，时间轴在面板开着时只剩三行：
+`--plugin-dir` 加载的 mod 拿不到 userConfig 里的选项，没有密钥时每个场景都会显示「未生效 … ! 没有密钥」和「本轮不再评估」，和下表说的不一样。所以启动命令用 `--settings` 给 dispatch-pilot 一个 Drex 密钥。这个值是编的，不能通过任何认证；探针会话里不发任何消息，所以它也从来不会被发出去。
+
+1. 在 tmux 里开一个 180 列的会话。宽度够时面板停靠在右边；面板开着时，时间轴只留到轨道那一行为止：
 
    ```bash
-   tmux new-session -d -s dps -x 180 -y 50 "command claude --plugin-dir ./dispatch-pilot --plugin-dir ./docs/research/board-scenes"
+   tmux new-session -d -s dps -x 180 -y 50 "command claude --plugin-dir ./dispatch-pilot --plugin-dir ./docs/research/board-scenes --settings '{\"pluginConfigs\":{\"dispatch-pilot@inline\":{\"options\":{\"drexApiKey\":\"scene-only-not-a-key\"}}}}'"
    sleep 14
    tmux attach -t dps
    ```
 
-2. 在会话里输入 `/dpscene notsent`（或别的场景名），再输入 `/dp` 打开或关上面板。
+2. 在会话里输入 `/dpscene notsent`（或别的场景名），再输入 `/dp` 打开或关上面板。换场景时，时间轴、面板和脚部标签会一起重画：探针给这三处各挂了一个原样放行的渲染 hook，`$.ui.invalidate` 只会重画本插件的 matcher 选得中的实例（在测试工具里实测过，真机上还没看过）。如果面板开着却还停在上一个场景，输两次 `/dp` 让它重画。
+   没有后端时的样子也值得看一次：启动命令去掉 `--settings …` 那一段，每个场景就都是「未生效 … ! 没有密钥」。
 3. 看 100 列的样子：先按 `ctrl-b d` 离开，再执行下面的命令，等几秒后重新 attach。宽度不够停靠时，面板落到 prompt 上方：
 
    ```bash

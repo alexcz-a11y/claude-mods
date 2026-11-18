@@ -60,6 +60,16 @@ test('fitTrack：一格里有几次评估时留最要紧的记号', () => {
   expect(fitTrack(cells, 10).per).toBe(1)
 })
 
+test('锁定的一轮没有记号也没有换挡：没有记号那一行，轨道那一行还在', () => {
+  expect(timelineRows(locked, { columns: 120, isPaneOpen: false }).map((r) => r.id)).toEqual(['now', 'track', 'last', 'features'])
+  expect(timelineRows(locked, { columns: 120, isPaneOpen: true }).map((r) => r.id)).toEqual(['now', 'track'])
+  expect(rowText(timelineRows(locked, { columns: 120, isPaneOpen: false })[1]!)).toBe('步 █████   下次评估 不评估')
+  // A mark alone, or a shift alone, keeps the row.
+  const marked = boardModel(CFG, { ...SCENES.locked, turn: { ...SCENES.locked.turn!, track: [...SCENES.locked.turn!.track.slice(0, -1), { level: 'high', sent: 'high', mark: 'hold' }] } })
+  expect(timelineRows(marked, { columns: 120, isPaneOpen: false }).map((r) => r.id)).toEqual(['now', 'track', 'marks', 'last', 'features'])
+  expect(timelineRows(start, { columns: 120, isPaneOpen: false }).map((r) => r.id)).toEqual(['now', 'track', 'marks', 'last', 'features'])
+})
+
 test('fitTrack：一格里既有升又有降时留后来的那个', () => {
   const upThenDown = [
     { level: 'medium', sent: 'medium', mark: 'up' },
@@ -281,8 +291,8 @@ test('时间轴各行在别的场景里：没核对、锁定、失败、后端�
   expect(rowsOf(notsent)[0]).toBe('▮▮▮▯▯ high  ! 要 xhigh，实际发出 high   第 5 轮 · 第 8 步')
   expect(rowsOf(notsent)[2]).toBe('评 ···▲···▲   第 7 步后 high → xhigh（还没发出） · 最新结果和原计划矛盾')
   expect(rowsOf(locked)[0]).toBe('▮▮▮▯▯ high  ■ 已锁定   第 2 轮 · 第 5 步')
-  expect(rowsOf(locked)[3]).toBe('上次评估 锁定期间不评估')
-  expect(rowsOf(locked)[4]).toBe('生效 skill 推荐 · 档位核对   锁定 发消息定档 · 中途换挡 · agent 定档   关 进展记录')
+  expect(rowsOf(locked)[2]).toBe('上次评估 锁定期间不评估')
+  expect(rowsOf(locked)[3]).toBe('生效 skill 推荐 · 档位核对   锁定 发消息定档 · 中途换挡 · agent 定档   关 进展记录')
   expect(rowsOf(ordinary)[1]).toBe('步 ██████████████┄┄┄┄┄┄◇   下次评估 再 8 步')
   expect(rowsOf(ordinary)[3]).toBe('上次评估 × 评估失败，档位不变    第 13 步后 · Drex 超时')
   expect(rowsOf(ordinary)[4]).toMatch(/   ! Drex drex-max-v1\.1 · 最近一次超时$/)

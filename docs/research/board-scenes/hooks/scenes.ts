@@ -46,6 +46,13 @@ export const register: Register = (on) => {
     return { text: `场景 ${scene}`, isTextDisplayOnly: true }
   })
 
+  // dispatch-pilot's three drawings, passed on as they come. They are here for $.ui.invalidate alone, which draws again
+  // only the instances this plugin's matchers on ui.render may select (InvalidatableEventName): with them, /dpscene
+  // redraws the mod's timeline, pane and footer, not only what the engine happens to redraw.
+  on('ui.render', { component: 'AbovePrompt', plugin: 'dispatch-pilot' }, async (_$, e, next) => next(e))
+  on('ui.render', { component: 'Pane', requestId: 'dispatch-pilot', plugin: 'dispatch-pilot' }, async (_$, e, next) => next(e))
+  on('ui.render', { component: 'SessionMode' }, async (_$, e, next) => next(e))
+
   on('state.get', { plugin: 'dispatch-pilot', key: 'session' }, async (_$, e, next) => sceneRead('session', await next(e)))
   on('state.get', { plugin: 'dispatch-pilot', key: 'turn' }, async (_$, e, next) => sceneRead('turn', await next(e)))
   on('state.get', { plugin: 'dispatch-pilot', key: 'recent' }, async (_$, e, next) => sceneRead('recent', await next(e)))

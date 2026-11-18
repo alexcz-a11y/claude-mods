@@ -2,11 +2,17 @@ import { expect, test } from 'claude-code/testing'
 
 import { boardModel } from '../hooks/board/model.ts'
 import type { BoardState, TrackCell } from '../hooks/board/model.ts'
-import { LEVEL_HEX, barPixels, barSvg, desktopLabel, desktopStatus, pipsSvg, trackSvg } from '../hooks/board/view.ts'
+import { LEVEL_HEX, NEUTRAL_HEX, PX_PER_COLUMN, barPixels, barSvg, desktopLabel, desktopStatus, desktopTimelineRows, desktopTrackCells, desktopWidth, pipsSvg, trackSvg } from '../hooks/board/view.ts'
+import type { Row } from '../hooks/board/view.ts'
 import { readConfig } from '../hooks/config.ts'
+import type { Decision } from '../hooks/log.ts'
+import { holdBoard, record, redraw } from '../hooks/runtime.ts'
+import { standIn } from './support/standin.ts'
 import { LEVELS } from '../hooks/levels.ts'
 import { SCENES } from './support/scenes.ts'
 import { KEYS, dp, drexOk, noul, score, start, step, submit, turns, world } from './support/world.ts'
+import type { Engine } from 'claude-code/testing'
+import type { On } from 'claude-code'
 
 const CFG = readConfig(KEYS)
 const up = boardModel(CFG, SCENES.up)
@@ -29,6 +35,10 @@ function nodes(tree: unknown): number {
 const cellColours = (source: string): string[] => [...source.matchAll(/<rect class="cell" [^>]*fill="(#[0-9a-f]{6})"/g)].map((m) => m[1]!)
 /** The marks a track drawing paints, in order, by kind. */
 const markKinds = (source: string): string[] => [...source.matchAll(/class="mark-(up|down|fail|hold)"/g)].map((m) => m[1]!)
+
+function decision(): Decision {
+  return { id: 'd1', at: 1, kind: 'submit', backend: 'drex', model: 'drex-max-v1.1', ms: 300, raw: null, from: 'medium', to: 'high', reason: 'more-open', detail: '', turnId: 't1', step: 0, bars: null, failure: null, requestId: null, applied: true, sent: null }
+}
 
 const cell = (level: TrackCell['level'], mark: TrackCell['mark'] = null, sent: TrackCell['sent'] = level): TrackCell => ({ level, sent, mark })
 
@@ -84,15 +94,20 @@ test('300 步：还是两个 Svg，轨道不超过 60 格（Review Focus 4）', 
   const ui = await $.ui.mount(BAND)
   const svgs = await ui.findAll({ type: 'Svg' })
   expect(svgs).toHaveLength(2)
-  const track = svgs[1]!.props as { source: string; alt: string }
-  expect(cellColours(track.source)).toHaveLength(60)
-  expect(cellColours(track.source)).toEqual([...Array(30).fill(LEVEL_HEX.medium), ...Array(30).fill(LEVEL_HEX.high)])
+  const track = svgs[1]!.props as { source: string; alt: string; width: number }
+  // 120 columns hold 49 cells of 14 px (desktopTrackCells): 300 steps go 7 to a cell, 43 cells.
+  expect(desktopTrackCells(120)).toBe(49)
+  expect(cellColours(track.source)).toHaveLength(43)
+  expect(cellColours(track.source)).toEqual([...Array(21).fill(LEVEL_HEX.medium), ...Array(22).fill(LEVEL_HEX.high)])
   // The group holding the shift shows its up; every other group a hold.
   expect(markKinds(track.source).filter((k) => k === 'up')).toHaveLength(1)
-  expect(markKinds(track.source)).toHaveLength(60)
-  expect(track.alt).toBe('60 格，每格 5 步：medium 30 格，high 30 格；下次评估在 1 步后')
+  expect(markKinds(track.source)).toHaveLength(43)
+  expect(track.alt).toBe('43 格，每格 7 步：medium 21 格，high 22 格；下次评估在 1 步后')
   expect(track.source.length).toBeLessThan(SVG_LIMIT)
-  expect(await ui.find({ type: 'Text', text: /每格 5 步/ })).toBeTruthy()
+  // The drawing and its scale fit; the next evaluation, past 120 columns, is dropped whole.
+  expect((await ui.find({ type: 'Text', text: /每格 7 步/ }))?.text).toBe('  每格 7 步')
+  expect(Math.ceil(track.width / PX_PER_COLUMN) + 11).toBeLessThanOrEqual(120)
+  expect(await ui.find({ type: 'Text', text: /下一份脚本结果到达时/ })).toBe(undefined)
   // The tree's size does not grow with the steps: the whole turn is two drawings.
   const size = nodes(await ui.drawn())
   expect(size).toBeLessThan(60)
@@ -200,7 +215,7 @@ test('pipsSvg：每一档点亮到它那一格，用它的颜色', () => {
   LEVELS.forEach((level, i) => {
     const d = pipsSvg(level)
     const fills = [...d.source.matchAll(/<rect class="pip" [^>]*fill="([^"]+)"/g)].map((m) => m[1])
-    expect([level, fills]).toEqual([level, [...Array(i + 1).fill(LEVEL_HEX[level]), ...Array(4 - i).fill('currentColor')]])
+    expect([level, fills]).toEqual([level, [...Array(i + 1).fill(LEVEL_HEX[level]), ...Array(4 - i).fill(NEUTRAL_HEX)]])
     expect(d.alt).toBe(`档位 ${level}，五档中的第 ${i + 1} 档`)
     expect(d).toMatchObject({ width: 57, height: 15 })
     expect(d.source.startsWith('<svg')).toBe(true)
@@ -211,10 +226,10 @@ test('trackSvg：四种记号各画成它的形状，ahead 为 0 时没有虚线
   const cells = [cell('low', 'hold'), cell('medium', 'up'), cell('medium', 'fail'), cell('low', 'down'), cell('high', null, 'medium'), cell('xhigh', null, null)]
   const d = trackSvg(cells, 0)
   expect(markKinds(d.source)).toEqual(['hold', 'up', 'fail', 'down'])
-  // A shift is drawn in its cell's colour, a failure in the failure's, a hold in the text colour.
+  // A shift is drawn in its cell's colour, a failure in the failure's, a hold in the neutral grey.
   expect(d.source).toMatch(new RegExp(`class="mark-up" [^>]*fill="${LEVEL_HEX.medium}"`))
   expect(d.source).toMatch(new RegExp(`class="mark-down" [^>]*fill="${LEVEL_HEX.low}"`))
-  expect(d.source).toMatch(/class="mark-hold" [^>]*fill="currentColor"/)
+  expect(d.source).toMatch(new RegExp(`class="mark-hold" [^>]*fill="${NEUTRAL_HEX}"`))
   expect(d.source).toMatch(/class="mark-fail" [^>]*stroke="#[0-9a-f]{6}"/)
   // A cell is the level its request carried, the level asked for while none was read.
   expect(cellColours(d.source)).toEqual([LEVEL_HEX.low, LEVEL_HEX.medium, LEVEL_HEX.medium, LEVEL_HEX.low, LEVEL_HEX.medium, LEVEL_HEX.xhigh])
@@ -224,7 +239,7 @@ test('trackSvg：四种记号各画成它的形状，ahead 为 0 时没有虚线
   expect(d).toMatchObject({ width: 6 * 14 - 1, height: 26 })
   // Far ahead: at most six cells of dashes, then the diamond.
   const far = trackSvg(cells, 9)
-  expect(far.source).toMatch(/class="ahead" [^>]*x1="86" [^>]*x2="170"/)
+  expect(far.source).toMatch(new RegExp(`class="ahead" [^>]*x1="86" [^>]*x2="170" [^>]*stroke="${NEUTRAL_HEX}"`))
   expect(far.alt).toBe('6 步：low 2 步，medium 3 步，xhigh 1 步；下次评估在 9 步后')
   expect(far.width).toBeGreaterThan(170)
 })
@@ -234,8 +249,11 @@ test('300 步：每张图的 source 都在 Svg 的上限以内', () => {
   const track = trackSvg(cells, 6)
   expect(cellColours(track.source)).toHaveLength(60)
   expect(track.alt).toBe('60 格，每格 5 步：medium 30 格，high 30 格；下次评估在 6 步后')
-  const drawings = [track, ...LEVELS.map(pipsSvg), ...LEVELS.map((l) => barSvg(0.5, l, true, 144))]
+  const marked = trackSvg([cell('low', 'hold'), cell('medium', 'up'), cell('medium', 'fail'), cell('low', 'down')], 3)
+  const drawings = [track, marked, ...LEVELS.map(pipsSvg), ...LEVELS.map((l) => barSvg(0.5, l, true, 144))]
   for (const d of drawings) {
+    // Drawn as an image, a drawing inherits no text colour: every colour in it is written out.
+    expect(d.source).not.toContain('currentColor')
     expect(d.source.length).toBeLessThan(SVG_LIMIT)
     expect(/<script|<text|href=/.test(d.source)).toBe(false)
     expect(d.source.startsWith('<svg')).toBe(true)
@@ -256,7 +274,7 @@ test('Desktop 的面板在窄处：五条概率条都在，宽度跟着变窄，
   await ui.unmount()
 })
 
-test('状态行在换挡和 /dp lock 之后重写；board 关着时不写', { options: KEYS }, async ($, on) => {
+test('状态行在会话开始、换挡和 /dp lock 之后各写一次', { options: KEYS }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: () => RAISE, surfaces: ['desktop'] })
   await start($)
   // Before any turn: no level is known yet, only when it will be set.
@@ -278,4 +296,100 @@ test('board 关着：Desktop 上也不写状态行', { options: { ...KEYS, board
   expect(w.stepsSent.map((s) => s.effort)).toEqual(['high'])
   expect(w.invalidated.length).toBeGreaterThan(1)
   expect(w.statuses).toEqual([])
+})
+
+test('Desktop 的行按 Svg 的像素宽度裁：120 列和 80 列、300 步和 10 步，丢的是整段，画不丢', () => {
+  const desktopCols = (r: Row): number => r.parts.reduce((n, p) => n + desktopWidth(p, 0), 0)
+  const texts = (r: Row): string[] => r.parts.flatMap((p) => (p.t === 'text' ? [p.text] : []))
+  for (const steps of [300, 10]) {
+    const m = boardModel(CFG, longTurn(steps))
+    const wide = desktopTimelineRows(m, { columns: 1000, isPaneOpen: false })
+    for (const columns of [120, 80, 40]) {
+      const rows = desktopTimelineRows(m, { columns, isPaneOpen: false })
+      expect(rows.map((r) => r.id)).toEqual(['now', 'track', 'marks', 'last', 'features'])
+      const track = rows[1]!
+      // The drawing leads its row and stays; what follows fits by the drawing's pixels, PX_PER_COLUMN to a column.
+      expect([steps, columns, track.parts[0]?.t]).toEqual([steps, columns, 'track'])
+      expect([steps, columns, desktopCols(track) <= columns]).toEqual([steps, columns, true])
+      // Whole parts only, in their order: the wide row's text without its scale (the cells per step differ).
+      const kept = texts(track).filter((t) => !t.includes('每格'))
+      expect([steps, columns, kept]).toEqual([steps, columns, texts(wide[1]!).filter((t) => !t.includes('每格')).slice(0, kept.length)])
+    }
+  }
+  const tracks = (steps: number, columns: number) => desktopTimelineRows(boardModel(CFG, longTurn(steps)), { columns, isPaneOpen: false })[1]!.parts.map((p) => (p.t === 'text' ? p.text : p.t))
+  // 300 steps: the next evaluation does not fit at 120 or 80 columns, the scale does.
+  expect(tracks(300, 120)).toEqual(['track', '  每格 7 步'])
+  expect(tracks(300, 80)).toEqual(['track', '  每格 12 步'])
+  // 10 steps: the next evaluation fits at 120 and 80; at 40 only the drawing stays.
+  expect(tracks(10, 120)).toEqual(['track', '   下次评估 ', '下一份脚本结果到达时'])
+  expect(tracks(10, 80)).toEqual(['track', '   下次评估 ', '下一份脚本结果到达时'])
+  expect(tracks(10, 40)).toEqual(['track'])
+  // A drawing's columns are its pixels over PX_PER_COLUMN, rounded up.
+  const part = { t: 'track', cells: longTurn(10).turn!.track, ahead: 1 } as const
+  expect(desktopWidth(part, 0)).toBe(Math.ceil(trackSvg(part.cells, 1).width / PX_PER_COLUMN))
+  expect(desktopWidth({ t: 'pips', level: 'high' }, 0)).toBe(Math.ceil(57 / PX_PER_COLUMN))
+  expect(desktopWidth({ t: 'bar', value: 0.3, tone: 'high', isStrong: false }, 100)).toBe(13)
+})
+
+test('Desktop 的 80 列：轨道的格数跟着列数变少，下次评估整段丢掉', { options: KEYS }, async ($, on) => {
+  world(on, { scene: longTurn(300) })
+  await start($)
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, bodyColumns: 80 } })
+  const track = (await ui.findAll({ type: 'Svg' }))[1]!.props as { source: string; width: number }
+  expect(desktopTrackCells(80)).toBe(26)
+  expect(cellColours(track.source)).toHaveLength(25)
+  expect(Math.ceil(track.width / PX_PER_COLUMN)).toBeLessThanOrEqual(80)
+  expect((await ui.find({ type: 'Text', text: /每格/ }))?.text).toBe('  每格 12 步')
+  expect(await ui.find({ type: 'Text', text: /下次评估/ })).toBe(undefined)
+  await ui.unmount()
+})
+
+test('Desktop 上锁定的一轮：没有记号也没有换挡时不画那一行', () => {
+  const rows = desktopTimelineRows(boardModel(CFG, SCENES.locked), { columns: 120, isPaneOpen: false })
+  expect(rows.map((r) => r.id)).toEqual(['now', 'track', 'last', 'features'])
+})
+
+// A turn, a lock and the next step, with the status line's write refused one way or another.
+async function statusRefused($: Engine, on: On, refuse: string[]) {
+  const w = world(on, { onSubmit: turns($), answer: () => RAISE, surfaces: ['desktop'], refuse })
+  await start($)
+  await submit($, 'Fix the flaky retry in the uploader')
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  // The step went at the level decided, the board was asked to redraw, the lock took.
+  expect(w.stepsSent.map((s) => s.effort)).toEqual(['high'])
+  expect(w.invalidated.length).toBeGreaterThan(1)
+  expect(await dp($, 'lock xhigh')).toContain('已锁定')
+  await step($, { turnId: 't1', index: 1, effort: 'medium' })
+  expect(w.stepsSent.map((s) => s.effort)).toEqual(['high', 'xhigh'])
+  expect(w.statuses).toEqual([])
+  return w
+}
+
+test('ui.status 被拒不连累调用它的 hook', { options: KEYS }, async ($, on) => {
+  // The engine drops a refused status by itself ("$.ui.status dropped"): the mod's call does not throw.
+  await statusRefused($, on, ['ui.status'])
+})
+
+test('ui.status 或 surfaces 抛错：redraw 照样 resolve，record 两份都写上', async () => {
+  // The test file's own copy of runtime.ts, given the board's config as registerBoard gives it.
+  holdBoard(CFG)
+  for (const failing of ['status', 'surfaces'] as const) {
+    const f = standIn()
+    const $ = {
+      ...(f.$ as object),
+      ui: { ...(f.$ as { ui: object }).ui, status: () => { if (failing === 'status') throw new Error('status refused') } },
+      session: { surfaces: async () => { if (failing === 'surfaces') throw new Error('surfaces refused'); return ['desktop'] } },
+    } as never
+    await redraw($)
+    await record($, decision())
+    expect([failing, f.invalidated]).toEqual([failing, ['ui.render', 'ui.render']])
+    expect([failing, f.recent().map((d) => d.id), f.log().map((d) => d.id)]).toEqual([failing, ['d1'], ['d1']])
+    expect([failing, f.logs.filter((l) => l.startsWith('status failed open:'))]).toEqual([failing, Array(2).fill(`status failed open: ${failing} refused`)])
+  }
+  holdBoard({ ...CFG, board: false })
+})
+
+test('读 surfaces 出错不连累调用它的 hook', { options: KEYS }, async ($, on) => {
+  const w = await statusRefused($, on, ['session.surfaces'])
+  expect(w.debugLogs.filter((l) => l.startsWith('status failed open:')).length).toBeGreaterThan(0)
 })

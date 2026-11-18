@@ -11,7 +11,7 @@ import { holdBoard, redraw, trace } from '../runtime.ts'
 import { emptySession } from '../state.ts'
 import { boardModel } from './model.ts'
 import type { BoardModel } from './model.ts'
-import { TRACK_SVG_CELLS, barPixels, barSvg, desktopLabel, desktopRows, fitRow, footerLabel, paneSections, pipsSvg, runsOf, timelineRows, trackSvg } from './view.ts'
+import { barPixels, barSvg, desktopLabel, desktopTimelineRows, fitDesktopRow, fitRow, footerLabel, paneSections, pipsSvg, runsOf, timelineRows, trackSvg } from './view.ts'
 import type { Drawing, Part, Row, Run, Tone } from './view.ts'
 
 // The state atoms this file reads, one line each and alike in every file that declares them: the module scan takes
@@ -97,9 +97,9 @@ function drawingOf(p: Part, barWidth: number): Drawing | null {
 const desktopLook = (r: Run) => ({ ...TONE_LOOK[r.tone], ...(r.bold === true ? { weight: 'semibold' as const } : {}) })
 
 /**
- * One row on the Desktop: its text parts in a Text, as on the terminal (a level's name semibold), each drawing an Svg
- * between them. The figure after a bar stands one space away, since every bar's drawing is one width; a row of bars is
- * set in the monospaced face so its padded columns line up.
+ * One row on the Desktop, fitted already (view.ts fitDesktopRow): its text parts in a Text, as on the terminal (a
+ * level's name semibold), each drawing an Svg between them. A row of bars is set in the monospaced face so its padded
+ * columns line up.
  */
 function drawDesktopRow(el: DesktopElements, row: Row, barWidth: number) {
   const { Box, Svg, Text } = el
@@ -111,17 +111,14 @@ function drawDesktopRow(el: DesktopElements, row: Row, barWidth: number) {
     children.push(<Text {...(isColumns ? { mono: true } : {})}>{runs.map((r) => (r.tone === 'plain' && r.bold !== true ? r.text : <Text {...desktopLook(r)}>{r.text}</Text>))}</Text>)
     runs = []
   }
-  let afterBar = false
   for (const p of row.parts) {
     const d = drawingOf(p, barWidth)
     if (d === null) {
-      runs.push(...runsOf(afterBar && p.t === 'text' ? { ...p, text: p.text.replace(/^ +/, ' ') } : p))
-      afterBar = false
+      runs.push(...runsOf(p))
       continue
     }
     flush()
     children.push(<Svg source={d.source} alt={d.alt} width={d.width} height={d.height} />)
-    afterBar = p.t === 'bar'
   }
   flush()
   return (
@@ -152,7 +149,7 @@ export function registerBoard(on: On, cfg: Config): void {
       const m = await modelOf($, cfg)
       const isPaneOpen = await isPaneShown($)
       if (e.surface === 'desktop') {
-        const rows = desktopRows(timelineRows(m, { columns: bodyColumns, isPaneOpen, maxCells: TRACK_SVG_CELLS })).slice(0, Math.min(maxRows, DESKTOP_MAX_ROWS))
+        const rows = desktopTimelineRows(m, { columns: bodyColumns, isPaneOpen }).slice(0, Math.min(maxRows, DESKTOP_MAX_ROWS))
         const { Box, Svg, Text } = $.ui.resolve(e)
         return { Box, rows: rows.map((row) => drawDesktopRow({ Box, Svg, Text }, row, barPixels(bodyColumns))) }
       }
@@ -180,7 +177,6 @@ export function registerBoard(on: On, cfg: Config): void {
     const columns = e.props.bodyColumns
     const tree = await drawOpen($, failing, 'Pane', async () => {
       const sections = paneSections(await modelOf($, cfg))
-      const rowsOf = (s: (typeof sections)[number]) => s.rows.map((row) => fitRow(row, columns))
       if (e.surface === 'desktop') {
         const { Box, Svg, Text } = $.ui.resolve(e)
         const barWidth = barPixels(columns)
@@ -189,7 +185,7 @@ export function registerBoard(on: On, cfg: Config): void {
             {sections.flatMap((s, i) => [
               ...(i === 0 ? [] : [<Text> </Text>]),
               <Text {...TONE_LOOK.accent}>{s.title}</Text>,
-              ...rowsOf(s).map((row) => drawDesktopRow({ Box, Svg, Text }, row, barWidth)),
+              ...s.rows.map((row) => drawDesktopRow({ Box, Svg, Text }, fitDesktopRow(row, columns, barWidth), barWidth)),
             ])}
           </Box>
         )
@@ -197,7 +193,7 @@ export function registerBoard(on: On, cfg: Config): void {
       const { Box, Text } = $.ui.resolve(e)
       return (
         <Box flexDirection="column">
-          {sections.flatMap((s, i) => [...(i === 0 ? [] : [<Text> </Text>]), <Text {...TONE_LOOK.accent}>{s.title}</Text>, ...rowsOf(s).map((row) => drawRow(Text, row, 'wrap'))])}
+          {sections.flatMap((s, i) => [...(i === 0 ? [] : [<Text> </Text>]), <Text {...TONE_LOOK.accent}>{s.title}</Text>, ...s.rows.map((row) => drawRow(Text, fitRow(row, columns), 'wrap'))])}
         </Box>
       )
     })

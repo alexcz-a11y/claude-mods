@@ -134,8 +134,11 @@ export function rowText(row: Row): string {
 
 const partWidth = (p: Part): number => runsOf(p).reduce((w, r) => w + displayWidth(r.text), 0)
 
-/** The row in its columns: its last groups dropped whole until it fits; the first group stays, whatever its width. */
-export function fitRow(row: Row, columns: number): Row {
+/**
+ * The row in its columns: its last groups dropped whole until it fits; the first group stays, whatever its width.
+ * widthOf measures a part in columns: the terminal's characters by default, the Desktop's drawings by their pixels.
+ */
+export function fitRow(row: Row, columns: number, widthOf: (p: Part) => number = partWidth): Row {
   const groups: Part[][] = []
   for (const p of row.parts) {
     const last = groups.at(-1)
@@ -145,7 +148,7 @@ export function fitRow(row: Row, columns: number): Row {
   const kept: Part[] = []
   let width = 0
   for (const g of groups) {
-    const w = g.reduce((sum, p) => sum + partWidth(p), 0)
+    const w = g.reduce((sum, p) => sum + widthOf(p), 0)
     if (kept.length > 0 && width + w > columns) break
     kept.push(...g)
     width += w
@@ -243,10 +246,10 @@ function trackRows(m: BoardModel, columns: number, maxCells?: number): Row[] {
           ...(shift.isSent ? [] : [text('（还没发出）', 'warn')]),
           ...(shift.why === '' ? [] : [text(` · ${shift.why}`, 'dim')]),
         ]
-  return [
-    { id: 'track', parts: [text('步 ', 'dim'), { t: 'track', cells: fit.cells, ahead: m.next.ahead, per: fit.per }, ...scale, ...nextParts(m)] },
-    { id: 'marks', parts: [text('评 ', 'dim'), { t: 'marks', cells: fit.cells }, ...shiftParts] },
-  ]
+  const track: Row = { id: 'track', parts: [text('步 ', 'dim'), { t: 'track', cells: fit.cells, ahead: m.next.ahead, per: fit.per }, ...scale, ...nextParts(m)] }
+  // A turn with no evaluation marked and no shift to tell (a locked one) has nothing for the marks row to say.
+  if (shift === undefined && fit.cells.every((c) => c.mark === null)) return [track]
+  return [track, { id: 'marks', parts: [text('评 ', 'dim'), { t: 'marks', cells: fit.cells }, ...shiftParts] }]
 }
 
 // The result first, so it is what a narrow row keeps; then each answer, then when and by whom.
@@ -287,13 +290,17 @@ function idleRow(m: BoardModel): Row {
   return { id: 'idle', parts: [...levelParts(m), text(`  ${statusText(m)}`, STATUS[m.status.kind].tone), ...ended, ...nextParts(m), ...why] }
 }
 
+// The timeline's rows before they are fitted to their columns; maxCells caps the track's cells (the Desktop's).
+function timelineParts(m: BoardModel, o: { columns: number; isPaneOpen: boolean; maxCells?: number }): Row[] {
+  return m.isIdle ? [idleRow(m)] : [nowRow(m), ...trackRows(m, o.columns, o.maxCells), ...(o.isPaneOpen ? [] : [lastRow(m), featuresRow(m)])]
+}
+
 /**
- * The timeline's rows in their columns (design 5.14). With the pane open, only the first three: it shows the rest.
- * maxCells caps the track's cells below what the columns allow (the Desktop's drawing holds at most TRACK_SVG_CELLS).
+ * The timeline's rows in their columns (design 5.14). With the pane open, only the rows up to the track's: the pane
+ * shows the rest.
  */
-export function timelineRows(m: BoardModel, o: { columns: number; isPaneOpen: boolean; maxCells?: number }): Row[] {
-  const rows = m.isIdle ? [idleRow(m)] : [nowRow(m), ...trackRows(m, o.columns, o.maxCells), ...(o.isPaneOpen ? [] : [lastRow(m), featuresRow(m)])]
-  return rows.map((r) => fitRow(r, o.columns))
+export function timelineRows(m: BoardModel, o: { columns: number; isPaneOpen: boolean }): Row[] {
+  return timelineParts(m, o).map((r) => fitRow(r, o.columns))
 }
 
 // The pane's rows: a sentence is one group, which the pane wraps; only rows of columns (bars, answers) are cut.
@@ -420,9 +427,18 @@ export function footerLabel(m: BoardModel): string {
 
 /** Each level's colour, cold to warm: on drawings only, never on text. */
 export const LEVEL_HEX: Record<Level, string> = { low: '#7c8aa0', medium: '#3fb5b0', high: '#e0b23c', xhigh: '#ee8a3c', max: '#e2557a' }
+/**
+ * The neutral marks inside a drawing (a hold's dot, the dashes to the next evaluation, the unlit pips): one mid grey
+ * that reads on light and dark themes. A drawing is drawn as an image, which does not inherit the text colour, so
+ * currentColor would come out black.
+ */
+export const NEUTRAL_HEX = '#8b8f98'
 // The next evaluation's diamond and a failed evaluation's cross, as the prototype draws them.
 const ACCENT_HEX = '#d97757'
 const FAIL_HEX = '#e8697a'
+
+/** The pixels the Desktop gives one column of the band or the pane: every drawing is measured in columns by it. */
+export const PX_PER_COLUMN = 8
 
 /** An Svg's source and how it is laid out: alt says in words what it shows, since the drawing holds no text. */
 export type Drawing = { source: string; alt: string; width: number; height: number }
@@ -442,8 +458,8 @@ const svg = (width: number, height: number, body: string): string =>
 
 const px = (n: number): string => String(Math.round(n * 10) / 10)
 
-// One evaluation's mark under its cell: a shift is a triangle in the cell's colour, a failure a cross, a hold a dot
-// in the text colour.
+// One evaluation's mark under its cell: a shift is a triangle in the cell's colour, a failure a cross, a hold a grey
+// dot.
 function markSvg(c: TrackCell, i: number): string {
   const x = i * PITCH
   const mid = x + CELL_W / 2
@@ -457,7 +473,7 @@ function markSvg(c: TrackCell, i: number): string {
     case 'fail':
       return `<path class="mark-fail" d="M${px(x + 3)} ${top + 1}L${px(x + CELL_W - 3)} ${bottom - 1}M${px(x + CELL_W - 3)} ${top + 1}L${px(x + 3)} ${bottom - 1}" stroke="${FAIL_HEX}" stroke-width="1.6" stroke-linecap="round" fill="none"/>`
     case 'hold':
-      return `<circle class="mark-hold" cx="${px(mid)}" cy="${top + MARK_H / 2}" r="1.5" fill="currentColor"/>`
+      return `<circle class="mark-hold" cx="${px(mid)}" cy="${top + MARK_H / 2}" r="1.5" fill="${NEUTRAL_HEX}"/>`
     default:
       return ''
   }
@@ -490,7 +506,7 @@ export function trackSvg(cells: readonly TrackCell[], ahead: number, per = 1): D
     const to = from + Math.min(ahead, AHEAD_MAX) * PITCH
     const mid = CELL_H / 2
     const cx = to + 3 + 5
-    parts.push(`<line class="ahead" x1="${from}" y1="${mid}" x2="${to}" y2="${mid}" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" opacity="0.45"/>`)
+    parts.push(`<line class="ahead" x1="${from}" y1="${mid}" x2="${to}" y2="${mid}" stroke="${NEUTRAL_HEX}" stroke-width="2" stroke-dasharray="3 3" opacity="0.7"/>`)
     parts.push(`<polygon class="next" points="${cx},${mid - 5} ${cx + 5},${mid} ${cx},${mid + 5} ${cx - 5},${mid}" fill="none" stroke="${ACCENT_HEX}" stroke-width="2"/>`)
     width = cx + 5 + 1
   }
@@ -515,19 +531,19 @@ export function barSvg(value: number, level: Level, isStrong: boolean, width: nu
 
 /** The pane's bar length for its columns: 18 cells' worth at most, as the terminal draws it, less where it is narrow. */
 export function barPixels(columns: number): number {
-  return Math.max(24, Math.min(BAR_CELLS * 8, (columns - 22) * 8))
+  return Math.max(3 * PX_PER_COLUMN, Math.min(BAR_CELLS * PX_PER_COLUMN, (columns - 22) * PX_PER_COLUMN))
 }
 
 const PIP_W = 9
 const PIP_H = 15
 const PIP_GAP = 3
 
-/** The five pips: lit up to the level in its colour, the rest in the text colour, faint. */
+/** The five pips: lit up to the level in its colour, the rest grey and faint. */
 export function pipsSvg(level: Level): Drawing {
   const n = LEVELS.indexOf(level) + 1
   const width = LEVELS.length * (PIP_W + PIP_GAP) - PIP_GAP
   const body = LEVELS.map((_, i) => {
-    const look = i < n ? `fill="${LEVEL_HEX[level]}"` : 'fill="currentColor" opacity="0.2"'
+    const look = i < n ? `fill="${LEVEL_HEX[level]}"` : `fill="${NEUTRAL_HEX}" opacity="0.35"`
     return `<rect class="pip" x="${i * (PIP_W + PIP_GAP)}" y="0" width="${PIP_W}" height="${PIP_H}" rx="2" ${look}/>`
   }).join('')
   return { source: svg(width, PIP_H, body), alt: `档位 ${level}，五档中的第 ${n} 档`, width, height: PIP_H }
@@ -554,15 +570,51 @@ export function desktopLabel(m: BoardModel): string {
 }
 
 /**
- * The timeline's rows as the Desktop draws them: the track's drawing holds the marks, so the marks row keeps only
- * its words (the shift), under the track; neither keeps the label that named a row of characters.
+ * A part's width in the Desktop's columns: text by its characters, a drawing by its pixels (PX_PER_COLUMN a column,
+ * rounded up). barWidth is the pane's bar length in pixels.
  */
-export function desktopRows(rows: readonly Row[]): Row[] {
-  return rows.flatMap((row) => {
+export function desktopWidth(p: Part, barWidth: number): number {
+  const columns = (pixels: number): number => Math.ceil(pixels / PX_PER_COLUMN)
+  switch (p.t) {
+    case 'text':
+      return displayWidth(p.text)
+    case 'pips':
+      return columns(pipsSvg(p.level).width)
+    case 'track':
+      return columns(trackSvg(p.cells, p.ahead, p.per).width)
+    case 'bar':
+      return columns(barWidth)
+    case 'marks':
+      return 0
+  }
+}
+
+/**
+ * A row in the Desktop's columns, its drawings measured by their pixels (fitRow: whole groups dropped from the end,
+ * the first kept). Every bar is one width, so the figure after one stands a single space away.
+ */
+export function fitDesktopRow(row: Row, columns: number, barWidth: number): Row {
+  const parts = row.parts.map((p, i) => (p.t === 'text' && row.parts[i - 1]?.t === 'bar' ? { ...p, text: p.text.replace(/^ +/, ' ') } : p))
+  return fitRow({ ...row, parts }, columns, (p) => desktopWidth(p, barWidth))
+}
+
+/** The track's cells on the Desktop: as many as the terminal's room (columns less 34) holds in pixels, 10 to 60. */
+export function desktopTrackCells(columns: number): number {
+  return Math.min(TRACK_SVG_CELLS, Math.max(10, Math.floor(((columns - 34) * PX_PER_COLUMN + 1) / PITCH)))
+}
+
+/**
+ * The timeline's rows as the Desktop draws them, fitted to its columns: the track's drawing holds the marks, so the
+ * marks row keeps only its words (the shift), under the track; neither keeps the label that named a row of
+ * characters, so the drawing leads its row and is never what a narrow row drops.
+ */
+export function desktopTimelineRows(m: BoardModel, o: { columns: number; isPaneOpen: boolean }): Row[] {
+  const rows = timelineParts(m, { ...o, maxCells: desktopTrackCells(o.columns) }).flatMap((row): Row[] => {
     if (row.id !== 'track' && row.id !== 'marks') return [row]
     const parts = row.parts.slice(1).filter((p) => p.t !== 'marks')
     const [first, ...rest] = parts
     if (first === undefined) return []
     return [{ ...row, parts: first.t === 'text' ? [{ ...first, text: first.text.trimStart() }, ...rest] : parts }]
   })
+  return rows.map((row) => fitDesktopRow(row, o.columns, barPixels(o.columns)))
 }
