@@ -50,6 +50,12 @@ export type WorldOptions = {
    * comes after it). A test raises another event from here to land a write in the middle of the mod's update().
    */
   onStateSet?: (e: { key: string; value: unknown }) => unknown
+  /**
+   * Runs inside the engine's agent.spawn, before it answers with `{ model, agentId }`. The agent's own first
+   * turn.step can come before that answer (design 9), so a test raises it from here. Returning an object with
+   * `deny` or `model` answers with that instead (no agentId unless it gives one).
+   */
+  onSpawn?: (e: AgentSpawnInput, agentId: string) => unknown
 }
 
 export type SentStep = { turnId: string; index: number; effort: unknown; model: string; agentId: string | undefined }
@@ -72,6 +78,8 @@ export function world(on: On, o: WorldOptions = {}) {
   const stepsSent: SentStep[] = []
   const appended: SessionAppendInput[] = []
   const spawned: AgentSpawnInput[] = []
+  /** How many times the mod called $.agent.list(). */
+  const listed = { calls: 0 }
   const submitted: { text: string; context: readonly string[] | undefined; origin: PromptOrigin }[] = []
   const attachments: PromptAttachmentInput[] = []
   const completes: ModelCompleteInput[] = []
@@ -125,7 +133,10 @@ export function world(on: On, o: WorldOptions = {}) {
     commands.push({ name: e.name, description: e.description })
     return { value: { command: e.name } }
   })
-  on('agent.list', () => ({ value: (o.agents ?? []) as never }))
+  on('agent.list', () => {
+    listed.calls += 1
+    return { value: (o.agents ?? []) as never }
+  })
   on('model.complete', (_$, e) => {
     completes.push(e)
     const text = o.complete ? o.complete(e) : null
@@ -162,10 +173,13 @@ export function world(on: On, o: WorldOptions = {}) {
     appended.push(e)
     return next(e)
   })
-  on('agent.spawn', (_$, e) => {
+  on('agent.spawn', async (_$, e) => {
     spawned.push(e)
     agentNo += 1
-    return { model: e.model ?? e.parentModel, agentId: `agent-${agentNo}` }
+    const agentId = `agent-${agentNo}`
+    const r = await o.onSpawn?.(e, agentId)
+    if (r !== null && typeof r === 'object' && ('deny' in r || 'model' in r)) return r as never
+    return { model: e.model ?? e.parentModel, agentId }
   })
   on('prompt.attachment', (_$, e) => {
     attachments.push(e)
@@ -173,7 +187,7 @@ export function world(on: On, o: WorldOptions = {}) {
   })
   on('skill.prompt', (_$, e) => ({ text: e.text }))
 
-  return { fetched, statuses, logs, debugLogs, stepsSent, appended, spawned, submitted, attachments, completes, commands, storeWrites, stateWrites, clock }
+  return { fetched, statuses, logs, debugLogs, stepsSent, appended, spawned, listed, submitted, attachments, completes, commands, storeWrites, stateWrites, clock }
 }
 
 // Answers in the shapes the decision models send (backend.ts reads them).
@@ -205,6 +219,26 @@ export function submit($: Engine, text: string, origin: PromptOrigin = { kind: '
 
 export function turnStart($: Engine, turnId: string, text: string, agentId?: string) {
   return $.turn.start({ turnId, text, ...(agentId === undefined ? {} : { agentId }) })
+}
+
+/** An agent.spawn input with every field the engine fills in; parentModel opus unless given. */
+export function spawnInput(o: Partial<AgentSpawnInput> = {}): AgentSpawnInput {
+  return {
+    tool_use_id: 'toolu_1',
+    prompt: 'Find where the uploader retries.',
+    description: 'Find the retry',
+    subagentType: 'general-purpose',
+    provider: { plugin: 'engine', tier: 'core' },
+    parentModel: 'claude-opus-5-5',
+    background: false,
+    fork: false,
+    ...o,
+  }
+}
+
+/** Spawns an agent as the Agent tool does and returns what the chain answered. */
+export function spawn($: Engine, o: Partial<AgentSpawnInput> = {}) {
+  return $.agent.spawn(spawnInput(o))
 }
 
 /** Runs one step to its end (a stream not read to the end never reaches the engine) and returns its result. */

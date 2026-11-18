@@ -7,8 +7,9 @@ import { START } from '../hooks/decide.ts'
 import { emptyJournal } from '../hooks/journal.ts'
 import type { TurnJournal } from '../hooks/journal.ts'
 import type { Decision } from '../hooks/log.ts'
-import { carrierOf, carriesNote, emptyCounters, gapOk, isCheckpoint, noteText, notesLeft, withNote } from '../hooks/midrun.ts'
+import { applyShift, carrierOf, carriesNote, emptyCounters, gapOk, isCheckpoint, noteText, notesLeft, withNote } from '../hooks/midrun.ts'
 import type { MidrunCounters } from '../hooks/midrun.ts'
+import { newTurn } from '../hooks/state.ts'
 import type { SessionState, TurnState } from '../hooks/state.ts'
 import {
   assistantText,
@@ -792,4 +793,28 @@ test('isCheckpoint：0 关掉按数的检查，失败成簇照样算；Code Mode
   // Input by delivery is a checkpoint in both kinds of session, but needs a note like a result does.
   expect([isCheckpoint('delivered-input', j(), fresh, off, true), isCheckpoint('delivered-input', j(), fresh, off, false)]).toEqual([true, true])
   expect(isCheckpoint('delivered-input', j(), spent, on, true)).toBe(false)
+})
+
+
+test('applyShift：prompt 行的换挡清掉还排着的旧说明，不计条数', () => {
+  const cfg = readConfig({})
+  const OLD = '[dispatch-pilot] effort is now high: the same failure came back after a fix.'
+  // A note queued for high at work step 1, not yet placed; four steps later the person's input asks for low.
+  const turn: TurnState = { ...newTurn('t1', 'x'), wanted: 'high', pendingNote: OLD, journal: { ...emptyJournal(), workSteps: 5 }, midrun: { ...emptyCounters(), notes: 1, lastShiftAt: 1 } }
+  const out = applyShift(turn, { to: 'low', note: null, queued: null }, { asked: 'high', cfg, locked: false })
+  expect(out).toMatchObject({ wanted: 'low', pendingNote: null, midrun: { notes: 1, lastShiftAt: 5 } })
+})
+
+test('applyShift：后一条排着的说明替换前一条时只算一条；前面没有排着的才加一', () => {
+  const cfg = readConfig({})
+  const OLD = '[dispatch-pilot] effort is now high: the same failure came back after a fix.'
+  const NEW = noteText('xhigh', 'contradicts-plan')
+  const base: TurnState = { ...newTurn('t1', 'x'), wanted: 'high', journal: { ...emptyJournal(), workSteps: 5 }, midrun: { ...emptyCounters(), notes: 1, lastShiftAt: 1 } }
+  const replaced = applyShift({ ...base, pendingNote: OLD }, { to: 'xhigh', note: null, queued: NEW }, { asked: 'high', cfg, locked: false })
+  expect(replaced).toMatchObject({ wanted: 'xhigh', pendingNote: NEW, midrun: { notes: 1, lastShiftAt: 5 } })
+  const fresh = applyShift({ ...base, pendingNote: null }, { to: 'xhigh', note: null, queued: NEW }, { asked: 'high', cfg, locked: false })
+  expect(fresh).toMatchObject({ wanted: 'xhigh', pendingNote: NEW, midrun: { notes: 2, lastShiftAt: 5 } })
+  // A note on the row itself, with nothing queued, is counted.
+  const onRow = applyShift({ ...base, pendingNote: null }, { to: 'xhigh', note: NEW, queued: null }, { asked: 'high', cfg, locked: false })
+  expect(onRow).toMatchObject({ wanted: 'xhigh', pendingNote: null, midrun: { notes: 2 } })
 })

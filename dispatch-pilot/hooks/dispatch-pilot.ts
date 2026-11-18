@@ -1,23 +1,23 @@
 import { atom, read, update } from 'claude-code'
-import type { CommandRunResult, EngineInterface, Register, SessionAppendInput, TurnCompleteInput, TurnStepInput } from 'claude-code'
+import type { AgentSpawnInput, CommandRunResult, EngineInterface, Register, SessionAppendInput, TurnCompleteInput, TurnStepInput } from 'claude-code'
 
 import { ask, noulOf, scoreOf } from './backend.ts'
 import type { AskResult, Io } from './backend.ts'
 import { readConfig } from './config.ts'
 import type { Config } from './config.ts'
-import { readNoul, submitLevel, thresholdsFor } from './decide.ts'
+import { agentPlan, readNoul, submitLevel, thresholdsFor } from './decide.ts'
 import { kindOf, rowOf } from './journal.ts'
-import { isLevel } from './levels.ts'
-import type { Level } from './levels.ts'
+import { isLevel, tierOfModelId } from './levels.ts'
+import type { Level, Tier } from './levels.ts'
 import { DP_USAGE, RECENT_KEEP, badLevelReply, decisionId, failureText, lockReply, parseDp, pushLog, readLog, renderDp, renderLog, unlockReply } from './log.ts'
 import type { Decision } from './log.ts'
 import { applyShift, planRow, settleCheckpoint, withNote } from './midrun.ts'
 import type { Judged, RowPlan } from './midrun.ts'
-import { midrunQuestions, submitQuestions } from './questions.ts'
+import { agentQuestions, midrunQuestions, submitQuestions } from './questions.ts'
 import type { Question } from './questions.ts'
 import { emptySession, newTurn } from './state.ts'
 import type { SessionState, TurnState } from './state.ts'
-import { clip, submitState } from './statebuild.ts'
+import { agentState, clip, submitState } from './statebuild.ts'
 import type { PreviousTurn } from './statebuild.ts'
 
 // $.state, through the state library: a read of a key never written gives the initial, and update()
@@ -27,6 +27,9 @@ import type { PreviousTurn } from './statebuild.ts'
 const SESSION = atom({ plugin: 'dispatch-pilot', key: 'session' } as const, emptySession())
 const TURN = atom({ plugin: 'dispatch-pilot', key: 'turn' } as const, null)
 const RECENT = atom({ plugin: 'dispatch-pilot', key: 'recent' } as const, [])
+
+// The agents family (by agentId) is addressed with a literal reference at each read and write, which the module
+// scan requires; an agent the mod did not handle at its spawn has no entry.
 
 /** $.store key of the decision log, shared by every session on this machine. */
 const LOG = 'log'
@@ -221,8 +224,6 @@ async function takeBase($: EngineInterface, turn: TurnState, level: Level): Prom
 
 // The main loop's branch of turn.step. Returns the step as it goes on.
 async function mainStep($: EngineInterface, cfg: Config, e: TurnStepInput): Promise<TurnStepInput> {
-  // Agents' steps (e.agentId set) are left as they come; they get their own branch later.
-  if (e.agentId !== undefined) return e
   const session = await read($, SESSION)
   const held = await read($, TURN)
   let turn = held !== null && held.turnId === e.turnId ? held : null
@@ -240,6 +241,109 @@ async function mainStep($: EngineInterface, cfg: Config, e: TurnStepInput): Prom
 function endedOf(e: { reason: string; isAborted: boolean }): PreviousTurn['ended'] {
   if (e.isAborted || e.reason === 'aborted') return 'interrupted'
   return e.reason === 'answer' ? 'answered' : 'error'
+}
+
+/** What a spawn's answers make of the agent: the model to give it, the effort for its steps, and the Decision. */
+type Spawned = { model: Tier | null; effort: Level | null; decision: Omit<Decision, 'id' | 'at'> }
+
+// The agent's model and effort from the answers (design 5.5). Pure. `r` is null when nothing was asked. Only the
+// model goes into the spawn, and only when the call named none: the plan's tier when it differs from the inherited
+// one; without a plan (not asked, or the ask failed) only the fableAgents cap, a configuration rule that holds
+// whatever the decision model did. In shadow mode nothing is given, and the Decision records what would have been.
+function settleSpawn(r: AskResult | null, c: { cfg: Config; e: AgentSpawnInput; tier: Tier | null; level: Level | null; turn: TurnState | null }): Spawned {
+  const { cfg, e, tier, level } = c
+  const ok = r !== null && r.ok ? r : null
+  const bars = ok === null ? null : thresholdsFor(ok.backend, ok.model, 'agent')
+  const a = ok?.answers
+  const plan =
+    a === undefined || bars === null
+      ? null
+      : agentPlan(
+          { level, tier },
+          { open: scoreOf(a.open), mechanical: noulOf(a.mechanical), unknownCause: noulOf(a.unknown_cause), readOnly: noulOf(a.read_only) },
+          { agentModels: cfg.agentModels, fableAgents: cfg.fableAgents },
+          bars,
+        )
+  let chosen: Tier | null = null
+  if (e.model === undefined) {
+    if (plan !== null) chosen = plan.model !== null && plan.model !== tier ? plan.model : null
+    else if (tier === 'fable' && !cfg.fableAgents) chosen = 'opus'
+  }
+  const effort = plan?.effort ?? null
+  const applies = cfg.mode === 'apply'
+  const failed = r !== null && !r.ok ? r : null
+  const decision: Omit<Decision, 'id' | 'at'> = {
+    kind: 'agent',
+    backend: r?.backend ?? null,
+    model: ok?.model ?? null,
+    ms: r?.ms ?? 0,
+    raw: a ?? null,
+    from: `${tier ?? 'inherit'} · ${level ?? '—'}`,
+    // The model the agent is given: the mod's alias, else the one the call named, else the parent's.
+    to: `${chosen ?? e.model ?? 'inherit'} · ${effort ?? '—'}`,
+    reason: plan?.reason ?? null,
+    detail: e.subagentType,
+    turnId: c.turn?.turnId ?? null,
+    step: c.turn?.journal.workSteps ?? null,
+    bars,
+    failure: failed?.reason ?? null,
+    requestId: failed?.requestId ?? null,
+    // The model is changed, or an effort will be written on the agent's steps that carry a level.
+    applied: applies && (chosen !== null || effort !== null),
+    sent: null,
+  }
+  return { model: applies ? chosen : null, effort: applies ? effort : null, decision }
+}
+
+// The judgement when an agent is dispatched (design 5.5): the hook waits here for the answer, up to agentTimeoutMs.
+// Null: an agent this mod leaves alone. A resumed run keeps what it had, a fork shares the parent's prompt cache
+// (another model would lose it), and a workflow's script decides its own agents.
+async function planSpawn($: EngineInterface, cfg: Config, e: AgentSpawnInput): Promise<Spawned | null> {
+  if (!cfg.enabled || e.resume !== undefined || e.fork || e.workflow !== undefined) return null
+  const session = await read($, SESSION)
+  const turn = await read($, TURN)
+  // What the agent inherits: the main turn's level and the parent's tier (null for an id that names no family,
+  // such as opusplan: then the model is never changed).
+  const level = turn?.wanted ?? turn?.base ?? null
+  const tier = tierOfModelId(e.parentModel)
+  const asking = cfg.agentShift && session.lock === null
+  const state = agentState({ task: e.prompt, agentType: e.subagentType, description: e.description })
+  const r = asking ? await ask(ioOf($), cfg, { state, questions: agentQuestions() }, cfg.agentTimeoutMs) : null
+  return settleSpawn(r, { cfg, e, tier, level, turn })
+}
+
+// The spawn started an agent: its entry (an effort of null: not handled, its steps are left alone) and the Decision.
+// Every spawn keeps its own values here and writes its own key; record() serialises the shared log, so spawns in
+// flight at once do not mix.
+async function keepAgent($: EngineInterface, s: Spawned, agentId: string): Promise<null> {
+  const at = await $.clock.now()
+  const id = decisionId(at)
+  await update($, { plugin: 'dispatch-pilot', key: 'agents', id: agentId } as const, () => ({ effort: s.effort, isEffortExplicit: null, decisionId: id, steps: 0 }))
+  await record($, { ...s.decision, id, at })
+  return null
+}
+
+// An agent's branch of turn.step: the effort decided at its spawn, on every step whose effort is a level, unless the
+// agent's own definition or call set one. The engine starts the agent inside agent.spawn's next(e), so its first
+// step can come before that next has answered with the agentId (measured: usually about 70 ms after, design 9).
+// Such a step finds no entry and goes as it came; the entry is written as soon as next answers, and the steps after
+// it carry the effort. Nothing is held for it: the step has no tool_use_id to tie it to the spawn waiting.
+async function agentStep($: EngineInterface, cfg: Config, e: TurnStepInput, agentId: string): Promise<TurnStepInput> {
+  const held = await read($, { plugin: 'dispatch-pilot', key: 'agents', id: agentId } as const)
+  if (held === undefined) return e
+  const effort = held.effort
+  const writes = cfg.enabled && cfg.mode === 'apply' && effort !== null && isLevel(e.effort)
+  let explicit = held.isEffortExplicit
+  if (writes && explicit === null) {
+    // Once per agent: what the list says does not change for it. An agent the list does not show counts as not explicit.
+    const listed = (await $.agent.list()).find((a) => a.id === agentId)
+    explicit = listed?.effort !== undefined
+  }
+  await update($, { plugin: 'dispatch-pilot', key: 'agents', id: agentId } as const, (cur) => {
+    const was = cur ?? held
+    return { ...was, steps: was.steps + 1, isEffortExplicit: was.isEffortExplicit ?? explicit }
+  })
+  return writes && explicit !== true && effort !== null ? { ...e, effort } : e
 }
 
 // A main-loop turn ends. Only the turn held here ends here: the end of one never seen starting (or with none held)
@@ -357,11 +461,21 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // The one turn.step hook (no matcher may be registered twice): the main loop's branch here, agents'
-  // (e.agentId set) in a later task.
+  // The one turn.step hook (no matcher may be registered twice): the main loop's branch, and an agent's (e.agentId set).
   on('turn.step', async function* ($, e, next) {
-    const out = await failOpen($, 'turn.step', e, () => mainStep($, cfg, e))
+    const agentId = e.agentId
+    const out = await failOpen($, 'turn.step', e, () => (agentId === undefined ? mainStep($, cfg, e) : agentStep($, cfg, e, agentId)))
     return yield* next(out)
+  })
+
+  // The judgement waits before next(e); the agent's entry and the Decision are written once next has answered with
+  // the started agent's id. A refused spawn, or one that started no local agent, keeps nothing.
+  on('agent.spawn', async ($, e, next) => {
+    const plan = await failOpen($, 'agent.spawn', null, () => planSpawn($, cfg, e))
+    const r = await next(plan === null || plan.model === null ? e : { ...e, model: plan.model })
+    const agentId = r.deny === undefined ? r.agentId : undefined
+    if (plan !== null && agentId !== undefined) await failOpen($, 'agent.spawn', null, () => keepAgent($, plan, agentId))
+    return r
   })
 
   // Each row is held here until the hook passes it on; at a checkpoint, for as long as the question is out.

@@ -208,7 +208,8 @@ export function settleCheckpoint(r: AskResult, c: CheckpointContext): Judged {
 }
 
 /**
- * The turn with a shift made (the new level, the work step it was made at, one more note when it took one), or null
+ * The turn with a shift made (the new level, the work step it was made at, one more note when it took one that
+ * replaces none still queued), or null
  * when the turn as it is at the write no longer allows it. The answer comes back up to midrunTimeoutMs after the plan,
  * and the result rows of one step may be appended side by side (the test kit runs two such appends concurrently;
  * the engine is not measured), so another row may have shifted meanwhile: the level must still be the one asked
@@ -218,10 +219,13 @@ export function applyShift(turn: TurnState, s: Shift, c: { asked: Level; cfg: Co
   const noted = s.note !== null || s.queued !== null
   if (c.locked || (turn.wanted ?? turn.base) !== c.asked || !gapOk(turn.midrun, turn.journal)) return null
   if (noted && notesLeft(turn.midrun, c.cfg) === 0) return null
+  // A note still queued names the level this shift replaces, so it is never placed: the shift's own queued note
+  // takes its place, or none (a note on this row, or input that needs none). It was counted when it was queued, so
+  // the note that replaces it is not counted again.
   return {
     ...turn,
     wanted: s.to,
-    pendingNote: s.queued ?? turn.pendingNote,
-    midrun: { ...turn.midrun, lastShiftAt: turn.journal.workSteps, notes: turn.midrun.notes + (noted ? 1 : 0) },
+    pendingNote: s.queued,
+    midrun: { ...turn.midrun, lastShiftAt: turn.journal.workSteps, notes: turn.midrun.notes + (noted && turn.pendingNote === null ? 1 : 0) },
   }
 }
