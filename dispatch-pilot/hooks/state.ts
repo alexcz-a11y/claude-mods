@@ -21,6 +21,11 @@ export type TurnJournal = {
   editedSinceError: boolean
   sameErrorRepeated: boolean
   consecutiveFailures: number
+  /**
+   * The step a further tool result joins: the last one, ended by a tool result with no response row since (one
+   * response's results are one work step); failuresBefore: consecutiveFailures before it ended. Null: none to join.
+   */
+  joins: { failuresBefore: number } | null
 }
 
 export function emptyJournal(): TurnJournal {
@@ -35,6 +40,7 @@ export function emptyJournal(): TurnJournal {
     editedSinceError: false,
     sameErrorRepeated: false,
     consecutiveFailures: 0,
+    joins: null,
   }
 }
 

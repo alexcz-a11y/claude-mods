@@ -46,6 +46,8 @@ export type DpTurnJournal = {
   editedSinceError: boolean
   sameErrorRepeated: boolean
   consecutiveFailures: number
+  /** The step a further tool result of the same response joins, and the consecutive failures before it. */
+  joins: { failuresBefore: number } | null
 }
 export type DpMidrunCounters = { notes: number; lastShiftAt: number | null; stepsSinceCheck: number; scriptsSinceCheck: number }
 export type DpMark = 'hold' | 'up' | 'down' | 'fail'

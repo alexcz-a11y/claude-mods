@@ -155,7 +155,8 @@ function addTool(tools: string[], name: string): string[] {
 }
 
 function onAssistant(j: TurnJournal, row: Row): TurnJournal {
-  const next = { ...j }
+  // A response: the results after it are a step of their own.
+  const next = { ...j, joins: null }
   const said = row.text.trim()
   if (said !== '') next.statedNext = clip(said, STATED_NEXT_TOKENS)
   for (const use of row.toolUses) {
@@ -174,7 +175,7 @@ function onReceipt(j: TurnJournal): TurnJournal {
   let open = j.open
   if (open !== null && open.tools.length === 0) open = { ...open, tools: ['REPL'] }
   else if (open === null || open.tools[0] !== 'REPL') open = { did: 'REPL', tools: ['REPL'], failed: false }
-  return { ...j, open, editedSinceError: true }
+  return { ...j, open, editedSinceError: true, joins: null }
 }
 
 function onInnerCall(j: TurnJournal, row: Row): TurnJournal {
@@ -188,7 +189,7 @@ function onInnerCall(j: TurnJournal, row: Row): TurnJournal {
 
 // Ends the open step with its result. work: a step the model did (a script dispatched, a tool called).
 function endStep(j: TurnJournal, step: StepRecord, work: boolean, errorLine: string | null): TurnJournal {
-  let next: TurnJournal = { ...j, open: null, steps: [...j.steps, step].slice(-STEPS_KEEP) }
+  let next: TurnJournal = { ...j, open: null, steps: [...j.steps, step].slice(-STEPS_KEEP), joins: null }
   if (work) next.workSteps += 1
   if (step.ok) return { ...next, consecutiveFailures: 0, sameErrorRepeated: false }
   if (work) next.failedSteps += 1
@@ -213,12 +214,26 @@ function onScriptResult(j: TurnJournal, row: Row): TurnJournal {
   return { ...endStep(j, step, work, errorLine), scriptResults: j.scriptResults + 1 }
 }
 
+// An ordinary session's tool result. The first after a response ends its step; the others of the same response (parallel
+// calls: no response row between their results) join it, so a response is one work step (GLOSSARY, design 5.14).
 function onToolResult(j: TurnJournal, row: Row): TurnJournal {
   const name = row.tool ?? 'unknown'
+  const last = j.steps.at(-1)
+  if (j.joins !== null && j.open === null && last !== undefined) return joinStep(j, last, row, name, j.joins.failuresBefore)
   // A refused REPL call keeps the description its tool_use gave the step.
   const did = name === 'REPL' && j.open !== null && j.open.tools.length === 0 ? j.open.did : name
   const step = { did, tools: [name], ok: !row.isError, result: clip(row.text, RESULT_TOKENS) }
-  return endStep(j, step, true, row.isError ? firstLine(row.text) : null)
+  return { ...endStep(j, step, true, row.isError ? firstLine(row.text) : null), joins: { failuresBefore: j.consecutiveFailures } }
+}
+
+// A further result of the step's response: its tool joins the step, which fails if any of its results failed and keeps
+// the failed one's text (else the last's). Counted once: a failure turns an ok step failed (one failed step more, and
+// the consecutive failures it would have made), a second failure adds nothing.
+function joinStep(j: TurnJournal, last: StepRecord, row: Row, name: string, failuresBefore: number): TurnJournal {
+  const step: StepRecord = { did: last.did, tools: addTool(last.tools, name), ok: last.ok && !row.isError, result: last.ok ? clip(row.text, RESULT_TOKENS) : last.result }
+  const next: TurnJournal = { ...j, steps: [...j.steps.slice(0, -1), step] }
+  if (!(last.ok && row.isError)) return next
+  return noteError({ ...next, failedSteps: j.failedSteps + 1, consecutiveFailures: failuresBefore + 1 }, firstLine(row.text))
 }
 
 /** The journal after one more row; a new object, the input is left as it was (the engine compares state values). */

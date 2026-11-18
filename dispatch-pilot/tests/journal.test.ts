@@ -359,3 +359,34 @@ test('repl-eval 事件里既没有 <result> 也没有 <error>：不结束这一�
   expect(scriptResult(both)).toEqual({ ok: true, result: 'done' })
   expect(kind(toolResult('Poll', both))).toBe('script-result-poll')
 })
+
+// Final review I3: in an ordinary session one response's tool results are one work step (GLOSSARY, design 5.14).
+
+test('一次回答里并行调三个工具：三条结果是一个工作步，工具都记下，结果取最后一条', () => {
+  const j = feed([
+    assistantToolUse('Read', { file_path: '/a' }),
+    assistantToolUse('Grep', { pattern: 'retry' }),
+    assistantToolUse('Bash', { command: 'npm test' }),
+    toolResult('Read', 'a'),
+    toolResult('Grep', 'b'),
+    toolResult('Bash', '3 passed'),
+  ])
+  expect([j.workSteps, j.failedSteps, j.consecutiveFailures]).toEqual([1, 0, 0])
+  expect(j.steps).toEqual([{ did: 'Read', tools: ['Read', 'Grep', 'Bash'], ok: true, result: '3 passed' }])
+  // The next response starts the next step.
+  const k = feed([assistantToolUse('Edit'), toolResult('Edit', 'edited')], j)
+  expect([k.workSteps, k.steps.length]).toEqual([2, 2])
+})
+
+test('并行的两条失败是一个失败的工作步；先成功后失败的一步算失败，只算一次', () => {
+  const two = feed([assistantToolUse('Bash'), assistantToolUse('Bash'), toolResult('Bash', 'exit 1: a', { error: true }), toolResult('Bash', 'exit 2: b', { error: true })])
+  expect([two.workSteps, two.failedSteps, two.consecutiveFailures]).toEqual([1, 1, 1])
+  // The failed one's result stays the step's.
+  expect(two.steps).toEqual([{ did: 'Bash', tools: ['Bash'], ok: false, result: 'exit 1: a' }])
+  expect(two.lastError).toBe('exit 1: a')
+  // One failed step, then a response whose first result passes and whose second fails: two failed steps in a row.
+  const mixed = feed([assistantToolUse('Read'), assistantToolUse('Bash'), toolResult('Read', 'fine'), toolResult('Bash', 'exit 3: c', { error: true })], two)
+  expect([mixed.workSteps, mixed.failedSteps, mixed.consecutiveFailures]).toEqual([2, 2, 2])
+  expect(mixed.steps.at(-1)).toEqual({ did: 'Read', tools: ['Read', 'Bash'], ok: false, result: 'exit 3: c' })
+  expect(mixed.lastError).toBe('exit 3: c')
+})

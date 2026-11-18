@@ -82,7 +82,7 @@ dispatch-pilot/
 - 带着结果的 delivery 行之后，同一条 queue 行会再出现一次。
 - 一轮进行中打的那条消息被排队，到 `turn.complete` 之后才提交（它的 `prompt.submit`、prompt 行和 `turn.start` 都在那之后），一轮中途没有见到 prompt 行。
 
-mod 怎么归类这些行（`journal.ts` 的 `kindOf`）：主循环的 `REPL` 结果行只写着 `(dispatched #N)` 时是 `receipt`，不算一份结果，但第一次见到它就把会话当作 Code Mode 会话；不是 receipt 的 `REPL` 结果行（被拒或出错）当作普通的工具结果。`Poll` 结果行里有脚本的 `<result>` 或 `<error>` 时是 `script-result-poll`；`delivery` 行里有时是 `script-result-delivery`，别的非空内容是 `delivered-input`；`role` 缺省的 tool-result 行是脚本内部的调用（`inner-call`），只记工具名和报错标记；prompt 行是 `new-input`。说明只加在 `receipt`、`script-result-poll` 和普通工具结果这类行上：`delivery` 行带不了换档（E13），排在那里的说明留给之后第一条能带的行。
+mod 怎么归类这些行（`journal.ts` 的 `kindOf`）：主循环的 `REPL` 结果行只写着 `(dispatched #N)` 时是 `receipt`，不算一份结果，但第一次见到它就把会话当作 Code Mode 会话；不是 receipt 的 `REPL` 结果行（被拒或出错）当作普通的工具结果。`Poll` 结果行里有脚本的 `<result>` 或 `<error>` 时是 `script-result-poll`；`delivery` 行里有时是 `script-result-delivery`，别的非空内容是 `delivered-input`；`role` 缺省的 tool-result 行是脚本内部的调用（`inner-call`），只记工具名和报错标记；prompt 行是 `new-input`。普通会话里一次回答并行调了几个工具时，第一条 `tool-result` 结束这一步，下一条回答（`assistant`）之前的其余结果并进同一条 `StepRecord`（`TurnJournal.joins` 记着可以并进的那一步和它之前的连续失败数），不再给 `workSteps`、`failedSteps`、`consecutiveFailures` 计数；这样的结果只有把这一步变成失败时才可能是检查点（`planRow`），也只按失败成簇算。说明只加在 `receipt`、`script-result-poll` 和普通工具结果这类行上：`delivery` 行带不了换档（E13），排在那里的说明留给之后第一条能带的行。
 
 ## 设计 3.2 节的实测（E1 到 E18）
 

@@ -321,3 +321,26 @@ test('长的一轮：第 1 步后升档，之后 30 次不变，再派出 40 个
   const idle = boardModel(readConfig(KEYS), { session: session(w), turn: null, recent: lastOf(w, 'recent') as Decision[], skills: [] })
   expect(idle.last).toMatchObject({ at: '此前 · 第 31 步后', mark: 'hold' })
 })
+
+// Final review I3, through the engine.
+test('普通会话一次回答并行调三个工具：一个工作步，第 2 步，两格，再 7 步；两条并行的失败不算连续两步失败', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, () => HOLD) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  await appendAll($, [
+    assistantToolUse('Read', { file_path: '/a' }),
+    assistantToolUse('Grep', { pattern: 'retry' }),
+    assistantToolUse('Bash', { command: 'npm test' }),
+    toolResult('Read', 'a'),
+    toolResult('Grep', 'b'),
+    toolResult('Bash', '3 passed'),
+  ])
+  await stepT1($, 1)
+  const m = boardModel(readConfig(KEYS), { session: session(w), turn: turnState(w), recent: [], skills: [] })
+  expect([turnState(w).journal.workSteps, m.where, m.track.length, m.next.main]).toEqual([1, '第 1 轮 · 第 2 步', 2, '再 7 步'])
+  // Two failures side by side: one failed step, so no "two failures in a row" checkpoint is asked.
+  await appendAll($, [assistantToolUse('Bash'), assistantToolUse('Bash'), toolResult('Bash', 'exit 1: a', { error: true }), toolResult('Bash', 'exit 2: b', { error: true })])
+  expect(turnState(w).journal).toMatchObject({ workSteps: 2, failedSteps: 1, consecutiveFailures: 1 })
+  expect(w.fetched.filter((f) => 'same_failure' in f.body.questions)).toHaveLength(0)
+})

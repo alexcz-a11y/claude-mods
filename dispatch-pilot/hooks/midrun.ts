@@ -79,8 +79,12 @@ export function withNote<E extends { message: { content: readonly unknown[] } }>
   return { ...e, message: { ...e.message, content: [...e.message.content, { type: 'text', text }] } }
 }
 
-/** Whether a question is due on this row (design 5.4). `j`: the journal after the row; `m`: the counters before it. */
-export function isCheckpoint(kind: RowKind, j: TurnJournal, m: MidrunCounters, cfg: Config, codeMode: boolean): boolean {
+/**
+ * Whether a question is due on this row (design 5.4). `j`: the journal after the row; `m`: the counters before it;
+ * newStep: the row ended a work step of its own (false for a result that joined its response's step, journal.ts),
+ * which is what the count of steps counts.
+ */
+export function isCheckpoint(kind: RowKind, j: TurnJournal, m: MidrunCounters, cfg: Config, codeMode: boolean, newStep = true): boolean {
   // The person's input: its shift needs no note, so notes used up do not matter here.
   if (carrierOf(kind) === 'input') return true
   // Every other shift goes out only with a note: with none left, asking would hold the row for nothing.
@@ -92,7 +96,7 @@ export function isCheckpoint(kind: RowKind, j: TurnJournal, m: MidrunCounters, c
     return cfg.midrunEveryScripts > 0 && m.scriptsSinceCheck + 1 >= cfg.midrunEveryScripts
   }
   if (kind !== 'tool-result') return false
-  return j.sameErrorRepeated || j.consecutiveFailures >= 2 || (cfg.midrunEverySteps > 0 && m.stepsSinceCheck + 1 >= cfg.midrunEverySteps)
+  return j.sameErrorRepeated || j.consecutiveFailures >= 2 || (newStep && cfg.midrunEverySteps > 0 && m.stepsSinceCheck + 1 >= cfg.midrunEverySteps)
 }
 
 export type RowPlan = {
@@ -140,7 +144,10 @@ export function planRow(turn: TurnState, row: Row, kind: RowKind, c: { cfg: Conf
   const note = c.judging && turn.pendingNote !== null && carriesNote(kind) ? turn.pendingNote : null
   // The level being judged; none on a model that takes no effort, and then nothing is asked.
   const current = turn.wanted ?? turn.base
-  const due = note === null && c.judging && current !== null && isCheckpoint(kind, journal, m, c.cfg, c.codeMode)
+  // A result that joined its response's step (journal.ts) is news only when it turned that step failed.
+  const joined = kind === 'tool-result' && journal.workSteps === turn.journal.workSteps
+  const news = !joined || journal.failedSteps > turn.journal.failedSteps
+  const due = note === null && c.judging && current !== null && news && isCheckpoint(kind, journal, m, c.cfg, c.codeMode, !joined)
   const evidence = due ? evidenceOf(kind, row, journal) : null
   const midrun: MidrunCounters =
     evidence !== null

@@ -62,6 +62,7 @@ function journal(workSteps: number, o: { scripts: boolean; failed?: number }) {
     editedSinceError: false,
     sameErrorRepeated: false,
     consecutiveFailures: o.failed ?? 0,
+    joins: null,
   }
 }
 
