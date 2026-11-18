@@ -45,6 +45,19 @@ test('认出七种行', () => {
   expect(kind(emptyDelivery())).toBe('other')
 })
 
+test('不是回执的 REPL 结果行（被拒、出错）像普通工具结果一样结束这一步，记为失败', () => {
+  const refused = toolResult('REPL', 'Permission to use REPL has been denied.', { error: true })
+  expect(kind(refused)).toBe('tool-result')
+  const before = feed([assistantToolUse('Read'), toolResult('Read', 'x', { error: true })])
+  const j = feed([assistantToolUse('REPL', { description: 'delete the cache' }), refused], before)
+  expect(j.steps.at(-1)).toEqual({ did: 'delete the cache', tools: ['REPL'], ok: false, result: 'Permission to use REPL has been denied.' })
+  expect(j.open).toBeNull()
+  expect(j.workSteps).toBe(2)
+  expect(j.failedSteps).toBe(2)
+  expect(j.consecutiveFailures).toBe(2)
+  expect(j.lastError).toBe('Permission to use REPL has been denied.')
+})
+
 test('Code Mode 的一步：回执不算结果，Poll 结果行结束这一步', () => {
   const afterReceipt = feed([assistantToolUse('REPL', { code: 'x', description: 'run the tests' }), replReceipt(1)])
   expect(afterReceipt.steps).toEqual([])
@@ -61,7 +74,7 @@ test('结果经 delivery 行到达也结束这一步；空的 delivery 行不算
   const pending = feed([assistantToolUse('REPL', { description: 'list files' }), replReceipt(1), innerCall('Glob'), emptyDelivery()])
   expect(pending.steps).toEqual([])
   expect(pending.scriptResults).toBe(0)
-  expect(pending.open).toEqual({ did: 'list files', tools: ['REPL', 'Glob'] })
+  expect(pending.open).toEqual({ did: 'list files', tools: ['REPL', 'Glob'], failed: false })
   const j = feed([deliveryResult(1, 'a.ts b.ts')], pending)
   expect(j.steps).toEqual([{ did: 'list files', tools: ['REPL', 'Glob'], ok: true, result: 'a.ts b.ts' }])
   expect(j.workSteps).toBe(1)
@@ -106,7 +119,7 @@ test('只等结果的 Poll 不算工作步', () => {
   const running = feed([assistantToolUse('REPL', { description: 'long build' }), assistantToolUse('Poll'), replReceipt(1), toolResult('Poll', status)])
   expect(kind(toolResult('Poll', status))).toBe('other')
   expect(running.steps).toEqual([])
-  expect(running.open).toEqual({ did: 'long build', tools: ['REPL'] })
+  expect(running.open).toEqual({ did: 'long build', tools: ['REPL'], failed: false })
   // The next step only waits; the result it brings ends the script's one step.
   const done = feed([assistantToolUse('Poll'), pollResult(1, 'built')], running)
   expect(done.workSteps).toBe(1)
@@ -177,12 +190,13 @@ test('普通会话：is_error 的结果记为失败，成功一步清零 consecu
   expect(ok.workSteps).toBe(3)
 })
 
-test('脚本内部的调用出错：这一步记为失败，报错写进 lastError', () => {
-  const j = feed(script('build', 1, [innerCall('Read'), innerCall('Bash', { error: 'Exit code 2\nmake: *** [all] Error 2' })], pollResult(1, 'done anyway')))
-  const last = j.steps.at(-1)
-  expect(last?.ok).toBe(false)
-  expect(last?.tools).toEqual(['REPL', 'Read', 'Bash (error)'])
+test('脚本内部的调用出错、脚本结果却是成功：这一步记为失败，工具名不变，报错写进 lastError', () => {
+  const running = feed([assistantToolUse('REPL', { description: 'build' }), replReceipt(1), innerCall('Read'), innerCall('Bash', { error: 'Exit code 2\nmake: *** [all] Error 2' })])
+  expect(running.open).toEqual({ did: 'build', tools: ['REPL', 'Read', 'Bash'], failed: true })
+  const j = feed([pollResult(1, 'done anyway')], running)
+  expect(j.steps.at(-1)).toEqual({ did: 'build', tools: ['REPL', 'Read', 'Bash'], ok: false, result: 'done anyway' })
   expect(j.failedSteps).toBe(1)
+  expect(j.consecutiveFailures).toBe(1)
   expect(j.lastError).toBe('Exit code 2')
   // The script's own error repeating the inner call's is the same failure, not a second one.
   const k = feed(script('build', 2, [innerCall('Bash', { error: 'Exit code 2' })], pollResult(2, 'Exit code 2', { error: true })))

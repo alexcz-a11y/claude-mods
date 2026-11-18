@@ -32,8 +32,6 @@ const RECEIPT = /^\(dispatched #\d+\)$/
 // A script's result event. The quotes may arrive backslash-escaped (text that was JSON-encoded on the way).
 const SCRIPT_EVENT = /kind=\\?"repl-eval\\?"/g
 const EDITS = new Set(['Edit', 'Write', 'NotebookEdit'])
-// How a failed call inside a script shows in its step's tools: the journal has no other place to keep it.
-const ERROR_MARK = ' (error)'
 
 // A row whose message is not the shape the types promise: kindOf classes it as 'other'.
 const UNREADABLE: Row = { door: '', tool: null, role: null, type: '', agentId: null, text: '', isError: false, toolUses: [] }
@@ -89,7 +87,8 @@ export function kindOf(row: Row): RowKind {
     case 'tool-result':
       if (row.role === null) return 'inner-call'
       if (row.role !== 'user') return 'other'
-      if (row.tool === 'REPL') return RECEIPT.test(row.text.trim()) ? 'receipt' : 'other'
+      // A REPL row that is no receipt (a refused or failed call) ends its step like any tool result.
+      if (row.tool === 'REPL') return RECEIPT.test(row.text.trim()) ? 'receipt' : 'tool-result'
       // A Poll that returns while the script still runs has no result event and ends nothing.
       if (row.tool === 'Poll') return hasScriptEvent(row.text) ? 'script-result-poll' : 'other'
       return 'tool-result'
@@ -144,10 +143,10 @@ function onAssistant(j: TurnJournal, row: Row): TurnJournal {
   for (const use of row.toolUses) {
     if (EDITS.has(use.name) || use.name === 'REPL') next.editedSinceError = true
     // A REPL step's tools stay empty until its receipt: an empty list means "asked for, not yet dispatched".
-    if (use.name === 'REPL') next.open = { did: use.description.trim() || 'REPL', tools: [] }
+    if (use.name === 'REPL') next.open = { did: use.description.trim() || 'REPL', tools: [], failed: false }
     // A Poll beside a REPL only waits for that script's result: it opens no step of its own.
-    else if (use.name === 'Poll') next.open = next.open ?? { did: 'Poll', tools: ['Poll'] }
-    else next.open = { did: use.name, tools: [use.name] }
+    else if (use.name === 'Poll') next.open = next.open ?? { did: 'Poll', tools: ['Poll'], failed: false }
+    else next.open = { did: use.name, tools: [use.name], failed: false }
   }
   return next
 }
@@ -155,8 +154,8 @@ function onAssistant(j: TurnJournal, row: Row): TurnJournal {
 // The script is dispatched: its step now holds REPL first, which is what makes it a work step.
 function onReceipt(j: TurnJournal): TurnJournal {
   let open = j.open
-  if (open !== null && open.tools.length === 0) open = { did: open.did, tools: ['REPL'] }
-  else if (open === null || open.tools[0] !== 'REPL') open = { did: 'REPL', tools: ['REPL'] }
+  if (open !== null && open.tools.length === 0) open = { ...open, tools: ['REPL'] }
+  else if (open === null || open.tools[0] !== 'REPL') open = { did: 'REPL', tools: ['REPL'], failed: false }
   return { ...j, open, editedSinceError: true }
 }
 
@@ -164,7 +163,7 @@ function onInnerCall(j: TurnJournal, row: Row): TurnJournal {
   const name = row.tool ?? 'unknown'
   let next = { ...j }
   if (EDITS.has(name)) next.editedSinceError = true
-  if (next.open !== null) next.open = { did: next.open.did, tools: addTool(next.open.tools, row.isError ? name + ERROR_MARK : name) }
+  if (next.open !== null) next.open = { did: next.open.did, tools: addTool(next.open.tools, name), failed: next.open.failed || row.isError }
   if (row.isError) next = noteError(next, firstLine(row.text))
   return next
 }
@@ -186,7 +185,7 @@ function onScriptResult(j: TurnJournal, row: Row): TurnJournal {
   // Only a script whose receipt came is a work step; a Poll that only waited is not.
   const work = open !== null && open.tools[0] === 'REPL'
   const tools = open !== null && open.tools.length > 0 ? open.tools : ['REPL']
-  const innerFailed = tools.some((t) => t.endsWith(ERROR_MARK))
+  const innerFailed = open?.failed === true
   let errorLine = res.ok ? null : firstLine(res.result)
   // The script's error repeating its failed call's is that same failure, already noted.
   if (innerFailed && errorLine === j.lastError) errorLine = null
@@ -196,7 +195,9 @@ function onScriptResult(j: TurnJournal, row: Row): TurnJournal {
 
 function onToolResult(j: TurnJournal, row: Row): TurnJournal {
   const name = row.tool ?? 'unknown'
-  const step = { did: name, tools: [name], ok: !row.isError, result: clip(row.text, RESULT_TOKENS) }
+  // A refused REPL call keeps the description its tool_use gave the step.
+  const did = name === 'REPL' && j.open !== null && j.open.tools.length === 0 ? j.open.did : name
+  const step = { did, tools: [name], ok: !row.isError, result: clip(row.text, RESULT_TOKENS) }
   return endStep(j, step, true, row.isError ? firstLine(row.text) : null)
 }
 

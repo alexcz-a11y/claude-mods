@@ -39,7 +39,8 @@ export type DpTurnJournal = {
   failedSteps: number
   scriptResults: number
   statedNext: string
-  open: { did: string; tools: string[] } | null
+  /** failed: a call inside the open script has errored. */
+  open: { did: string; tools: string[]; failed: boolean } | null
   lastError: string | null
   editedSinceError: boolean
   sameErrorRepeated: boolean

@@ -15,7 +15,8 @@ export type TurnJournal = {
   failedSteps: number
   scriptResults: number
   statedNext: string
-  open: { did: string; tools: string[] } | null
+  /** The step under way; failed: a call inside its script has errored, so the step fails whatever the result says. */
+  open: { did: string; tools: string[]; failed: boolean } | null
   lastError: string | null
   editedSinceError: boolean
   sameErrorRepeated: boolean
