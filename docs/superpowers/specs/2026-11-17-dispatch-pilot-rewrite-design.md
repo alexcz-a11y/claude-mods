@@ -1,6 +1,6 @@
 # dispatch-pilot 重写：原生适配 Code Mode（设计）
 
-日期：2026-11-17　分支：`dp/rewrite`　Claude Code：2.1.326　修订：2026-11-18
+日期：2026-11-17　分支：`dp/rewrite`　Claude Code：2.1.327　修订：2026-11-18（两次）
 
 ## 1. 意图
 
@@ -12,7 +12,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 
 1. 三项换挡都保留：发消息时定 effort；一轮中途换 effort；派出 agent 时定模型和 effort。
 2. skill 一组功能保留：去掉引擎的 skill 列表、发消息时推荐、`find-skill`。
-3. 单个 plugin，只注册 Code Mode 允许的事件，两种会话走同一条路径。
+3. 单个 plugin，两种会话走同一条路径。
 4. 决策模型默认 Drex `drex-max-v1.1`，另一个后端是 Jev `jev-latest`。
 5. 任何决策失败或超时都放行，会话照没有这个 mod 时那样继续。
 
@@ -32,11 +32,13 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 
 ### 3.1 Code Mode
 
-- Code Mode（实验功能，2.1.323 起，只在交互终端可用）不和挂了以下事件的 mod 一起开：`tool.call`、`tool.check`、`tool.judge`、`tool.run`、`agent.offer`、`agent.spawn`、`session.send`，以及 `classic.PreToolUse`、`classic.PermissionRequest`、`classic.PermissionDenied`、`classic.PostToolUse`、`classic.PostToolUseFailure`、`classic.TaskCreated`、`classic.TaskCompleted`、`classic.Elicitation`、`classic.ElicitationResult`、`classic.WorktreeCreate`。引擎按 hooks 模块的静态扫描判定，不看 matcher。
-- 所以 `$.tool.register` 注册的工具不能用（它靠 `tool.call` 回答）。
+- Code Mode 是实验功能，只在有 TUI 的交互终端里可用，`claude -p` 这类方式不生效。
+- 2.1.326 及以前，它不和挂了 `tool.call`、`agent.spawn` 等事件的 mod 一起开。2.1.327 起不再因此拒绝启动（release note："Changed Code Mode to no longer refuse to start when an installed mod hooks tool calls"）；实测见 3.2 节 E10 到 E12。本 mod 因此要求 2.1.327 及以上。
+- 打开 OpenTelemetry（`CLAUDE_CODE_ENABLE_TELEMETRY`）的会话里 Code Mode 不可用，引擎改用普通工具（2.1.327 启动提示）。这种会话按普通会话处理。
+- 本设计仍不注册 `tool.call` 一类的事件，也不用 `$.tool.register`：依据从结果行读（5.4 节），脚本内部的调用上不挂任何 hook，也就不会给它们加等待。
 - Anthropic 没有专讲 Claude Code Code Mode 的博客，官方只有文档页（https://code.claude.com/docs/en/code-mode ）和 changelog。收益来自更少的固定工具说明和不进上下文的中间结果。本设计按第 2 节的反目标来保护它。
 
-### 3.2 引擎行为（2.1.326，2026-11-17 用一次性探针实测，探针不进仓库）
+### 3.2 引擎行为（E1 到 E9：2.1.326，2026-11-17；E6 和 E10 到 E15：2.1.327，2026-11-18。都用一次性探针在 tmux 里的交互会话实测，探针不进仓库）
 
 | # | 行为 | 普通会话 | Code Mode 会话 |
 |---|---|---|---|
@@ -45,14 +47,20 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 | E3 | agent 的 `turn.step` 上 `next({ ...e, model })` 生效：`$.agent.list()` 的 `lastRequest.model` 是改后的模型（Sonnet 5.5 改 Haiku 5.5）。改写只管一步，每步都要重写 | 已测 | 未单独测（同一引擎路径） |
 | E4 | 在只带工具结果的步上改 `effort` 不发出：`lastRequest.effort` 仍是原档 | 已测（agent 循环） | — |
 | E5 | 在 `session.append`（door `tool-result`）里、`next` 之前给结果行加一个 text 块，下一步改的 `effort` 就发出，并保持到之后只带工具结果的步 | 已测（agent 循环，Sonnet 5.5 和 Haiku 5.5） | 已测（Code Mode 会话里的 agent 循环） |
-| E6 | 主循环的 E5 | 未能直接读出（引擎不给主循环的 `lastRequest`）；core 收到了改后的值 | 同左 |
+| E6 | 主循环上的 E4 和 E5 | 已测（2.1.327，读 OpenTelemetry `api_request` 事件的 `effort` 字段）：不加说明时请求里仍是原档；加了说明，下一步起请求里是新档，并保持到这一轮结束 | 没有读数（E15）。依据是同一条引擎规则和 E5 |
 | E7 | Code Mode 下主循环的行：请求会带上的结果行是 `tool-result`、`origin.tool` 为 `REPL` 或 `Poll`、`message.role` 为 `user`。脚本内部调用（`Read`、`Agent` 等）也各有一条 `tool-result` 行，但 `message.role` 缺省，请求不带它 | — | 已测 |
 | E8 | 加在结果行上的 text 块在终端里显示成一行以 `❯` 开头的文字 | — | 已测 |
 | E9 | 环境变量 `CLAUDE_EFFORT` 不反映 hook 改写的档位 | 已测 | — |
+| E10 | 挂了 `tool.call`、`agent.spawn`、`agent.offer`、`session.send` 的 mod 不挡 Code Mode | — | 已测 |
+| E11 | `agent.spawn` 在 Code Mode 下触发，带任务原文、`subagentType`、`parentModel`、`background`。`next({ ...e, model: 'haiku' })` 生效：返回值和 agent 的 `lastRequest.model` 都是 `claude-haiku-5-5`。`next` 的返回值带 `agentId`，实测比这个 agent 的第一个 `turn.step` 早约 70 ms | — | 已测 |
+| E12 | Code Mode 下脚本内部的每次调用各触发一次 `tool.call`（`Read`、`Agent`，以及 agent 自己的 `Bash`）；外层的 `REPL` 没有触发 | — | 已测 |
+| E13 | Code Mode 下一次脚本的顺序：`REPL` 的结果行立刻回来，内容只是 `(dispatched #N)`；脚本结束后，结果作为一个事件到达。模型这一步没有同时调 `Poll` 时，结果在 `delivery` 行里（`role` 为 `user`）；调了 `Poll` 时，结果在 `Poll` 的结果行里，`delivery` 行是空的。之后才有下一个 `turn.step` | — | 已测 |
+| E14 | 请求带上了新档，不等于思考量跟着变。普通会话里读数确认请求已是 `xhigh`，之后四步每步的输出仍是约 230 到 350 token，接近 `low` 的基线（约 170 到 230），低于从头就是 `xhigh` 的基线（约 400 到 480）。只测了一道逐步重复的算术题、Sonnet 5.5、每种各一次 | 已测 | 输出量相同，但没有读数可对 |
+| E15 | Code Mode 的主循环没有可用的读数：打开 OpenTelemetry 会关掉 Code Mode；已安装的 mod 不能挂遥测流；`$.model.fork` 返回的 `effort` 是会话的档位，不反映 hook 的改写（对照遥测验证过） | — | 已测 |
 
 类型文件对 E4、E5 的原文（`TurnStepInput.effort`）："A rewrite lasts one step. On a model that takes effort per message, a level on tool results alone is not sent if another is in force, and one on a step with input stays for later tool steps whose `effort` is a level."
 
-E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 2.1.326 上也报告过主循环可用。实施时按第 9 节补一条主循环的旁证。
+E6 在普通会话里已经直接读到。Code Mode 的主循环读不到（E15），仍是推断；E14 说明即使档位发出去了，效果也要另外验证。这两点用户已知情，处理办法见第 8 节和第 9 节。
 
 ### 3.3 缓存
 
@@ -138,6 +146,8 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 
 用户选了一：三项换挡在两种会话里都能用，代码只有一条路。让 Claude 自己在脚本里申请换挡的路也考虑过，它要加固定说明，也绕过了决策模型，已排除。
 
+2.1.327 放开事件限制后（3.1 节），做法一不变，只多用一个 `agent.spawn`（5.5 节）。做法三当初的理由是普通会话里能挂更多事件，现在两种会话能挂的事件相同，这个理由不再成立。
+
 ## 5. 设计
 
 ### 5.1 事件
@@ -148,13 +158,14 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 | `prompt.submit` | 发消息时的判断：effort 题和 skill 题；把推荐的 skill 放进 `context` |
 | `prompt.attachment`（`type: 'skill_listing'`） | 记下列表里的 skill，主循环的列表换成固定的一句；agent 的列表不动 |
 | `skill.prompt` | 回答 `dispatch-pilot:find-skill` |
-| `turn.start` | 主循环：记下这一轮的基准档。agent：拿任务原文，发起判断 |
-| `turn.step` | 每步写 effort；agent 每步写定下的模型和 effort |
+| `turn.start` | 主循环：记下这一轮的基准档 |
+| `agent.spawn` | 派出 agent 时判断，定它的模型和 effort |
+| `turn.step` | 每步写 effort；agent 每步写派出时定下的 effort |
 | `session.append` | 读每步的结果行作为依据；到检查点时判断，要换挡就在结果行上加说明 |
 | `turn.complete` | 收尾：清这一轮的计数 |
 | `command.run`（`command: 'dp'`） | `/dp` |
 
-不注册 3.1 列出的任何事件，不调用 `$.tool.register`。
+不注册 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send` 和 `classic.*`，不调用 `$.tool.register`。
 
 ### 5.2 怎么问、怎么读（三项换挡共用）
 
@@ -183,25 +194,27 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 
 ### 5.4 一轮中途换 effort
 
-- 依据来自 `session.append` 的行：这一轮里每步用了哪些工具、是否报错、结果文字的开头（Code Mode 下是 `REPL` 和 `Poll` 结果行的文字，以及脚本内部调用行的工具名和报错标记，见 E7）。
+- 依据来自 `session.append` 的行：这一轮里每步用了哪些工具、是否报错、结果文字的开头（Code Mode 下是带着脚本结果的那一行的文字，也就是 `Poll` 的结果行或 `delivery` 行，以及脚本内部调用行的工具名和报错标记，见 E7 和 E13）。
+- 判断的时机是一份结果到了模型手里、模型还没发下一次请求的那一刻，不在脚本运行中途。脚本是一个整体：模型要等结果回来才会发下一次请求，effort 也只在那次请求上起作用，中途换了也要等整个脚本跑完才用得上（E13）。
 - 检查点（到了才问决策模型）：
-  1. 这一轮中途进来了新输入（用户插话、后台任务通知、agent 交回报告）。这种步本来就带输入，换挡不用加说明。
-  2. 代码数到失败成簇：同一处报错在一次修改之后再次出现，或连续两步报错。
-  3. 距离上一个检查点满 N 个工作步（`midrunEverySteps`，默认 8，0 为关闭）。只等事件的 `Poll` 步不算工作步。
+  - Code Mode 会话：每当一次脚本的结果到达，就是一个检查点。结果在 `Poll` 的结果行里，或者在没调 `Poll` 时的 `delivery` 行里。`REPL` 那条只写着 `(dispatched #N)` 的结果行不是检查点。脚本里的失败已经写在脚本的结果里，不另外数。
+  - 普通会话：代码数到失败成簇（同一处报错在一次修改之后再次出现，或连续两步报错），或距离上一个检查点满 N 个工作步（`midrunEverySteps`，默认 8，0 为关闭）。
+  - 两种会话都有：这一轮中途进来了新输入（用户插话、后台任务通知、agent 交回报告）。这种步本来就带输入，换挡不用加说明。
 - 在检查点：state 是用户这一轮的请求、当前档位和最近几步的摘要，题是 5.2 节的 `score` 题和两道条件题，问的是「接下来的工作」，用 `decide` 读。
 - 要换挡时，在这条结果行存下之前给它加一个 text 块（E5），下一步起每个 `turn.step` 发新档。说明是一行英文事实，例如 `[dispatch-pilot] effort is now high: the same test failed again after a fix.`，不带命令语气。
 - 限制：一轮最多加 4 条说明（`midrunMaxNotes`）；两次换挡至少隔 3 个工作步；一轮中途最高升到 `xhigh`，不升到 `max`；新档和当前档相同时不加说明。
-- Code Mode 下说明只加在请求会带的结果行上（`REPL` 或 `Poll`），不加在脚本内部调用的行上。
+- Code Mode 下说明加在带着脚本结果的那一行上（`Poll` 的结果行，或 `delivery` 行），不加在 `(dispatched #N)` 那一行，也不加在脚本内部调用的行上。
 
 ### 5.5 派出 agent 的模型和 effort
 
-- agent 的 `turn.start` 带任务原文（E2）。在这里发起一次判断，它的第一个 `turn.step` 等这次判断，最多等到时限；之后每步写同一组值（E3）。超时就按继承值跑，这个 agent 之后也不再改。等的是 agent 自己的第一次请求，不是主循环脚本里的调用。
-- 派出时已经明写了模型或 effort 的（`$.agent.list()` 里它的 `model`、`effort` 有值），那一项不改。
+- 判断在 `agent.spawn` 上做（E11）。事件带任务原文、agent 类型和主 agent 的模型。hook 在这里等判断，最多等到时限，然后用 `next({ ...e, model })` 定模型；effort 记进状态，由这个 agent 的每个 `turn.step` 写出。超时就原样放行，这个 agent 之后也不再改。这点等待落在派出 agent 的那一次调用上，别的调用不受影响；用户已同意（2026-11-18）。
+- 2.1.327 起，第一个用某个模型的 subagent 还会等最多 1.5 秒取那个模型的设置，这是引擎自己的等待，和判断的时限相加。
+- 派出时已经明写了模型的（`e.model` 有值），模型不改。明写了 effort 的（`$.agent.list()` 里它的 `effort` 有值），effort 不改。
 - 题：5.2 节的 `score` 题和两道条件题，再加一道 `noul`「这项任务是不是只需要查找或阅读信息，不用做任何改动」。effort 和模型层级都由代码里的表从这些回答算出，不问模型该用哪个模型。
 - 模型层级的顺序固定为 `haiku` < `sonnet` < `opus` < `fable`，候选取 `agentModels`（默认 `haiku`、`sonnet`、`opus`）里不高于主 agent 的那些。
 - **Fable 作为子 agent 有单独的开关 `fableAgents`，默认关。** 关着时 mod 不会让任何 agent 跑在 `fable` 上：主 agent 是 Fable 而 agent 没有明写模型时，它的上限是 `opus`，这条是配置规则，决策模型失败时也照样执行。打开后 `fable` 才进候选。派出时明写了 `fable` 的 agent 不受这个开关影响（见上一条）。写给引擎的是别名本身，由引擎解析成具体模型（实测 `haiku` 解析为 `claude-haiku-5-5`）。主 agent 的层级按它的模型 id 里的家族名认；认不出时不改 agent 的模型，只定 effort。
 - `current` 取继承值（主 agent 的当前档位；模型取继承值，受上面的上限约束）。模型只往下换，而且只在把握大时才换：门槛初值 0.8。
-- `e.text` 为空的 agent（续跑的，或引擎不让 hook 看到的）不处理。agent 中途不再判断。
+- 续跑的（`e.resume` 有值）、fork 出来的（`e.fork` 为真，它沿用主 agent 的缓存，换模型会丢）和 workflow 派出的 agent 不处理。agent 中途不再判断。
 
 ### 5.6 skill
 
@@ -223,7 +236,7 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 ### 5.8 状态
 
 - `$.state`：会话当前档位和基准档、锁定、这一轮的步数和说明数、最近几步的摘要、每个 agent 定下的模型和 effort、skill 候选集。
-- 模块级变量只放相邻两个事件之间传的值（例如 agent 判断的进行中请求），注释写明丢了的代价是这一次不换挡。
+- 模块级变量只放相邻两个事件之间传的值（例如 `agent.spawn` 定下、等 agent 第一步来取的 effort），注释写明丢了的代价是这一次不换挡。
 - `$.store`：决策记录。
 
 ### 5.9 界面和命令
@@ -244,15 +257,15 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 
 ## 6. 仓库里的变化
 
-- `dispatch-pilot/` 原地替换成新实现，plugin 名不变，版本 `1.0.0`，`engines["claude-code"]` 写 `>=2.1.326`。
+- `dispatch-pilot/` 原地替换成新实现，plugin 名不变，版本 `1.0.0`，`engines["claude-code"]` 写 `>=2.1.327`。
 - 删除 `dispatch-pilot-extras/`，同时从 `.claude-plugin/marketplace.json` 去掉它，并更新 dispatch-pilot 的说明。
-- 新写一条 ADR 记这次重写和它取代的旧决定；旧 ADR 保留不动。更新 `GLOSSARY.md` 和 `CLAUDE.md` 里提到两个 plugin 的段落。
+- 新写一条 ADR 记这次重写和它取代的旧决定；旧 ADR 保留不动。更新 `GLOSSARY.md` 和 `CLAUDE.md` 里提到两个 plugin 的段落。 `CLAUDE.md` 里讲 Code Mode 事件限制的那一条也按 2.1.327 改。
 - README 写给使用者：功能、配置、Code Mode 下的行为、测试用的 Claude Code 版本。DEVELOPMENT.md 记第 3.2 节的实测。
 
 ## 7. 测试
 
 - `claude plugin test`：每个 hook 的行为、`decide` 的各种分布、两个后端的请求体和回答解析、放行规则、限制（说明条数、间隔、上限）。`http.fetch` 全部打桩，不联网。
-- 一条静态检查：hooks 模块里出现的事件名都不在 3.1 的名单里，也没有 `$.tool.register`。接进 `scripts/check.sh`。
+- 一条静态检查：hooks 模块里没有 `tool.call`、`tool.check`、`tool.run`、`tool.judge`，也没有 `$.tool.register`，以保证不给脚本内部的调用加等待。接进 `scripts/check.sh`。
 - 实机：普通会话和 Code Mode 会话各跑一遍三项换挡和 skill 推荐，记进 DEVELOPMENT.md。
 
 ## 8. 校准（照 3.4 节两家的说法）
@@ -278,6 +291,7 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 - 门槛从保守的初值起步。在调整集上画出概率和正确率的关系，按每种动作出错的代价定（升档、降档、换模型、推荐 skill 各自一张表），再到留出集上核对。一段很宽的门槛范围结果相同时取保守的一端。
 - 不做的事：criteria 里点名用例或为每个失败用例加一句；为解释某次怪回答加说明；让门槛贴着个别用例；测试里断言精确概率（单元测试只用打桩的回答）；用代码悄悄改写回答。回答看着不对时按这个顺序查：实际发出的请求、state、选项、题的范围、措辞。
 - 稳定性：skill 的 Choice 把选项顺序打乱再问一遍，结果变了的用例单独列出；同一请求重复问，看决定会不会变。
+- 中途换挡的验收看效果，不只看档位有没有发出去（E14）：在真实任务上比较换挡前后每步的输出量和这一轮的结果。看不出效果时如实写进校准记录并告诉用户，这项功能留不留由用户定。Code Mode 的主循环没有读数（E15），只能用这种比较来验证。
 
 **版本**
 
@@ -295,9 +309,10 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 
 - 各题的具体措辞、各档情形的文字、条件题的最终清单和代码里那张表的具体内容，以校准结果为准；约束见 5.2 节和第 8 节。
 - 一步里有多个并行工具调用时说明加在哪一条结果行上（实测每个结果各有一行）。
-- Code Mode 下 `queue`、`delivery` 这两种行算不算带新输入，没测；没测清之前按不算处理。
-- 主循环上 E5 的旁证（E6）：比较加说明前后几步的思考量，或用引擎以后提供的读数。主 agent 的中途换挡是必须保留的功能：如果旁证显示它在主循环上不起作用，停下来告诉用户，不要自行降级成做法二。
-- `$.http.fetch` 在 2.1.326 的超时和取消方式，以及时限怎么和 hook 的 10 秒预算配合。
+- Code Mode 下 `queue`、`delivery` 这两种行算不算带新输入，没有读数可测（E15）。按不算处理，说明照加。
+- `agent.spawn` 的 `next` 返回 `agentId` 之后才能按 id 记下 effort。实测它比 agent 的第一个 `turn.step` 早约 70 ms（E11）；实施时要处理万一倒过来的情况。
+- Code Mode 主循环上改的档位有没有发出去，现在测不了（E15）；引擎以后给出读数时补测。主 agent 的中途换挡是必须保留的功能：第 8 节的效果验收不通过时，停下来告诉用户，不要自行降级成做法二。
+- `$.http.fetch` 在 2.1.327 的超时和取消方式，以及时限怎么和 hook 的 10 秒预算配合。
 - 说明行在终端里的显示（E8）要不要改写法。
 - 状态的具体形状、文件划分、`/dp` 输出的排版。
 
@@ -306,13 +321,14 @@ E6 的依据是同一条引擎规则加上 agent 循环的实测；上一版在 
 1. Drex 作默认，Jev 作另一个后端并在 Drex 失败时接手；接手做成开关 `fallback`，默认开（Nace 的 skill 要求换提供方出自人选定的开关）。核心版没有看图功能，所以没有「带图给 Jev」这条。
 2. `jev-latest` 按用户要求用别名；每条记录写实际版本，和校准时的版本不一致就提示重新校准。TypeSafe 文档的建议是固定版本，可以用 `jevModel` 改。
 3. 题目只问工作本身，档位和模型由代码里的表算出。2026-11-18 对照现行文档核对过：TypeSafe 的 skill（0.6.2 是最新版，这一节是它新加的）和现行文档都这样写；Nace 不反对，但它的例题直接问动作。所以默认不变，校准时拿「直接选档位」的写法作对照。`score` 题只量问题有多开放，不量工作量（TypeSafe：一题一个维度）。门槛初值取 0.7/0.3 的起步值，高档更严，发布前校准；Drex 的门槛不照搬 TypeSafe 的数。
-4. 中途检查点三种：新输入、失败成簇、每 8 个工作步；一轮最多 4 条说明；中途不升到 `max`。
-5. agent 的模型只往下换、只在把握大时才换，层级 `haiku` < `sonnet` < `opus` < `fable`，不高于主 agent。`fableAgents` 关着时（默认），没有明写模型的 agent 最高到 `opus`；派出时明写的值不改，包括明写的 `fable`。agent 的第一步最多等 3 秒。
+4. 中途检查点：Code Mode 会话里是每次脚本结果到达时（用户 2026-11-18 的要求），普通会话里是失败成簇和每 8 个工作步，两种会话都算新输入。「每次脚本结果都判断，不再另设间隔」是我对用户要求的理解。一轮最多 4 条说明；中途不升到 `max`。
+5. agent 的模型只往下换、只在把握大时才换，层级 `haiku` < `sonnet` < `opus` < `fable`，不高于主 agent。`fableAgents` 关着时（默认），没有明写模型的 agent 最高到 `opus`；派出时明写的值不改，包括明写的 `fable`。判断在 `agent.spawn` 上做，最多等 3 秒（用户 2026-11-18 同意）。
 6. 时限 4 秒、2 秒、3 秒，短于 Nace 建议的 60 秒（Nace 的 skill 允许等不起的路径用更短的总时限），超时不重试。
 7. 只留状态行和 `/dp`，不做 band 和面板。配置从 40 项减到十几项，加了 `shadow` 模式。
 8. 版本号 `1.0.0`，删除 `dispatch-pilot-extras`。
 9. agent 的 skill 列表不动，只收起主循环的。
 10. 发给决策模型的内容不脱敏，只截断，沿用此前对脚本结果的决定。
 11. 校准算在这个项目里，不用旧评测集；用例首选本机真实会话记录，参考答案由强模型标、用户抽查，每类至少 60 例（文档没有规定数量）；默认 `apply`，校准后才发 `1.0.0`。
-12. 主循环中途换挡若验证不通过，停下来问，不自行降级。
+12. 主循环中途换挡若验证不通过，停下来问，不自行降级。普通会话的主循环已直接测到；Code Mode 的主循环没有读数，而且一次测试里档位发出去后思考量没有明显变化（E14、E15），已告诉用户。
 13. Drex 回答的 `model` 和固定版本不一致时按失败处理并放行（照 Nace 的 skill）；Jev 用别名，只记版本并提示重新校准。
+14. 最低版本提到 2.1.327。不注册 `tool.call`，依据只从结果行读。
