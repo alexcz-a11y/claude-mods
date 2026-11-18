@@ -4,11 +4,11 @@ import type { ModelCompleteInput, ModelCompleteResult } from 'claude-code'
 
 import { readConfig } from '../hooks/config.ts'
 import type { Decision } from '../hooks/log.ts'
-import { nextFlight, parseProgress, progressPrompt, readCompletion } from '../hooks/progress.ts'
-import type { ProgressInput } from '../hooks/progress.ts'
+import { followCall, nextFlight, parseProgress, progressPrompt, readCompletion } from '../hooks/progress.ts'
+import type { ProgressInput, ProgressOutcome } from '../hooks/progress.ts'
 import type { SessionState, TurnState } from '../hooks/state.ts'
 import { estimateTokens } from '../hooks/statebuild.ts'
-import { assistantToolUse, scriptByPoll } from './support/rows.ts'
+import { assistantToolUse, promptRow, scriptByPoll } from './support/rows.ts'
 import { KEYS, appendAll, complete, dp, drexOk, noul, score, start, step, submit, turns, world } from './support/world.ts'
 
 type World = ReturnType<typeof world>
@@ -242,6 +242,7 @@ test('默认关：一次 model.complete 都没有', { options: KEYS }, async ($,
   expect(w.completes).toEqual([])
   expect(states(w).every((s) => !('progress' in s))).toBe(true)
   expect(turnState(w).progress).toBeNull()
+  expect(readConfig({}).progressNote).toBe(false)
 })
 
 test('新的一轮开始时记录清空', { options: ON }, async ($, on) => {
@@ -439,13 +440,77 @@ test('/dp lock：没有检查点，也不调', { options: ON }, async ($, on) =>
 
 test('nextFlight：在途时只排最新的；关着或封了就什么都不发、不排', () => {
   const input = (n: number): ProgressInput => ({ turnId: 't1', request: 'r', latest: { did: `s${n}`, tools: [], ok: true, result: '' } })
-  const base = { on: true, blocked: false, busy: false, queued: null, fresh: null }
+  const base = { on: true, blocked: false, busy: false, queued: null, fresh: null, turnId: 't1' }
   expect(nextFlight({ ...base, fresh: input(1) })).toEqual({ start: input(1), queue: null })
   expect(nextFlight({ ...base, busy: true, fresh: input(2), queued: input(1) })).toEqual({ start: null, queue: input(2) })
   expect(nextFlight({ ...base, busy: true, queued: input(1) })).toEqual({ start: null, queue: input(1) })
   expect(nextFlight({ ...base, queued: input(1) })).toEqual({ start: input(1), queue: null })
   expect(nextFlight({ ...base, blocked: true, fresh: input(1), queued: input(2) })).toEqual({ start: null, queue: null })
   expect(nextFlight({ ...base, on: false, fresh: input(1) })).toEqual({ start: null, queue: null })
+  // A waiting input of another turn, or with no turn held, is dropped.
+  expect(nextFlight({ ...base, turnId: null, queued: input(1) })).toEqual({ start: null, queue: null })
+  expect(nextFlight({ ...base, turnId: 't2', queued: input(1) })).toEqual({ start: null, queue: null })
+  expect(nextFlight({ ...base, turnId: 't2', busy: true, queued: input(1) })).toEqual({ start: null, queue: null })
+})
+
+test('followCall：没有发出（同步抛错）不封；reject 封；回答的形状认不出时记失败，照样结束', async () => {
+  const seen: ProgressOutcome[] = []
+  const done = (o: ProgressOutcome) => seen.push(o)
+  followCall(null, done)
+  followCall(Promise.reject(new Error('blocked model')), done)
+  followCall(Promise.resolve(undefined as unknown as ModelCompleteResult), done)
+  followCall(Promise.resolve({ isAnswered: true, text: JSON.stringify(NOTE_A), usage } as ModelCompleteResult), done)
+  for (let i = 0; i < 5; i++) await Promise.resolve()
+  expect(seen).toEqual([
+    { note: null, refused: false, failure: 'network', detail: '没有发出调用' },
+    { note: null, refused: true, failure: 'http', detail: '引擎拒绝了这个模型' },
+    { note: null, refused: false, failure: 'bad-answer', detail: '回答不是三个字段' },
+    { note: NOTE_A, refused: false, failure: null, detail: '' },
+  ])
+})
+
+test('调用回来的东西认不出（undefined）：记一条失败，不卡住，下一个检查点照样调', { options: ON }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers, complete: replies([undefined as unknown as string, JSON.stringify(NOTE_A)]) })
+  await begin($)
+  await script($, w, 1)
+  await script($, w, 2)
+  await script($, w, 3)
+  expect(ofKind(w, 'progress')).toEqual([expect.objectContaining({ detail: '回答不是三个字段', failure: 'bad-answer', step: 1 })])
+  expect(session(w).progressBlocked).toBe(false)
+  expect(w.completes).toHaveLength(3)
+  expect(states(w)[2].progress).toEqual(NOTE_A)
+})
+
+test('上一轮结束时一个在途、一个排着；在途的在 turn.complete 之后回来，下一条消息的 prompt 行不发调用，t2 的第一个检查点马上发自己的', { options: ON }, async ($, on) => {
+  let calls = 0
+  const w: World = world(on, {
+    onSubmit: turns($),
+    answer: answers,
+    complete: async () => {
+      calls += 1
+      if (calls === 1) await w.clock.sleep(60_000)
+      return JSON.stringify(calls === 1 ? NOTE_A : NOTE_B)
+    },
+  })
+  await begin($)
+  await script($, w, 1)
+  await script($, w, 2)
+  expect(w.completes).toHaveLength(1)
+  await complete($, 't1')
+  await w.clock.advance(60_000)
+  await w.clock.settle()
+  // The next message's own row comes before its turn.start: it reads the settled call (dropped) and starts nothing.
+  const prompt = promptRow('Now the downloader')
+  await appendAll($, [prompt])
+  await w.clock.settle()
+  expect(w.appended.at(-1)).toEqual(prompt)
+  expect(w.completes).toHaveLength(1)
+  await submit($, 'Now the downloader')
+  await step($, { turnId: 't2', index: 0, effort: 'medium' })
+  await script($, w, 1, 'r', 't2')
+  expect(w.completes).toHaveLength(2)
+  expect(promptOf(w, 1)).toEqual({ request: 'Now the downloader', previous_note: null, latest_step: { did: 'script 1', tools: ['REPL'], outcome: 'ok', result: 'r' } })
+  expect(ofKind(w, 'progress')).toEqual([])
 })
 
 test('progressPrompt：request 和 result 各截到 400 token，结果头尾都在', () => {
@@ -461,5 +526,4 @@ test('progressPrompt：request 和 result 各截到 400 token，结果头尾都�
     expect(s.startsWith('HEAD')).toBe(true)
     expect(s.endsWith('TAIL')).toBe(true)
   }
-  expect(readConfig({}).progressNote).toBe(false)
 })

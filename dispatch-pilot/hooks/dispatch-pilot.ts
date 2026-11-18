@@ -14,7 +14,7 @@ import { DP_USAGE, RECENT_KEEP, badLevelReply, decisionId, lockReply, parseDp, p
 import type { Decision } from './log.ts'
 import { applyShift, planRow, settleCheckpoint, withNote } from './midrun.ts'
 import type { Judged, RowPlan } from './midrun.ts'
-import { nextFlight, progressPrompt, progressRequest, readCompletion, settleFlight } from './progress.ts'
+import { followCall, nextFlight, progressPrompt, progressRequest, settleFlight } from './progress.ts'
 import type { ProgressFlight, ProgressInput } from './progress.ts'
 import { agentQuestions, midrunQuestions, submitQuestions } from './questions.ts'
 import { agentSent, awaitCheck, classify, clearCheck, modelBase, notePlaced, settleReading, withSent } from './readout.ts'
@@ -461,27 +461,28 @@ async function tickProgress($: EngineInterface, cfg: Config, fresh: ProgressInpu
   const turn = await read($, TURN)
   const at = await $.clock.now()
   // Decided and set with nothing awaited in between, so two rows at once cannot both start a call.
-  const plan = nextFlight({ on: cfg.progressNote, blocked, busy: progressFlight !== null, queued: progressQueued, fresh })
+  const plan = nextFlight({ on: cfg.progressNote, blocked, busy: progressFlight !== null, queued: progressQueued, fresh, turnId: turn?.turnId ?? null })
   progressQueued = plan.queue
   const input = plan.start
   if (input !== null) startNote($, cfg, input, { previous: turn !== null && turn.turnId === input.turnId ? turn.progress : null, at })
   return null
 }
 
-// Starts the call and returns at once: no hook waits for it. Its outcome is only put in the slot, and read on a later
-// row; a call the slot no longer holds (a reload) is left alone.
+// Starts the call and returns at once: no hook waits for it. Its outcome is only put in the slot (followCall), and
+// read on a later row; a call the slot no longer holds (a reload) is left alone.
 function startNote($: EngineInterface, cfg: Config, input: ProgressInput, c: { previous: TurnState['progress']; at: number }): void {
   const mine: ProgressFlight = { turnId: input.turnId, startedAt: c.at, settled: false, note: null, refused: false, failure: null, detail: '' }
   progressFlight = mine
-  const settle = (r: ModelCompleteResult | null): void => {
-    if (progressFlight === mine) progressFlight = { ...mine, ...readCompletion(r), settled: true }
-  }
   const prompt = progressPrompt({ request: input.request, previous: c.previous, latest: input.latest })
+  let call: Promise<ModelCompleteResult> | null = null
   try {
-    $.model.complete(progressRequest(cfg, prompt)).then(settle, () => settle(null))
+    call = $.model.complete(progressRequest(cfg, prompt))
   } catch {
-    settle(null)
+    // Threw before any call was made: followCall reads that (null) as a failed note.
   }
+  followCall(call, (o) => {
+    if (progressFlight === mine) progressFlight = { ...mine, ...o, settled: true }
+  })
 }
 
 // A call come back: its note written on its turn, a failure recorded, a refused model blocked for the session.
@@ -733,6 +734,8 @@ export const register: Register = (on, options) => {
 
   on('turn.complete', async ($, e, next) => {
     const agentId = e.agentId
+    // The main loop's turn ends: no input of it waits for a progress note any more.
+    if (agentId === undefined) progressQueued = null
     await failOpen($, 'turn.complete', null, () => (agentId !== undefined && verifies(cfg) ? endAgent($, agentId) : endTurn($, e)))
     return next(e)
   })

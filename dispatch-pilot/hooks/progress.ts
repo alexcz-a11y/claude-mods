@@ -83,6 +83,12 @@ export type ProgressInput = { turnId: string; request: string; latest: StepRecor
 
 const NOT_THREE = '回答不是三个字段'
 
+/** A reply this version cannot read at all (not a result of any known shape): a failed note, settled. */
+const UNREADABLE: ProgressOutcome = { note: null, refused: false, failure: 'bad-answer', detail: NOT_THREE }
+
+/** $.model.complete threw before it made a call: not the engine refusing the model (that rejects), so no block. */
+const THREW: ProgressOutcome = { note: null, refused: false, failure: 'network', detail: '没有发出调用' }
+
 /** Statuses by which the provider refuses the model itself: a call this session would be refused again. */
 const REFUSING = [400, 403, 404]
 
@@ -105,12 +111,38 @@ export function readCompletion(r: ModelCompleteResult | null): ProgressOutcome {
 }
 
 /**
- * After a checkpoint (`fresh`: its input) or when a call has come back (`fresh` null): the call to start now, and
- * the input left waiting. One call at a time: while one is in the air only the newest input waits behind it.
+ * Follows a call nobody awaits, and hands what it came to to `done`, once, whatever happens: `call` is what
+ * $.model.complete returned, or null when it threw instead. Its callbacks never throw, so no rejection is left
+ * unhandled and the call never stays unsettled.
  */
-export function nextFlight(s: { on: boolean; blocked: boolean; busy: boolean; queued: ProgressInput | null; fresh: ProgressInput | null }): { start: ProgressInput | null; queue: ProgressInput | null } {
+export function followCall(call: Promise<ModelCompleteResult> | null, done: (o: ProgressOutcome) => void): void {
+  if (call === null) {
+    done(THREW)
+    return
+  }
+  const read = (r: ModelCompleteResult | null): ProgressOutcome => {
+    try {
+      return readCompletion(r)
+    } catch {
+      return UNREADABLE
+    }
+  }
+  call.then(
+    (r) => done(read(r)),
+    () => done(read(null)),
+  )
+}
+
+/**
+ * After a checkpoint (`fresh`: its input) or when a call has come back (`fresh` null): the call to start now, and
+ * the input left waiting. One call at a time: while one is in the air only the newest input waits behind it. An input
+ * waiting for a turn other than the one held now (`turnId`, null between turns) is dropped: a row can come between
+ * two turns (the next message's own, before its turn.start), and the old turn's note would be written for nothing.
+ */
+export function nextFlight(s: { on: boolean; blocked: boolean; busy: boolean; queued: ProgressInput | null; fresh: ProgressInput | null; turnId: string | null }): { start: ProgressInput | null; queue: ProgressInput | null } {
   if (!s.on || s.blocked) return { start: null, queue: null }
-  const newest = s.fresh ?? s.queued
+  const queued = s.queued !== null && s.queued.turnId === s.turnId ? s.queued : null
+  const newest = s.fresh ?? queued
   return s.busy ? { start: null, queue: newest } : { start: newest, queue: null }
 }
 
