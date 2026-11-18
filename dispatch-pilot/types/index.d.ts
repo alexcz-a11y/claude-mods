@@ -5,6 +5,7 @@
 // The names carry a Dp prefix so none can resolve to one of claude-code's own inside the augmentation.
 
 export type DpLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type DpTier = 'haiku' | 'sonnet' | 'opus' | 'fable'
 
 export type DpPreviousTurn = { request: string; lastReply: string; ended: 'answered' | 'error' | 'interrupted'; level: DpLevel | null }
 export type DpStepRecord = { did: string; tools: string[]; ok: boolean; result: string }
@@ -50,6 +51,9 @@ export type DpMidrunCounters = { notes: number; lastShiftAt: number | null; step
 export type DpMark = 'hold' | 'up' | 'down' | 'fail'
 export type DpTrackCell = { level: DpLevel; sent: DpLevel | null; mark: DpMark | null }
 
+/** What a spawn the mod gave no model taught it of an agent type: the tier it ran on and the parent's tier then. */
+export type DpAgentType = { type: string; tier: DpTier | null; parentTier: DpTier | null }
+
 export type DpSessionState = {
   lock: DpLevel | null
   codeMode: boolean
@@ -60,6 +64,7 @@ export type DpSessionState = {
   lastSent: DpLevel | null
   pending: { request: string; result: DpAskResult } | null
   progressBlocked: boolean
+  agentTypes: DpAgentType[]
 }
 
 export type DpTurnState = {

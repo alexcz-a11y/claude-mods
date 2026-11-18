@@ -674,8 +674,9 @@ test('agent：第二步开始时读 $.agent.list() 的 lastRequest；只有一�
   await turnStart($, 't1', TASK)
   await step($, { turnId: 't1', index: 0, effort: 'high' })
   for (const id of ['toolu_1', 'toolu_2', 'toolu_3']) await spawn($, { tool_use_id: id })
+  // The first of the type is given no model (design 5.5: whether it follows the parent's is not known yet).
   expect(logged(w).map((d) => [d.kind, d.to, d.applied, d.sent])).toEqual([
-    ['agent', 'haiku · medium', true, null],
+    ['agent', 'inherit · medium', true, null],
     ['agent', 'haiku · medium', true, null],
     ['agent', 'haiku · medium', true, null],
   ])
@@ -712,7 +713,7 @@ test('agent：第二步开始时读 $.agent.list() 的 lastRequest；只有一�
   ])
   expect(recent(w)).toEqual(d)
   const text = await dp($)
-  expect(text).toContain('agent（general-purpose） opus · high → haiku · medium · mechanical · Drex 0 ms · 实际 medium')
+  expect(text).toContain('agent（general-purpose · 模型没动：还不知道这个类型是否沿用主 agent 的模型） ? · high → inherit · medium · mechanical · Drex 0 ms · 实际 medium')
   expect(text).toContain('agent（general-purpose） opus · high → haiku · medium · mechanical · Drex 0 ms · 未发出')
   expect(text).toContain('agent（general-purpose） opus · high → haiku · medium · mechanical · Drex 0 ms · 未核对')
 })

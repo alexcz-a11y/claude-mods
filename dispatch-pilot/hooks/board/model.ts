@@ -1,6 +1,7 @@
 // The board's data (design 5.14): one pure function from the mod's state to everything the timeline and the pane show,
 // and the timeline's cells. No $ calls. The drawings only draw what boardModel returns; flows/submit.ts opens the cells,
 // runtime.ts's record leaves the mark for the next one, and flows/readout.ts writes the level a cell's request carried.
+import { agentTypeOf } from '../agents.ts'
 import { canAsk } from '../backend.ts'
 import type { Failure } from '../backend.ts'
 import type { Config } from '../config.ts'
@@ -301,7 +302,7 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
     next: nextOf(cfg, { session, turn, locked, ask, wanted, starting }),
     features: featuresOf(cfg, { ...s, locked, ask, agents: agents.length }),
     backend: backendOf(cfg, recent),
-    agents: agents.map((d) => ({ type: d.detail, text: d.to ?? '', isVerified: isLevel(d.sent) })),
+    agents: agents.map((d) => ({ type: agentTypeOf(d), text: d.to ?? '', isVerified: isLevel(d.sent) })),
     skill: thisTurn.findLast((d) => d.kind === 'skill' && d.to !== null)?.to ?? null,
   }
 }

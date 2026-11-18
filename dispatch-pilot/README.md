@@ -8,7 +8,7 @@ dispatch-pilot 请 Claude 之外的一个决策模型来判断工作有多难，
 
 - **发消息时定 effort。** 你每发一条消息，mod 问决策模型这条消息要解决的问题有多开放（做法已经给定，还是原因不明、要做取舍），以及几道是非题（是不是照已知做法重复的改动、是不是要先查明一个原因未知的问题、是不是只是让助手接着做上一轮的事）。mod 按回答从当前档往上或往下挪，定下这一轮的档位，并由这一轮的每一步发出。只有你自己发的消息才判断，后台通知、agent 交回的报告这类开始的一轮不判断。
 - **一轮中途换 effort。** 一轮进行中，mod 在检查点上再问一次：拿到最新的结果之后，剩下的工作和现在的档位还相称吗。检查点是：Code Mode 会话里每到达一份脚本结果（`midrunEveryScripts`）；普通会话里同一处报错在修改之后又出现、连续两步报错，或者每过 8 个工作步（`midrunEverySteps`）；两种会话里这一轮中途进来了新输入。要换档时，mod 在那一行工具结果后面加一行英文说明，引擎从下一次请求起发新档（见下面「Code Mode 会话里」）。一轮最多加 4 条说明（`midrunMaxNotes`），两次换档至少隔 3 个工作步，中途最高升到 `xhigh`，不升到 `max`。
-- **派出 agent 时定模型和 effort。** 主 agent 派出一个 agent 时，mod 问决策模型这项任务的情况，最多等 3 秒（`agentTimeoutMs`），再定它的模型和 effort。模型只往下换，而且只在把握大时才换；候选取 `agentModels` 里不高于主 agent 的那些。`fableAgents` 关着时（默认），没有明写模型的 agent 最高到 `opus`。派出时明写了模型的不改模型，明写了 effort 的不改 effort。续跑的、fork 出来的和 Workflow 派出的 agent 不处理。
+- **派出 agent 时定模型和 effort。** 主 agent 派出一个 agent 时，mod 问决策模型这项任务的情况，最多等 3 秒（`agentTimeoutMs`），再定它的 effort，可以的时候也定它的模型。模型只往下换，而且只在把握大时才换；候选取 `agentModels` 里不高于主 agent 的那些。调用没写模型时，agent 先用它的定义里写的模型，定义没写才沿用主 agent 的，所以 mod 只给已知沿用主 agent 模型的类型定模型：每种 agent 类型在一个会话里第一次派出时，mod 不动它的模型，只记下它实际用的模型；之后再派出这个类型、主 agent 还是那一层级的模型时，记下的模型和主 agent 同一层级，才往下换或执行 `fableAgents` 的上限。定义里有自己模型的类型，模型从不改。代价是每种类型在一个会话里的第一次派出（主 agent 换了模型之后也要重新记一次）既不受上限，也不往下换。`fableAgents` 关着时（默认），沿用主 agent 模型的 agent 最高到 `opus`。派出时明写了模型的不改模型，明写了 effort 的不改 effort。续跑的、fork 出来的和 Workflow 派出的 agent 不处理。
 - **skill。** 主 agent 的 skill 列表换成固定的一句话，说明列表被收起、合适的 skill 会随消息推荐，其他的用 `dispatch-pilot:find-skill` 查。你发消息时，mod 按 TypeSafe 的 skill_suggestion cookbook 的两步问法最多挑出一个 skill，连同它的说明和「用 Skill 工具加载」的一句放在消息旁边；没有合适的就什么也不加。主 agent 加载 `dispatch-pilot:find-skill` 并写上几个词时，mod 用同样的问法回答最多三个合适的 skill。派出的 agent 的 skill 列表不动。
 - **任何失败都放行。** 请求失败、超时、回答缺题或类型不对、Drex 回答的模型版本和 `drexModel` 不一致、模型不接受 effort，这些情况下 mod 不改档位、不改模型、不加说明，会话照没有这个 mod 时那样继续，并记一条决策记录。
 
@@ -51,7 +51,7 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 | `midrunEveryScripts` | 1 | Code Mode 会话里每多少份脚本结果检查一次，0 为关闭，0 到 60。 |
 | `midrunMaxNotes` | 4 | 一轮最多加几条说明，0 到 12。 |
 | `agentModels` | `haiku,sonnet,opus` | agent 可选的模型层级，逗号分隔，从 `haiku`、`sonnet`、`opus`、`fable` 里选。 |
-| `fableAgents` | 关 | 允许没有明写模型的 agent 跑在 `fable` 上。 |
+| `fableAgents` | 关 | 允许沿用主 agent 模型的 agent 跑在 `fable` 上（只对已知沿用主 agent 模型的类型起作用，见上面「派出 agent 时」）。 |
 | `verifyEffort` | 开 | 读每次模型请求实际带的档位，和 mod 要的档位对照。只记录和显示，不一致也不重试。 |
 | `progressNote` | 关 | 每个中途检查点之后另调一次模型写一份进展记录，下一次中途判断时交给决策模型。尚未校准。 |
 | `progressNoteModel` | `haiku` | 写进展记录的模型。 |

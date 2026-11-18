@@ -376,6 +376,15 @@ test('Jev 标「未校准」：后端行（可用和失败时）、上次评估�
   expect(boardModel(readConfig({ drexApiKey: 'k' }), scenes.up).backend).toEqual({ isOk: true, text: 'Drex drex-max-v1.1 · 可用' })
 })
 
+test('agent 行只写类型：派出时因为不知道而没动模型的说明不进类型这一栏', () => {
+  const s = scenes.up
+  const left = s.recent.map((d) => (d.id === 't7-a1' ? { ...d, detail: 'Explore · 模型没动：还不知道这个类型是否沿用主 agent 的模型', to: 'inherit · low' } : d))
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), { ...s, recent: left }).agents.map((a) => [a.type, a.text])).toEqual([
+    ['Explore', 'inherit · low'],
+    ['general-purpose', 'sonnet · medium'],
+  ])
+})
+
 // A turn whose first step has not arrived (controller ruling): its level is not known yet, which is not "no effort".
 const starting = (session: Partial<BoardState['session']> = {}): BoardState => {
   const s = scenes.start

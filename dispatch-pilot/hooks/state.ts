@@ -4,7 +4,7 @@
 import type { PluginState } from 'claude-code'
 
 import type { AskResult } from './backend.ts'
-import type { Level } from './levels.ts'
+import type { Level, Tier } from './levels.ts'
 import type { Decision } from './log.ts'
 import type { PreviousTurn, ProgressNote, StepRecord } from './statebuild.ts'
 
@@ -49,6 +49,12 @@ export function emptyCounters(): MidrunCounters {
 export type Mark = 'hold' | 'up' | 'down' | 'fail'
 export type TrackCell = { level: Level; sent: Level | null; mark: Mark | null }
 
+/**
+ * What a spawn the mod gave no model taught it of an agent type (design 5.5): the tier the type ran on (null: one no
+ * family names) and the parent's tier then. The type follows the parent's model when the two are equal.
+ */
+export type AgentType = { type: string; tier: Tier | null; parentTier: Tier | null }
+
 export type SessionState = {
   /** Set by /dp lock: every main-loop step is written at this level and no effort is judged. */
   lock: Level | null
@@ -65,6 +71,8 @@ export type SessionState = {
   pending: { request: string; result: AskResult } | null
   /** The engine refused the progress-note model: no more calls this session. */
   progressBlocked: boolean
+  /** The agent types seen this session, the last learned last (agents.ts AGENT_TYPES_KEEP at most). */
+  agentTypes: AgentType[]
 }
 
 export type TurnState = {
@@ -100,6 +108,7 @@ export function emptySession(): SessionState {
     lastSent: null,
     pending: null,
     progressBlocked: false,
+    agentTypes: [],
   }
 }
 

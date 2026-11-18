@@ -84,7 +84,7 @@
     "agentShift": {
       "type": "boolean",
       "title": "agent 定档",
-      "description": "为主 agent 派出的 agent 选模型和 effort。主 agent 的模型不改，只往下换子 agent 的模型。",
+      "description": "为主 agent 派出的 agent 选模型和 effort。主 agent 的模型不改；子 agent 的模型只往下换，而且只换已知沿用主 agent 模型的类型：每种类型在一个会话里第一次派出时模型不动，只记下它实际用的模型。定义里有自己模型的类型从不改。",
       "default": true
     },
     "skills": {
@@ -120,7 +120,7 @@
     "fableAgents": {
       "type": "boolean",
       "title": "允许 agent 用 Fable",
-      "description": "关着时，mod 不会让没有明写模型的 agent 跑在 fable 上（主 agent 是 Fable 时，它们最高到 opus）。派出时明写了 fable 的 agent 不受影响。",
+      "description": "关着时，mod 不会让沿用主 agent 模型的 agent 跑在 fable 上（主 agent 是 Fable 时，它们最高到 opus）。和换模型一样只对已知沿用主 agent 模型的类型执行，每种类型在一个会话里第一次派出时不受这个上限。定义里有自己模型的、派出时明写了模型的 agent 不受影响。",
       "default": false
     },
     "verifyEffort": {

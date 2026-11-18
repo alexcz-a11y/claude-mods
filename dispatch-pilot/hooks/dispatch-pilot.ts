@@ -6,7 +6,7 @@ import { canAsk } from './backend.ts'
 import { registerBoard } from './board/board.tsx'
 import { readConfig } from './config.ts'
 import { SEARCH_OFF_REPLY, isFindSkill, suggestionBlock } from './skills.ts'
-import { agentStep, checkAgent, endAgent, keepAgent, planSpawn } from './flows/agents.ts'
+import { agentStep, checkAgent, endAgent, keepSpawn, planSpawn } from './flows/agents.ts'
 import type { Stepped } from './flows/agents.ts'
 import { answerDp, registerDp } from './flows/dp.ts'
 import { onRow } from './flows/midrun.ts'
@@ -95,13 +95,12 @@ export const register: Register = (on, options) => {
     }
   })
 
-  // The judgement waits before next(e); the agent's entry and the Decision are written once next has answered with
-  // the started agent's id. A refused spawn, or one that started no local agent, keeps nothing.
+  // The judgement waits before next(e); once next has answered, what the type ran on is learned and the started agent's
+  // entry and Decision are written. A refused spawn keeps nothing; one that started no local agent only teaches.
   on('agent.spawn', async ($, e, next) => {
     const plan = await failOpen($, 'agent.spawn', null, () => planSpawn($, cfg, e))
     const r = await next(plan === null || plan.model === null ? e : { ...e, model: plan.model })
-    const agentId = r.deny === undefined ? r.agentId : undefined
-    if (plan !== null && agentId !== undefined) await failOpen($, 'agent.spawn', null, () => keepAgent($, plan, agentId))
+    if (plan !== null) await failOpen($, 'agent.spawn', null, () => keepSpawn($, plan, r))
     return r
   })
 

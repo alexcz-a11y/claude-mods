@@ -92,6 +92,12 @@ export type WorldOptions = {
    * `deny` or `model` answers with that instead (no agentId unless it gives one).
    */
   onSpawn?: (e: AgentSpawnInput, agentId: string) => unknown
+  /**
+   * The model each agent type's own definition names (an alias or an id), by subagentType. A type left out inherits the
+   * parent's. The engine's answer resolves the call's model (a hook's included) first, then this, then the parent's,
+   * to an id (measured on 2.1.327: a definition's haiku answers claude-haiku-5-5; a hook's sonnet runs on sonnet).
+   */
+  typeModels?: Record<string, string>
   /** The text the engine's prompt.attachment answers with; the attachment's own text when left out (null leaves it out). */
   attachmentText?: (e: PromptAttachmentInput) => string | null
   /**
@@ -273,7 +279,7 @@ export function world(on: On, o: WorldOptions = {}) {
     const agentId = `agent-${agentNo}`
     const r = await o.onSpawn?.(e, agentId)
     if (r !== null && typeof r === 'object' && ('deny' in r || 'model' in r)) return r as never
-    return { model: e.model ?? e.parentModel, agentId }
+    return { model: modelId(e.model ?? o.typeModels?.[e.subagentType] ?? e.parentModel), agentId }
   })
   on('prompt.attachment', (_$, e) => {
     attachments.push(e)
@@ -283,6 +289,10 @@ export function world(on: On, o: WorldOptions = {}) {
 
   return { fetched, requests, statuses, logs, debugLogs, stepsSent, appended, spawned, listed, submitted, attachments, completes, commands, storeWrites, stateWrites, panes, opened, closed, invalidated, footers, clock }
 }
+
+// The ids the engine resolves the model aliases to (E11: haiku answered claude-haiku-5-5); any other name stays as it is.
+const MODEL_IDS: Record<string, string> = { haiku: 'claude-haiku-5-5', sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5', fable: 'claude-fable-5-2' }
+const modelId = (m: string): string => MODEL_IDS[m] ?? m
 
 // Answers in the shapes the decision models send (backend.ts reads them).
 

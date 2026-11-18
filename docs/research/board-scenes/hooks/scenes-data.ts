@@ -46,7 +46,7 @@ function journal(workSteps: number, o: { scripts: boolean; failed?: number }) {
 
 function session(o: { codeMode: boolean; turnNo: number; lastSent: Level | null; lock?: Level; previous?: Level }) {
   const previous = o.previous === undefined ? null : { request: 'Fix the flaky retry in the uploader', lastReply: '三处都改好了，测试全部通过。', ended: 'answered' as const, level: o.previous }
-  return { lock: o.lock ?? null, codeMode: o.codeMode, surfaces: ['terminal', 'desktop'], turnNo: o.turnNo, sessionLevel: 'medium' as const, previous, lastSent: o.lastSent, pending: null, progressBlocked: false }
+  return { lock: o.lock ?? null, codeMode: o.codeMode, surfaces: ['terminal', 'desktop'], turnNo: o.turnNo, sessionLevel: 'medium' as const, previous, lastSent: o.lastSent, pending: null, progressBlocked: false, agentTypes: [] }
 }
 
 function turn(o: {

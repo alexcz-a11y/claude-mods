@@ -1,8 +1,8 @@
 // An agent dispatched (design 5.5): the judgement at agent.spawn, its entry, the effort on its steps, and its check.
 import { atom, read, update } from 'claude-code'
-import type { AgentSpawnInput, EngineInterface, TurnStepInput } from 'claude-code'
+import type { AgentSpawnInput, AgentSpawnResult, EngineInterface, TurnStepInput } from 'claude-code'
 
-import { settleSpawn } from '../agents.ts'
+import { knownType, learnType, settleSpawn } from '../agents.ts'
 import type { Spawned } from '../agents.ts'
 import { ask, canAsk } from '../backend.ts'
 import type { Config } from '../config.ts'
@@ -38,7 +38,27 @@ export async function planSpawn($: EngineInterface, cfg: Config, e: AgentSpawnIn
   const asking = cfg.agentShift && session.lock === null && canAsk(cfg)
   const state = agentState({ task: e.prompt, agentType: e.subagentType, description: e.description })
   const r = asking ? await ask(ioOf($), cfg, { state, questions: agentQuestions() }, cfg.agentTimeoutMs) : null
-  return settleSpawn(r, { cfg, e, tier, level, turn })
+  // What a spawn of this type under this parent ran on, when the mod gave it no model (null: none yet).
+  const known = knownType(session.agentTypes, e.subagentType, tier)
+  return settleSpawn(r, { cfg, e, tier, level, turn, known })
+}
+
+// After the spawn's next: what the type ran on is learned when the mod gave it no model and the call named none
+// (Spawned.learn), and an agent started here gets its entry and Decision (keepAgent). A refused spawn keeps nothing.
+export async function keepSpawn($: EngineInterface, s: Spawned, r: AgentSpawnResult): Promise<null> {
+  if (r.deny !== undefined) return null
+  const learn = s.learn
+  if (learn !== null) {
+    const learned = { type: learn.type, tier: tierOfModelId(r.model), parentTier: learn.parentTier }
+    const held = (await read($, SESSION)).agentTypes
+    const last = held.at(-1)
+    // Read first: update() writes whatever its callback returns, and most spawns teach what is known already.
+    if (last === undefined || last.type !== learned.type || last.tier !== learned.tier || last.parentTier !== learned.parentTier) {
+      await update($, SESSION, (cur) => ({ ...cur, agentTypes: learnType(cur.agentTypes, learned) }))
+    }
+  }
+  if (r.agentId !== undefined) await keepAgent($, s, r.agentId)
+  return null
 }
 
 // The spawn started an agent: its entry (an effort of null: not handled, its steps are left alone) and the Decision.

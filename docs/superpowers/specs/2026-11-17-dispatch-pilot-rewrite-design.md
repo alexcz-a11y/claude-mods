@@ -300,7 +300,8 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 - state 的字段：`note`、`task`（派出时的任务原文）、`agent_type`、`description`。
 - 题：5.2 节的 `score` 题和两道条件题，再加一道 `noul`「这项任务是不是只需要查找或阅读信息，不用做任何改动」。effort 和模型层级都由代码里的表从这些回答算出，不问模型该用哪个模型。
 - 模型层级的顺序固定为 `haiku` < `sonnet` < `opus` < `fable`，候选取 `agentModels`（默认 `haiku`、`sonnet`、`opus`）里不高于主 agent 的那些。
-- **Fable 作为子 agent 有单独的开关 `fableAgents`，默认关。** 关着时 mod 不会让任何 agent 跑在 `fable` 上：主 agent 是 Fable 而 agent 没有明写模型时，它的上限是 `opus`，这条是配置规则，决策模型失败时也照样执行。打开后 `fable` 才进候选。派出时明写了 `fable` 的 agent 不受这个开关影响（见上一条）。写给引擎的是别名本身，由引擎解析成具体模型（实测 `haiku` 解析为 `claude-haiku-5-5`）。主 agent 的层级按它的模型 id 里的家族名认；认不出时不改 agent 的模型，只定 effort。
+- **只给已知沿用主 agent 模型的类型定模型。** 调用没写模型时，agent 先用它的定义里写的模型，定义没写才用主 agent 的（类型文件 `AgentSpawnInput.model`："undefined lets the agent's own model, then the parent's, decide"）。2026-11-18 在 2.1.327 上实测（没有密钥，一个定义写了 `model: haiku` 的一次性类型，主 agent 是 Sonnet）：调用没写模型时 `e.model` 是 undefined，`next` 回答 `claude-haiku-5-5`；hook 写了 `sonnet` 时这个 agent 跑在 sonnet 上。所以按主 agent 的层级去换，会把定义里写了更低模型的类型往上换。mod 在会话状态里按 `subagentType` 记下它没给模型、调用也没写模型的每次派出：`next` 回答的模型的层级（认不出时为空）和当时主 agent 的层级，类型数有上限。只有调用没写模型、记过这个类型、记下时主 agent 的层级和现在相同、记下的层级又等于主 agent 的层级（这个类型沿用主 agent 的模型）时，才定模型（下面的往下换和 `fableAgents` 的上限都是）；别的派出一律不动模型，mod 没给模型时再记一次。代价：每种类型在一个会话里的第一次派出（主 agent 换了模型之后也一样）既不受上限，也不往下换。决策记录的 `from` 写这个类型自己的层级（沿用时就是主 agent 的），还不知道时写 `?`；因为不知道而没动模型的，`detail` 里写明。effort 的判断不受这一条影响。
+- **Fable 作为子 agent 有单独的开关 `fableAgents`，默认关。** 关着时 mod 不会让沿用主 agent 模型的 agent 跑在 `fable` 上：主 agent 是 Fable、agent 没有明写模型而且它的类型已知沿用主 agent 的模型时，它的上限是 `opus`，这条是配置规则，决策模型失败时也照样执行。打开后 `fable` 才进候选。派出时明写了 `fable` 的 agent 不受这个开关影响（见上一条）。写给引擎的是别名本身，由引擎解析成具体模型（实测 `haiku` 解析为 `claude-haiku-5-5`）。主 agent 的层级按它的模型 id 里的家族名认；认不出时不改 agent 的模型，只定 effort。
 - `current` 取继承值（主 agent 的当前档位；模型取继承值，受上面的上限约束）。模型只往下换，而且只在把握大时才换：门槛初值 0.8。往下一档只换到 `agentModels` 里有的层级，不在里面就保持继承值；没有候选时也保持继承值；继承的档位读不到时 effort 不定。
 - 续跑的（`e.resume` 有值）、fork 出来的（`e.fork` 为真，它沿用主 agent 的缓存，换模型会丢）和 workflow 派出的 agent 不处理。agent 中途不再判断。
 
@@ -502,7 +503,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 2. `jev-latest` 按用户要求用别名；每条记录写实际版本，和校准时的版本不一致就提示重新校准。TypeSafe 文档的建议是固定版本，可以用 `jevModel` 改。
 3. 用决策模型选档的做法：用户 2026-11-18 在三种里选了「分档题加条件题，代码定档」（4.2 节）。`score` 题只量问题有多开放，不量工作量（TypeSafe：一题一个维度）。门槛初值取 0.7/0.3 的起步值，高档更严，发布前校准；Drex 的门槛不照搬 TypeSafe 的数。
 4. 中途检查点：Code Mode 会话里每到达 N 次脚本结果判断一次，`midrunEveryScripts` 默认 1（用户 2026-11-18 定）；普通会话里是失败成簇和每 8 个工作步；两种会话都算新输入。一轮最多 4 条说明；中途不升到 `max`。
-5. agent 的模型只往下换、只在把握大时才换，层级 `haiku` < `sonnet` < `opus` < `fable`，不高于主 agent。`fableAgents` 关着时（默认），没有明写模型的 agent 最高到 `opus`；派出时明写的值不改，包括明写的 `fable`。判断在 `agent.spawn` 上做，最多等 3 秒（用户 2026-11-18 同意）。
+5. agent 的模型只往下换、只在把握大时才换，层级 `haiku` < `sonnet` < `opus` < `fable`，不高于主 agent，只换已知沿用主 agent 模型的类型（第 11 节第 27 条）。`fableAgents` 关着时（默认），沿用主 agent 模型的 agent 最高到 `opus`；派出时明写的值不改，包括明写的 `fable`。判断在 `agent.spawn` 上做，最多等 3 秒（用户 2026-11-18 同意）。
 6. 时限 4 秒、2 秒、3 秒，短于 Nace 建议的 60 秒（Nace 的 skill 允许等不起的路径用更短的总时限），超时不重试。
 7. 看板：我原先决定不做，用户 2026-11-18 指出漏了。旧看板整个删掉；新看板由我设计，用户在四种风格里选了时间轴加分区面板（4.4、5.14 节）。配置从 40 项减到十几项，加了 `shadow` 模式。
 8. 版本号 `1.0.0`，删除 `dispatch-pilot-extras`。
@@ -551,3 +552,4 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 24. **状态契约自成一体。** `claude plugin validate` 不许 `types/index.d.ts` 里有任何 import，所以契约自己写出状态的形状，`hooks/state.ts` 里有一处编译期核对两边一致。
 25. **看板场景有两份。** plugin 只能导入自己目录里的文件，所以目测探针 `docs/research/board-scenes/` 里的场景是 `tests/support/scenes.ts` 的原样拷贝，`eval/validate.ts` 检查两份一字不差。
 26. **`scripts/check.sh` 接受只有 TS5097 的报告。** Claude Desktop 自带的 2.1.325 的 validate 对每个以 `.ts` 结尾的相对导入都报 TS5097，不接受的话每次提交都过不去。
+27. **agent 的模型只在已知这个类型沿用主 agent 的模型时才动。** 调用没写模型时，agent 先用它的定义里写的模型（类型文件和 2026-11-18 的实测，见 5.5 节），所以「调用没写模型」不等于「沿用主 agent」，按主 agent 的层级去换会把定义写了 `haiku` 的类型往上换，没有密钥时 `fableAgents` 的上限也会这样做。mod 按 `subagentType` 记下它没给模型的派出实际用的模型和当时主 agent 的层级，只给记下时主 agent 层级相同、记下的层级就是主 agent 的层级的类型定模型，往下换和上限都一样；effort 的判断不变。代价：每种类型在一个会话里的第一次派出（主 agent 换了模型之后也一样）既不受上限，也不往下换（5.5 节）。

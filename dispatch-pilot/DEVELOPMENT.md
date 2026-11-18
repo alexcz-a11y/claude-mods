@@ -26,7 +26,7 @@ dispatch-pilot/
   hooks/journal.ts             从 session.append 的行里读出一轮的依据
   hooks/midrun.ts              检查点、限制、说明行
   hooks/submit.ts              发消息时的读法和 ownLevel（mod 在这一步写的档位）
-  hooks/agents.ts              settleSpawn：agent 的模型、effort 和决策记录
+  hooks/agents.ts              settleSpawn：agent 的模型、effort 和决策记录；记下的 agent 类型（knownType、learnType）
   hooks/skills.ts              解析 skill 列表、合并候选、两步问法、find-skill 的回答
   hooks/readout.ts             从请求体读实际档位、认主循环的请求
   hooks/progress.ts            进展记录的提示词和解析
@@ -65,6 +65,7 @@ dispatch-pilot/
 - **热重载。** 改入口文件会重载 mod（「reloaded in 3.2ms」），入口和它导入的模块的模块级变量都从头开始；只改一个被导入的模块，6 秒内没有重载。所以 `hooks/flows/*` 里的模块级变量（读数的 `openMain` 和 `agentStepsOpen`、进展记录的在途调用、一条消息的 skill 判断）热重载会丢，丢了的代价写在各自的注释里；改了 flow 文件之后要看到效果，就再保存一次入口文件。
 - **内联插件的选项。** `--plugin-dir` 加载的 mod 拿不到用户存的 plugin 选项（那些只给装好的 plugin）。选项（包括敏感的密钥）可以经 `--settings` 传：`{"pluginConfigs":{"dispatch-pilot@inline":{"options":{...}}}}`。
 - `claude -p` 不生成 `.claude-plugin/types/`；在 tmux 里交互启动一次 `--plugin-dir` 会生成（约 12 秒）。生成的 `tsconfig.json` 不要提交。
+- **调用没写模型的 agent 用它自己定义里的模型。** 2026-11-18 实测（没有密钥，一个定义写了 `model: haiku` 的一次性 agent 类型，主 agent 是 Sonnet）：Agent 调用没写模型时，`agent.spawn` 的 `e.model` 是 undefined，`next(e)` 回答 `{ model: 'claude-haiku-5-5', agentId }`，也就是定义里的模型；hook 在这次派出上写了 `model: 'sonnet'` 时，agent 跑在 sonnet 上。类型文件的原话是 "undefined lets the agent's own model, then the parent's, decide"。所以「调用没写模型」不等于「沿用主 agent 的模型」，按主 agent 的层级去换会把定义写了 `haiku` 的类型往上换。mod 因此在 `session.agentTypes` 里按 `subagentType` 记下它没给模型、调用也没写模型的每次派出：`next` 回答的模型的层级（`tierOfModelId`，认不出时是 null）和当时主 agent 的层级，最多记 32 种类型（`AGENT_TYPES_KEEP`，最早记的先走）。只有调用没写模型、记过这个类型、记下时主 agent 的层级和现在相同、记下的层级又正是主 agent 的层级（这个类型沿用主 agent 的模型）时，mod 才定模型，往下换和 `fableAgents` 的上限都一样；别的派出一律不动模型，mod 没给模型的派出再记一次。代价：每种类型在一个会话里的第一次派出（主 agent 换了模型之后也一样）既不受上限，也不往下换。决策记录的 `from` 写这个类型自己的层级（沿用时就是主 agent 的），还不知道时写 `?`；因为不知道而没动模型的，`detail` 在类型后面写「模型没动：还不知道这个类型是否沿用主 agent 的模型」，看板的 agent 行只取类型（`agentTypeOf`）。world 的 `agent.spawn` 桩照引擎的样子回答解析后的 id，选项 `typeModels` 给出各类型定义里的模型。
 - 挂了 `ui.render`（AbovePrompt、SessionMode）、`http.fetch` 和 `agent.spawn` 的 mod 不挡 Code Mode。加载成功时调试日志里是 `hooks module dispatch-pilot@inline loaded … events: session.start,command.run,prompt.submit,prompt.attachment,skill.prompt,turn.start,turn.step,agent.spawn,session.append,turn.complete,http.fetch`。
 
 ## Code Mode 一轮里的行
