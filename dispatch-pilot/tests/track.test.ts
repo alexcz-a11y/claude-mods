@@ -273,7 +273,7 @@ test('turn.start 之后、第 0 步之前看板是 starting；第 0 步带档位
   // The last turn's step left the session's level: the next turn's first row shows it while its own is unknown.
   await submit($, 'Now the downloader')
   expect(turnState(w)).toMatchObject({ turnId: 't2', stepNo: 0, track: [] })
-  expect(boardOf(w).status).toEqual({ kind: 'starting', text: '定档中' })
+  expect(boardOf(w).status).toEqual({ kind: 'starting', text: '这一轮刚开始' })
   expect(boardOf(w).where).toBe('第 2 轮 · 刚开始')
   expect(boardOf(w).level).toBe('medium')
   await step($, { turnId: 't2', index: 0, effort: 'medium' })

@@ -112,12 +112,12 @@ const atStep = (step: number | null): string => (step === null || step === 0 ? '
 const isJudged = (d: Decision): boolean => d.kind === 'submit' || d.kind === 'midrun'
 const two = (n: number): string => n.toFixed(2)
 
-// starting: the turn's first step has not come (its level is not known yet, which is not a model without effort); judging:
-// its message is being judged meanwhile.
-function statusOf(s: { locked: boolean; idle: boolean; starting: boolean; judging: boolean }, wanted: Level | null, sent: Level | null): BoardModel['status'] {
+// starting: the turn's first step has not come (its level is not known yet, which is not a model without effort). Its
+// message was judged inside prompt.submit, before turn.start, so nothing is being judged meanwhile.
+function statusOf(s: { locked: boolean; idle: boolean; starting: boolean }, wanted: Level | null, sent: Level | null): BoardModel['status'] {
   if (s.locked) return { kind: 'locked', text: '已锁定' }
   if (s.idle) return { kind: 'idle', text: '空闲' }
-  if (s.starting) return { kind: 'starting', text: s.judging ? '定档中' : '这一轮刚开始' }
+  if (s.starting) return { kind: 'starting', text: '这一轮刚开始' }
   if (wanted === null) return { kind: 'none', text: '这个模型不收 effort' }
   if (sent === null) return { kind: 'unverified', text: '未核对' }
   if (sent !== wanted) return { kind: 'mismatch', text: `要 ${wanted}，实际发出 ${sent}` }
@@ -284,9 +284,8 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   // Inside a turn its own last evaluation (none yet: null); between turns the last one recorded, which may be older
   // than the last turn (one with no evaluation), hence 此前.
   const judged = turn === null ? recent.findLast(isJudged) : thisTurn.findLast(isJudged)
-  // The turn's first step has not come: its level is not known yet; the message may still be being judged.
+  // The turn's first step has not come: its level is not known yet.
   const starting = turn !== null && turn.stepNo === 0
-  const judging = cfg.enabled && cfg.submitShift && ask && !locked
   return {
     isIdle,
     where: turn === null ? '空闲' : starting ? `第 ${session.turnNo} 轮 · 刚开始` : `第 ${session.turnNo} 轮 · 第 ${turn.stepNo} 步`,
@@ -295,7 +294,7 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
     level: turn === null ? (wanted ?? session.sessionLevel) : starting ? (session.lock ?? session.sessionLevel) : (sent ?? wanted),
     wanted,
     sent,
-    status: statusOf({ locked, idle: isIdle, starting, judging }, wanted, sent),
+    status: statusOf({ locked, idle: isIdle, starting }, wanted, sent),
     track: turn === null ? [] : turn.track,
     shifts: shiftsOf(thisTurn),
     last: locked || judged === undefined ? null : lastOf(cfg, judged, turn === null ? '此前 · ' : ''),

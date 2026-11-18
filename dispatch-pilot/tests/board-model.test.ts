@@ -173,7 +173,7 @@ test('总能算出：空的 recent、raw 为 null 或没有 open、bars 为 null
   // A turn with no cells yet: no step taken (starting: the level last seen), the readout not yet due.
   const fresh = boardModel(cfg, { ...s, session: { ...s.session, lastSent: null }, turn: { ...s.turn!, track: [], stepNo: 0 } })
   expect([fresh.track, fresh.where, fresh.status.kind, fresh.level]).toEqual([[], '第 7 轮 · 刚开始', 'starting', 'medium'])
-  expect(fresh.status.text).toBe('定档中')
+  expect(fresh.status.text).toBe('这一轮刚开始')
   expect(fresh.features[4]).toEqual({ label: '档位核对', state: 'active', note: '' })
   // Cells but no reading: the readout reads nothing.
   const unread = boardModel(cfg, { ...s, session: { ...s.session, lastSent: null } })
@@ -382,14 +382,15 @@ const starting = (session: Partial<BoardState['session']> = {}): BoardState => {
   return { ...s, session: { ...s.session, sessionLevel: 'medium', ...session }, turn: { ...s.turn!, base: null, wanted: null, track: [], stepNo: 0 }, recent: [] }
 }
 
-test('一轮刚开始、第一步还没来：定档中或这一轮刚开始，档位是上次见到的，不说不收 effort', () => {
-  const judged = boardModel(readConfig({ drexApiKey: 'k' }), starting())
-  expect([judged.level, judged.status, judged.where]).toEqual(['medium', { kind: 'starting', text: '定档中' }, '第 7 轮 · 刚开始'])
-  expect(judged.track).toEqual([])
-  expect(judged.last).toBe(null)
+test('一轮刚开始、第一步还没来：这一轮刚开始，档位是上次见到的，不说不收 effort', () => {
+  // The message was judged inside prompt.submit, before turn.start: nothing is being judged now, whatever the config.
+  const m = boardModel(readConfig({ drexApiKey: 'k' }), starting())
+  expect([m.level, m.status, m.where]).toEqual(['medium', { kind: 'starting', text: '这一轮刚开始' }, '第 7 轮 · 刚开始'])
+  expect(m.track).toEqual([])
+  expect(m.last).toBe(null)
   // Computed as for any turn: Code Mode checks at the next script result.
-  expect(judged.next).toEqual({ main: '下一份脚本结果到达时', sub: '每 1 份脚本结果评估一次 · 本轮还可换挡 4 次', ahead: 1 })
-  // No message is judged: submitShift off, or no usable backend.
+  expect(m.next).toEqual({ main: '下一份脚本结果到达时', sub: '每 1 份脚本结果评估一次 · 本轮还可换挡 4 次', ahead: 1 })
+  // The same with submitShift off, or no usable backend.
   const notJudged = boardModel(readConfig({ drexApiKey: 'k', submitShift: false }), starting())
   expect([notJudged.level, notJudged.status]).toEqual(['medium', { kind: 'starting', text: '这一轮刚开始' }])
   const noKey = boardModel(readConfig({}), starting())
