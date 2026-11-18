@@ -32,11 +32,19 @@ function decision(over: Partial<Decision> = {}): Decision {
 const many = (n: number): Decision[] => Array.from({ length: n }, (_, i) => decision({ id: `d${i}` }))
 
 // A stand-in for the mod's $ with only what record() touches: $.state with versions (so the
-// state library's compare-and-set works) and $.store.
-function fakeDollar(o: { store?: Record<string, unknown>; storeFails?: boolean } = {}) {
+// state library's compare-and-set works), $.store and $.ui.log. storeDelay: turns of the event loop a
+// store read takes, so two records in flight overlap; logThrows: $.ui.log itself throws.
+function fakeDollar(o: { store?: Record<string, unknown>; storeFails?: boolean; storeDelay?: number; logThrows?: boolean } = {}) {
   const state = new Map<string, { value: unknown; version: number }>()
   const store = new Map<string, unknown>(Object.entries(o.store ?? {}))
+  const logs: { text: string; to: string | undefined }[] = []
   const $ = {
+    ui: {
+      log: (text: string, options?: { to?: string }) => {
+        if (o.logThrows) throw new Error('log refused')
+        logs.push({ text, to: options?.to })
+      },
+    },
     state: {
       get: async (ref: { key: string }) => state.get(ref.key) ?? { value: undefined, version: 0 },
       set: async (ref: { key: string }, value: unknown, opts?: { ifVersion?: number }) => {
@@ -49,14 +57,16 @@ function fakeDollar(o: { store?: Record<string, unknown>; storeFails?: boolean }
     store: {
       get: async (key: string) => {
         if (o.storeFails) throw new Error('store unreadable')
-        return store.get(key)
+        const held = store.get(key)
+        for (let i = 0; i < (o.storeDelay ?? 0); i++) await Promise.resolve()
+        return held
       },
       set: async (key: string, value: unknown) => {
         store.set(key, JSON.parse(JSON.stringify(value)))
       },
     },
   }
-  return { $: $ as never, state, store }
+  return { $: $ as never, state, store, logs }
 }
 
 // The brief's five.
@@ -154,6 +164,32 @@ test('record：$.store 出错时不抛，recent 照写', async () => {
   await record(f.$, decision({ id: 'x' }))
   expect((f.state.get('recent')?.value as Decision[]).map((d) => d.id)).toEqual(['x'])
   expect(f.store.has('log')).toBe(false)
+})
+
+test('record：两条同时在途，$.store 的 log 一条不丢', async () => {
+  const f = fakeDollar({ store: { log: [decision({ id: 'old' })] }, storeDelay: 20 })
+  await Promise.all([record(f.$, decision({ id: 'a' })), record(f.$, decision({ id: 'b' })), record(f.$, decision({ id: 'c' }))])
+  expect((f.store.get('log') as Decision[]).map((d) => d.id)).toEqual(['old', 'a', 'b', 'c'])
+  expect((f.state.get('recent')?.value as Decision[]).map((d) => d.id).sort()).toEqual(['a', 'b', 'c'])
+})
+
+test('record：$.store 出错时在 debug 日志里写一行；写日志本身出错也不抛', async () => {
+  const f = fakeDollar({ storeFails: true })
+  await record(f.$, decision({ id: 'x' }))
+  expect(f.logs).toHaveLength(1)
+  expect(f.logs[0]!.to).toBe('debug')
+  expect(f.logs[0]!.text).toContain('record')
+  expect(f.logs[0]!.text).toContain('store unreadable')
+  // Nothing of the decision itself goes into the line.
+  expect(f.logs[0]!.text).not.toContain('drex-max-v1.1')
+
+  const g = fakeDollar({ storeFails: true, logThrows: true })
+  await record(g.$, decision({ id: 'y' }))
+  expect((g.state.get('recent')?.value as Decision[]).map((d) => d.id)).toEqual(['y'])
+  // A store that works again takes the next one.
+  const h = fakeDollar({ logThrows: true })
+  await record(h.$, decision({ id: 'z' }))
+  expect((h.store.get('log') as Decision[]).map((d) => d.id)).toEqual(['z'])
 })
 
 test('amendLog 只改 id 对得上的那一条', () => {

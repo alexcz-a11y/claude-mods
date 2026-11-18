@@ -16,6 +16,8 @@ import type {
   PromptOrigin,
   RenderSurface,
   SessionAppendInput,
+  TurnCompleteInput,
+  TurnCompleteReason,
   TurnStepInput,
   TurnStepResult,
 } from 'claude-code'
@@ -34,6 +36,8 @@ export type WorldOptions = {
   complete?: (e: any) => string | null
   /** What $.session.surfaces() answers; ['terminal'] when left out. */
   surfaces?: string[]
+  /** $ calls to answer with { deny }, so the mod's call rejects: ui.status, store.get, store.set, command.register, session.surfaces. */
+  refuse?: string[]
 }
 
 export type SentStep = { turnId: string; index: number; effort: unknown; model: string; agentId: string | undefined }
@@ -51,6 +55,8 @@ export function world(on: On, o: WorldOptions = {}) {
   const fetched: { url: string; headers: Record<string, string>; body: any }[] = []
   const statuses: (string | undefined)[] = []
   const logs: string[] = []
+  /** The lines of logs that went to the debug log alone ({ to: 'debug' }). */
+  const debugLogs: string[] = []
   const stepsSent: SentStep[] = []
   const appended: SessionAppendInput[] = []
   const spawned: AgentSpawnInput[] = []
@@ -69,6 +75,8 @@ export function world(on: On, o: WorldOptions = {}) {
   // Kept as JSON text, so a read hands back a copy, as $.store does.
   const store = new Map<string, string>(Object.entries(o.store ?? {}).map(([k, v]) => [k, JSON.stringify(v)]))
   let agentNo = 0
+  const refused = (name: string): boolean => o.refuse?.includes(name) === true
+  const REFUSED = { deny: 'refused by the test' } as const
 
   // The mod's $ calls.
   on('http.fetch', async (_$, e) => {
@@ -79,24 +87,29 @@ export function world(on: On, o: WorldOptions = {}) {
     return text === null ? { deny: 'network down' } : { value: { status: 200, ok: true, headers: {}, text } }
   })
   on('ui.status', (_$, e) => {
+    if (refused('ui.status')) return REFUSED
     statuses.push(e.text)
     return { value: undefined }
   })
   on('ui.log', (_$, e) => {
     logs.push(e.text)
+    if (e.to === 'debug') debugLogs.push(e.text)
     return { value: undefined }
   })
   on('store.get', (_$, e) => {
+    if (refused('store.get')) return REFUSED
     const text = store.get(e.key)
     return { value: text === undefined ? undefined : JSON.parse(text) }
   })
   on('store.set', (_$, e) => {
+    if (refused('store.set')) return REFUSED
     const text = JSON.stringify(e.value)
     store.set(e.key, text)
     storeWrites.push({ key: e.key, value: JSON.parse(text) })
     return { value: undefined }
   })
   on('command.register', (_$, e) => {
+    if (refused('command.register')) return REFUSED
     commands.push({ name: e.name, description: e.description })
     return { value: { command: e.name } }
   })
@@ -108,7 +121,7 @@ export function world(on: On, o: WorldOptions = {}) {
     const usage = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
     return { value: { isAnswered: true as const, text, usage } as never }
   })
-  on('session.surfaces', () => ({ value: (o.surfaces ?? ['terminal']) as RenderSurface[] }))
+  on('session.surfaces', () => (refused('session.surfaces') ? REFUSED : { value: (o.surfaces ?? ['terminal']) as RenderSurface[] }))
   // Not a stub: the kit keeps $.state itself. This only watches the writes on their way down; like
   // every $ call's, the answer comes back as { value } or { deny }.
   on('state.set', async (_$, e, next) => {
@@ -144,7 +157,7 @@ export function world(on: On, o: WorldOptions = {}) {
   })
   on('skill.prompt', (_$, e) => ({ text: e.text }))
 
-  return { fetched, statuses, logs, stepsSent, appended, spawned, submitted, attachments, completes, commands, storeWrites, stateWrites, clock }
+  return { fetched, statuses, logs, debugLogs, stepsSent, appended, spawned, submitted, attachments, completes, commands, storeWrites, stateWrites, clock }
 }
 
 // Answers in the shapes the decision models send (backend.ts reads them).
@@ -194,9 +207,13 @@ export async function step($: Engine, i: { turnId: string; index: number; effort
   return stream.result
 }
 
-export function complete($: Engine, turnId: string, o: { answer?: string; isAborted?: boolean } = {}) {
-  const isAborted = o.isAborted ?? false
-  return $.turn.complete({ turnId, answer: o.answer ?? '', durationMs: 1000, isAborted, reason: isAborted ? 'aborted' : 'answer' })
+/** Ends a turn: answered unless isAborted or reason says otherwise; agentId ends a subagent's turn. */
+export function complete($: Engine, turnId: string, o: { answer?: string; isAborted?: boolean; reason?: TurnCompleteReason; agentId?: string } = {}) {
+  const isAborted = o.isAborted ?? o.reason === 'aborted'
+  const reason = o.reason ?? (isAborted ? 'aborted' : 'answer')
+  const ending = reason === 'refusal' ? { reason, refusal: { category: null, explanation: null } } : { reason }
+  const input = { turnId, answer: o.answer ?? '', durationMs: 1000, isAborted, ...ending, ...(o.agentId === undefined ? {} : { agentId: o.agentId }) }
+  return $.turn.complete(input as TurnCompleteInput)
 }
 
 /** Runs /dp with the given arguments and returns the text it answered with. */
