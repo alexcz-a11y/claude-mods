@@ -145,24 +145,40 @@ async function attempt(io: Io, cfg: Config, backend: Backend, req: { state: unkn
   return { answers, model: body.model }
 }
 
+// With a fallback possible, the first backend gets only this share of the deadline, so a timeout
+// (the most common failure) still leaves time to ask the other one.
+export const FIRST_SHARE = 0.6
+
 export async function ask(io: Io, cfg: Config, req: { state: unknown; questions: Record<string, Question> }, deadlineMs: number): Promise<AskResult> {
   const first = cfg.backend
+  let start: number | undefined
   try {
-    const start = await io.now()
-    const endAt = start + deadlineMs
-    const since = async (): Promise<number> => (await io.now()) - start
+    start = await io.now()
+    const t0 = start
+    const endAt = t0 + deadlineMs
+    const since = async (): Promise<number> => (await io.now()) - t0
     if (!keyOf(cfg, first)) return { ok: false, ...miss('no-key', first), ms: await since() }
-    const sendable = { state: fitState(req.state), questions: req.questions }
-    const a = await attempt(io, cfg, first, sendable, endAt)
-    if ('answers' in a) return { ok: true, ...a, backend: first, ms: await since() }
     const other: Backend = first === 'drex' ? 'jev' : 'drex'
-    // The other backend is asked once, only when both keys are set (design 5.7) and time is left.
-    if (!cfg.fallback || !keyOf(cfg, other) || (await io.now()) >= endAt) return { ok: false, ...a, ms: await since() }
+    // The other backend is asked once, only when both keys are set (design 5.7).
+    const canFallBack = cfg.fallback && keyOf(cfg, other) !== ''
+    const sendable = { state: fitState(req.state), questions: req.questions }
+    const a = await attempt(io, cfg, first, sendable, canFallBack ? t0 + Math.floor(deadlineMs * FIRST_SHARE) : endAt)
+    if ('answers' in a) return { ok: true, ...a, backend: first, ms: await since() }
+    if (!canFallBack || (await io.now()) >= endAt) return { ok: false, ...a, ms: await since() }
     const b = await attempt(io, cfg, other, sendable, endAt)
     const ms = await since()
     return 'answers' in b ? { ok: true, ...b, backend: other, ms, firstFailure: a } : { ok: false, ...b, ms, firstFailure: a }
   } catch {
-    // Only io itself can throw here (the clock); fail open all the same.
-    return { ok: false, ...miss('network', first), ms: 0 }
+    // io itself (the clock) or a state JSON cannot serialize (a cycle, a BigInt); fail open all the same,
+    // with the time spent when the clock still answers.
+    let ms = 0
+    if (start !== undefined) {
+      try {
+        ms = (await io.now()) - start
+      } catch {
+        ms = 0
+      }
+    }
+    return { ok: false, ...miss('network', first), ms }
   }
 }

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { readConfig } from '../hooks/config.ts'
 import type { Config } from '../hooks/config.ts'
-import { DREX_URL, JEV_URL, ask } from '../hooks/backend.ts'
+import { DREX_URL, FIRST_SHARE, JEV_URL, ask } from '../hooks/backend.ts'
 import type { Io } from '../hooks/backend.ts'
 import type { Question } from '../hooks/questions.ts'
 import { STATE_BUDGET, estimateTokens } from '../hooks/statebuild.ts'
@@ -12,6 +12,7 @@ type Reply =
   | { status?: number; body?: unknown; text?: string; headers?: Record<string, string>; takes?: number }
   | 'hang'
   | 'throw'
+  | 'throw-sync'
 
 function fakeIo(replies: Reply[]) {
   let t = 1000
@@ -29,6 +30,7 @@ function fakeIo(replies: Reply[]) {
       played.push(r)
       if (r === 'hang') return new Promise(() => {})
       if (r === 'throw') return Promise.reject(new Error('offline'))
+      if (r === 'throw-sync') throw new Error('refused before sending')
       t += r.takes ?? 0
       const status = r.status ?? 200
       return Promise.resolve({ status, ok: status >= 200 && status < 300, headers: r.headers ?? {}, text: r.text ?? (r.body === undefined ? '' : JSON.stringify(r.body)) })
@@ -247,8 +249,8 @@ test('时限由第一次请求和改问共用', async () => {
   const { io, calls, sleeps } = fakeIo([{ status: 500, takes: 3000 }, { body: jevBody(), takes: 500 }])
   const r = await ask(io, both(true), REQ, 4000)
   expect(calls).toHaveLength(2)
-  // The second race gets what the first left: 4000 - 3000.
-  expect(sleeps.map((s) => s.ms)).toEqual([4000, 1000])
+  // The first race gets 60% of 4000; the second what is left of the whole: 4000 - 3000.
+  expect(sleeps.map((s) => s.ms)).toEqual([2400, 1000])
   expect(r.ok).toBe(true)
   expect(r.ms).toBe(3500)
 })
@@ -257,18 +259,87 @@ test('改问时超时：按剩下的时间算', async () => {
   const { io, calls, sleeps } = fakeIo([{ status: 500, takes: 2500 }, 'hang'])
   const r = await ask(io, both(true), REQ, 4000)
   expect(calls).toHaveLength(2)
-  expect(sleeps.map((s) => s.ms)).toEqual([4000, 1500])
+  expect(sleeps.map((s) => s.ms)).toEqual([2400, 1500])
   expect(r).toEqual({ ok: false, reason: 'timeout', backend: 'jev', ms: 4000, firstFailure: { reason: 'http', backend: 'drex', status: 500 } })
 })
 
-test('时限用完了就不改问', async () => {
+test('改问前时限已用完就不改问', async () => {
   const spent = fakeIo([{ status: 500, takes: 4000 }, { body: jevBody() }])
   expect(await ask(spent.io, both(true), REQ, 4000)).toEqual({ ok: false, reason: 'http', backend: 'drex', status: 500, ms: 4000 })
   expect(spent.calls).toHaveLength(1)
+})
 
-  const timedOut = fakeIo(['hang', { body: jevBody() }])
-  expect(await ask(timedOut.io, both(true), REQ, 4000)).toEqual({ ok: false, reason: 'timeout', backend: 'drex', ms: 4000 })
-  expect(timedOut.calls).toHaveLength(1)
+test('第一次在 60% 处超时，改问的那家在剩下的时间里答上', async () => {
+  expect(FIRST_SHARE).toBe(0.6)
+  const { io, calls, sleeps } = fakeIo(['hang', { body: jevBody(), takes: 300 }])
+  const r = await ask(io, both(true), REQ, 4000)
+  expect(calls.map((c) => c.url)).toEqual([DREX_URL, JEV_URL])
+  expect(sleeps.map((s) => s.ms)).toEqual([2400, 1600])
+  expect(r).toEqual({ ok: true, answers: EXPECTED, model: 'jev-1.14.0', backend: 'jev', ms: 2700, firstFailure: { reason: 'timeout', backend: 'drex' } })
+})
+
+test('两家都超时：timeout，总共等满 deadlineMs', async () => {
+  const { io, calls, sleeps } = fakeIo(['hang', 'hang'])
+  const r = await ask(io, both(true), REQ, 4000)
+  expect(calls).toHaveLength(2)
+  expect(sleeps.map((s) => s.ms)).toEqual([2400, 1600])
+  expect(sleeps[0]!.ms + sleeps[1]!.ms).toBe(4000)
+  expect(r).toEqual({ ok: false, reason: 'timeout', backend: 'jev', ms: 4000, firstFailure: { reason: 'timeout', backend: 'drex' } })
+})
+
+test('60% 向下取整', async () => {
+  const { io, sleeps } = fakeIo(['hang', 'hang'])
+  const r = await ask(io, both(true), REQ, 2001)
+  expect(sleeps.map((s) => s.ms)).toEqual([1200, 801])
+  expect(r.ms).toBe(2001)
+})
+
+test('fallback 关着：第一次就用满整个时限', async () => {
+  const { io, calls, sleeps } = fakeIo(['hang', { body: jevBody() }])
+  const r = await ask(io, both(false), REQ, 4000)
+  expect(calls).toHaveLength(1)
+  expect(sleeps.map((s) => s.ms)).toEqual([4000])
+  expect(r).toEqual({ ok: false, reason: 'timeout', backend: 'drex', ms: 4000 })
+})
+
+test('fallback 开着但另一家没有密钥：第一次也用满整个时限', async () => {
+  const { io, calls, sleeps } = fakeIo(['hang', { body: jevBody() }])
+  const r = await ask(io, readConfig({ drexApiKey: 'nace_sk_test', fallback: true }), REQ, 4000)
+  expect(calls).toHaveLength(1)
+  expect(sleeps.map((s) => s.ms)).toEqual([4000])
+  expect(r).toEqual({ ok: false, reason: 'timeout', backend: 'drex', ms: 4000 })
+})
+
+test('io.fetch 同步抛错也是 network，计时的 sleep 被中止', async () => {
+  const { io, calls, sleeps } = fakeIo(['throw-sync'])
+  expect(await ask(io, drexOnly, REQ, 4000)).toEqual({ ok: false, reason: 'network', backend: 'drex', ms: 0 })
+  expect(calls).toHaveLength(1)
+  expect(sleeps).toHaveLength(1)
+  expect(sleeps[0]!.aborted).toBe(true)
+})
+
+test('最外层兜底：时钟还能用时报出用掉的时间，时钟坏了报 0', async () => {
+  // A cyclic state cannot be serialized: the throw comes from inside ask, after the clock started.
+  const cyclic: Record<string, unknown> = { request: 'r' }
+  cyclic.self = cyclic
+  let t = 1000
+  let fetches = 0
+  const ticking: Io = {
+    async now() {
+      t += 10
+      return t
+    },
+    fetch() {
+      fetches++
+      return new Promise(() => {})
+    },
+    sleep: () => new Promise(() => {}),
+  }
+  expect(await ask(ticking, drexOnly, { state: cyclic, questions: QUESTIONS }, 4000)).toEqual({ ok: false, reason: 'network', backend: 'drex', ms: 10 })
+  expect(fetches).toBe(0)
+  const broken: Io = { ...ticking, now: () => Promise.reject(new Error('no clock')) }
+  expect(await ask(broken, drexOnly, REQ, 4000)).toEqual({ ok: false, reason: 'network', backend: 'drex', ms: 0 })
+  expect(fetches).toBe(0)
 })
 
 test('401、402、422 都是 http，带 status，不重试', async () => {
