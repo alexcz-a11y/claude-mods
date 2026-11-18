@@ -9,7 +9,7 @@ dispatch-pilot/
   .claude-plugin/plugin.json   清单和 userConfig（数值选项不声明 min/max，范围在 readConfig 里夹）
   hooks/hooks.json             {"modules": ["./dispatch-pilot.ts"]}
   hooks/dispatch-pilot.ts      入口：register 和每个 on(...)，每个 hook 里各功能动手的先后
-  hooks/runtime.ts             各 flow 共用的、碰 $ 的部分：trace、failOpen、ioOf、record、amendSent、redraw、verifies、keepSurfaces
+  hooks/runtime.ts             各 flow 共用的、碰 $ 的部分：trace、failOpen、ioOf、record、amendSent、redraw、verifies、firstDraw
   hooks/flows/dp.ts            /dp 的注册和回答
   hooks/flows/submit.ts        发消息时的判断、一轮的开始、主循环的每一步、一轮的结束
   hooks/flows/skills.ts        收起 skill 列表、推荐、find-skill
