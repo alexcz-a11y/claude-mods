@@ -2,7 +2,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, SessionAppendInput } from 'claude-code'
 
-import { ask } from '../backend.ts'
+import { ask, canAsk } from '../backend.ts'
 import type { Config } from '../config.ts'
 import { kindOf, rowOf } from '../journal.ts'
 import { decisionId } from '../log.ts'
@@ -48,7 +48,8 @@ export async function onRow($: EngineInterface, cfg: Config, e: SessionAppendInp
   if (held === null) return e
   const session = await read($, SESSION)
   const codeMode = session.codeMode || kind === 'receipt'
-  const judging = cfg.enabled && cfg.midrunShift && session.lock === null
+  // No backend to ask: no checkpoint at all, as with midrunShift off (the evidence is still kept).
+  const judging = cfg.enabled && cfg.midrunShift && session.lock === null && canAsk(cfg)
   // Planned on what update() reads, so a write in between is built on rather than lost.
   const box: { plan: RowPlan | null } = { plan: null }
   await update($, TURN, (cur) => {

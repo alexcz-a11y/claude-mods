@@ -42,7 +42,8 @@ export async function judgeMessage($: EngineInterface, cfg: Config, m: { text: s
   if (m.turnId !== undefined) return null
   const text = m.text
   const session = await read($, SESSION)
-  const effortAsked = cfg.submitShift && session.lock === null
+  // No backend to ask (the chosen one has no key): as with the switch off, nothing is asked and nothing recorded.
+  const effortAsked = cfg.submitShift && session.lock === null && canAsk(cfg)
   const skills = cfg.skills && canAsk(cfg) ? await read($, SKILLS) : []
   if (!effortAsked && skills.length === 0) return null
   // Every question this message is asked goes into the one map and the one request; each part then reads the

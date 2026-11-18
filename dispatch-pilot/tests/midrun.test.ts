@@ -27,7 +27,7 @@ import {
   scriptByPoll,
   toolResult,
 } from './support/rows.ts'
-import { KEYS, append, appendAll, complete, dp, drexOk, noul, score, start, step, submit, turnStart, turns, world } from './support/world.ts'
+import { KEYS, NO_BACKEND, append, appendAll, complete, dp, drexOk, noul, score, start, step, submit, turnStart, turns, world } from './support/world.ts'
 
 type World = ReturnType<typeof world>
 
@@ -475,6 +475,58 @@ for (const [name, options, lock] of [
     }
   })
 }
+
+// No backend can be asked: no checkpoint is evaluated, nothing recorded, no progress note; the evidence is kept
+// all the same (ruling R37).
+for (const [name, keys] of NO_BACKEND) {
+  test(`没有可用的后端（${name}）：Code Mode 一轮里不评估、不记录，行原样到达`, { options: { ...keys, progressNote: true } }, async ($, on) => {
+    const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, SAME_FAILURE), complete: () => 'Rerunning the upload test.' })
+    await begin($)
+    const rows: SessionAppendInput[] = []
+    for (const n of [1, 2, 3]) {
+      const script = scriptByPoll(n, 'rerun the upload test', 'FAIL test_upload: expected 200, got 500')
+      rows.push(...script)
+      await appendAll($, script)
+      await stepT1($, n)
+    }
+    const during = turnState(w)
+    await complete($, 't1')
+
+    for (const r of rows) expect(reached(w, r)).toEqual(r)
+    expect(efforts(w)).toEqual(['medium', 'medium', 'medium', 'medium'])
+    expect(during.journal).toMatchObject({ workSteps: 3, scriptResults: 3 })
+    expect(during).toMatchObject({ base: 'medium', wanted: null, pendingNote: null, pendingMark: null, midrun: { notes: 0, lastShiftAt: null } })
+    expect(session(w).codeMode).toBe(true)
+    expect(w.fetched).toHaveLength(0)
+    expect(w.completes).toHaveLength(0)
+    expect(w.storeWrites.filter((s) => s.key === 'log')).toHaveLength(0)
+    expect(w.stateWrites.filter((s) => s.key === 'recent')).toHaveLength(0)
+  })
+}
+
+test('没有密钥：普通会话的三份工具结果也不评估、不记录', { options: { midrunEverySteps: 1, progressNote: true } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, SAME_FAILURE), complete: () => 'Rerunning the upload test.' })
+  await begin($)
+  const rows: SessionAppendInput[] = []
+  for (const n of [1, 2, 3]) {
+    const pair = [assistantToolUse('Bash', { command: 'npm test' }), toolResult('Bash', 'FAIL test_upload: expected 200, got 500', { error: true })]
+    rows.push(...pair)
+    await appendAll($, pair)
+    await stepT1($, n)
+  }
+  const during = turnState(w)
+  await complete($, 't1')
+
+  for (const r of rows) expect(reached(w, r)).toEqual(r)
+  expect(efforts(w)).toEqual(['medium', 'medium', 'medium', 'medium'])
+  expect(during.journal).toMatchObject({ workSteps: 3, failedSteps: 3, scriptResults: 0 })
+  expect(during).toMatchObject({ base: 'medium', wanted: null, pendingMark: null })
+  expect(session(w).codeMode).toBe(false)
+  expect(w.fetched).toHaveLength(0)
+  expect(w.completes).toHaveLength(0)
+  expect(w.storeWrites.filter((s) => s.key === 'log')).toHaveLength(0)
+  expect(w.stateWrites.filter((s) => s.key === 'recent')).toHaveLength(0)
+})
 
 // What the eleven do not reach.
 

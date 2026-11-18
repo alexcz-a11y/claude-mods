@@ -30,6 +30,17 @@ import type { BoardState } from '../../hooks/board/model.ts'
 /** userConfig with the Drex key set (fallback stays off, so only Drex is asked). */
 export const KEYS = { drexApiKey: 'k-drex' }
 
+/**
+ * userConfigs in which no backend can be asked (canAsk is false): no key at all, or only the other backend's key,
+ * with fallback off and on (canAsk is about the chosen backend alone).
+ */
+export const NO_BACKEND = [
+  ['没有密钥', {}],
+  ['只有 Jev 的密钥，fallback 关', { jevApiKey: 'k-jev' }],
+  ['只有 Jev 的密钥，fallback 开', { jevApiKey: 'k-jev', fallback: true }],
+  ['选了 Jev，只有 Drex 的密钥，fallback 开', { backend: 'jev', drexApiKey: 'k-drex', fallback: true }],
+] as const
+
 export type WorldOptions = {
   /** Answers each $.http.fetch with a 200 body, or null for a network failure. Left out: HTTP 500. */
   answer?: (req: { url: string; body: any }) => string | null | Promise<string | null>

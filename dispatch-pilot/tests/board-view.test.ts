@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 import { boardModel } from '../hooks/board/model.ts'
 import type { BoardModel, BoardState, TrackCell } from '../hooks/board/model.ts'
-import { displayWidth, fitRow, fitTrack, footerLabel, paneSections, rowText, runsOf, timelineRows } from '../hooks/board/view.ts'
+import { desktopTimelineRows, displayWidth, fitRow, fitTrack, footerLabel, paneSections, rowText, runsOf, timelineRows } from '../hooks/board/view.ts'
 import type { Part, Row } from '../hooks/board/view.ts'
 import { readConfig } from '../hooks/config.ts'
 import type { Decision } from '../hooks/log.ts'
@@ -63,7 +63,7 @@ test('fitTrack：一格里有几次评估时留最要紧的记号', () => {
 test('锁定的一轮没有记号也没有换挡：没有记号那一行，轨道那一行还在', () => {
   expect(timelineRows(locked, { columns: 120, isPaneOpen: false }).map((r) => r.id)).toEqual(['now', 'track', 'last', 'features'])
   expect(timelineRows(locked, { columns: 120, isPaneOpen: true }).map((r) => r.id)).toEqual(['now', 'track'])
-  expect(rowText(timelineRows(locked, { columns: 120, isPaneOpen: false })[1]!)).toBe('步 █████   下次评估 不评估')
+  expect(rowText(timelineRows(locked, { columns: 120, isPaneOpen: false })[1]!)).toBe('步 █████   下次评估 不评估 · /dp unlock 解锁后恢复')
   // A mark alone, or a shift alone, keeps the row.
   const marked = boardModel(CFG, { ...SCENES.locked, turn: { ...SCENES.locked.turn!, track: [...SCENES.locked.turn!.track.slice(0, -1), { level: 'high', sent: 'high', mark: 'hold' }] } })
   expect(timelineRows(marked, { columns: 120, isPaneOpen: false }).map((r) => r.id)).toEqual(['now', 'track', 'marks', 'last', 'features'])
@@ -311,4 +311,24 @@ test('第一行最后是会话种类，行太长时最先去掉；空闲的那�
   expect(sectionsOf(up).now?.[2]).toBe('第 7 轮 · 第 10 步 · Code Mode 会话')
   expect(sectionsOf(locked).now?.[2]).toBe('第 2 轮 · 第 5 步 · 普通会话')
   expect(sectionsOf(idle).now).toEqual(['▮▮▯▯▯ medium', '– 空闲', '上一轮结束在 high', 'Code Mode 会话'])
+})
+
+// Ruling R37: inside a turn the track row gives the reason too, where there is room, as the idle row does.
+test('一轮里不再评估：轨道那一行放得下时写出原因，太窄时先去掉原因（终端和 Desktop）', () => {
+  const noKey = boardModel(readConfig({}), SCENES.up)
+  expect(noKey.next).toEqual({ main: '本轮不再评估', sub: '没有可用的后端', ahead: 0 })
+  const track = (columns: number): string => rowText(timelineRows(noKey, { columns, isPaneOpen: false }).find((r) => r.id === 'track')!)
+  expect(track(120)).toBe('步 ██████████   下次评估 本轮不再评估 · 没有可用的后端')
+  // One column short of the whole row: the reason goes whole, the next evaluation stays.
+  const whole = displayWidth(track(120))
+  expect(track(whole - 1)).toBe('步 ██████████   下次评估 本轮不再评估')
+  // A next evaluation that is ahead gives no reason on this row: the dashes and the diamond say when.
+  expect(rowText(timelineRows(up, { columns: 160, isPaneOpen: false })[1]!)).toBe('步 ██████████┄◇   下次评估 下一份脚本结果到达时')
+
+  const desktopTexts = (columns: number): string[] => texts(desktopTimelineRows(noKey, { columns, isPaneOpen: false }).find((r) => r.id === 'track')!)
+  expect(desktopTexts(120)).toEqual(['   下次评估 ', '本轮不再评估', ' · 没有可用的后端'])
+  // The widest Desktop row that has lost the reason still has the next evaluation.
+  const narrow = [...Array(80).keys()].map((i) => 119 - i).find((c) => !desktopTexts(c).includes(' · 没有可用的后端'))
+  expect(narrow).toBeDefined()
+  expect(desktopTexts(narrow!)).toEqual(['   下次评估 ', '本轮不再评估'])
 })

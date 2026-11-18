@@ -249,7 +249,9 @@ function trackRows(m: BoardModel, columns: number, maxCells?: number): Row[] {
           ...(shift.isSent ? [] : [text('（还没发出）', 'warn')]),
           ...(shift.why === '' ? [] : [text(` · ${shift.why}`, 'dim')]),
         ]
-  const track: Row = { id: 'track', parts: [text('步 ', 'dim'), { t: 'track', cells: fit.cells, ahead: m.next.ahead, per: fit.per }, ...scale, ...nextParts(m)] }
+  // When no evaluation is ahead, why, where there is room (a group of its own, dropped first), as the idle row does.
+  const why = m.next.ahead === 0 && m.next.sub !== '' ? [text(` · ${m.next.sub}`, 'dim')] : []
+  const track: Row = { id: 'track', parts: [text('步 ', 'dim'), { t: 'track', cells: fit.cells, ahead: m.next.ahead, per: fit.per }, ...scale, ...nextParts(m), ...why] }
   // A turn with no evaluation marked and no shift to tell (a locked one) has nothing for the marks row to say.
   if (shift === undefined && fit.cells.every((c) => c.mark === null)) return [track]
   return [track, { id: 'marks', parts: [text('评 ', 'dim'), { t: 'marks', cells: fit.cells }, ...shiftParts] }]

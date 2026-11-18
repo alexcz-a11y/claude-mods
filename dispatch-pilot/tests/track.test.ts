@@ -236,3 +236,27 @@ test('一步的第一次主循环请求填进最后一格的 sent，之后的请
   expect(g.turn()!.track.map((c) => c.sent)).toEqual([null, null])
   expect(g.session().lastSent).toBe('high')
 })
+
+// No backend can be asked (ruling R37): nothing is evaluated, so no cell carries a mark and no mark ever waits.
+test('没有密钥：一轮里每格都没有记号，pendingMark 从没写过，每格是引擎自己的档', { options: {} }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, () => SAME_FAILURE) })
+  await start($)
+  await submit($, TASK)
+  await stepT1($, 0)
+  for (const n of [1, 2, 3]) {
+    await appendAll($, scriptByPoll(n, 'rerun the upload test', 'FAIL test_upload: expected 200, got 500'))
+    await stepT1($, n)
+  }
+  expect(cells(w)).toEqual([
+    ['medium', null],
+    ['medium', null],
+    ['medium', null],
+    ['medium', null],
+  ])
+  expect(turnState(w)).toMatchObject({ stepNo: 4, base: 'medium', wanted: null })
+  const turnWrites = w.stateWrites.filter((s) => s.key === 'turn' && s.value !== null).map((s) => s.value as TurnState)
+  expect(turnWrites.length).toBeGreaterThan(0)
+  expect(turnWrites.filter((t) => t.pendingMark !== null)).toHaveLength(0)
+  expect(efforts(w)).toEqual(['medium', 'medium', 'medium', 'medium'])
+  expect(w.fetched).toHaveLength(0)
+})

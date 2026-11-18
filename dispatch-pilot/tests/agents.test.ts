@@ -5,7 +5,7 @@ import { START } from '../hooks/decide.ts'
 import type { Decision } from '../hooks/log.ts'
 import type { AgentState } from '../hooks/state.ts'
 import { scriptByPoll } from './support/rows.ts'
-import { KEYS, appendAll, dp, drexOk, noul, score, spawn, start, step, turnStart, world } from './support/world.ts'
+import { KEYS, NO_BACKEND, appendAll, dp, drexOk, noul, score, spawn, start, step, turnStart, world } from './support/world.ts'
 
 type World = ReturnType<typeof world>
 
@@ -356,23 +356,27 @@ test('shadow：照常判断并记下，模型和 effort 都不改（fableAgents 
   expect(w.listed.calls).toBe(0)
 })
 
-test('agentShift 关着：不发请求，fableAgents 的上限照样执行；继承 opus 的 agent 不改', { options: { ...KEYS, agentShift: false } }, async ($, on) => {
-  const w = world(on, { answer: agentAnswer(LOOKUP) })
-  await mainAtHigh($)
-  const capped = await spawn($, { parentModel: FABLE })
-  const kept = await spawn($)
-  await agentSteps($, 'agent-1', 1)
+// No backend can be asked: the spawn takes the same path as with agentShift off, and comes out the same (ruling R37).
+const NOT_ASKED = [['agentShift 关着', { ...KEYS, agentShift: false }], ...NO_BACKEND] as const
+for (const [name, options] of NOT_ASKED) {
+  test(`${name}：不发请求，fableAgents 的上限照样执行；继承 opus 的 agent 不改`, { options }, async ($, on) => {
+    const w = world(on, { answer: agentAnswer(LOOKUP) })
+    await mainAtHigh($)
+    const capped = await spawn($, { parentModel: FABLE })
+    const kept = await spawn($)
+    await agentSteps($, 'agent-1', 1)
 
-  expect(w.fetched).toHaveLength(0)
-  expect(w.spawned.map((s) => s.model)).toEqual(['opus', undefined])
-  expect([capped.model, kept.model]).toEqual(['opus', OPUS])
-  expect(effortsOf(w, 'agent-1')).toEqual(['high'])
-  const d = logged(w)
-  expect(d).toHaveLength(2)
-  expect(d[0]).toMatchObject({ kind: 'agent', backend: null, model: null, raw: null, reason: null, failure: null, bars: null, ms: 0, from: 'fable · high', to: 'opus · —', applied: true })
-  expect(d[1]).toMatchObject({ from: 'opus · high', to: 'inherit · —', applied: false })
-  expect(entry(w, 'agent-1')).toMatchObject({ effort: null })
-})
+    expect(w.fetched).toHaveLength(0)
+    expect(w.spawned.map((s) => s.model)).toEqual(['opus', undefined])
+    expect([capped.model, kept.model]).toEqual(['opus', OPUS])
+    expect(effortsOf(w, 'agent-1')).toEqual(['high'])
+    const d = logged(w)
+    expect(d).toHaveLength(2)
+    expect(d[0]).toMatchObject({ kind: 'agent', backend: null, model: null, raw: null, reason: null, failure: null, bars: null, ms: 0, from: 'fable · high', to: 'opus · —', applied: true })
+    expect(d[1]).toMatchObject({ from: 'opus · high', to: 'inherit · —', applied: false })
+    expect(entry(w, 'agent-1')).toMatchObject({ effort: null })
+  })
+}
 
 test('锁定时：不发请求，fableAgents 的上限照样执行', { options: KEYS }, async ($, on) => {
   const w = world(on, { answer: agentAnswer(LOOKUP) })

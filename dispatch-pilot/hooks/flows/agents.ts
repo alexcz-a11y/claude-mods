@@ -4,7 +4,7 @@ import type { AgentSpawnInput, EngineInterface, TurnStepInput } from 'claude-cod
 
 import { settleSpawn } from '../agents.ts'
 import type { Spawned } from '../agents.ts'
-import { ask } from '../backend.ts'
+import { ask, canAsk } from '../backend.ts'
 import type { Config } from '../config.ts'
 import { isLevel, tierOfModelId } from '../levels.ts'
 import { decisionId } from '../log.ts'
@@ -34,7 +34,8 @@ export async function planSpawn($: EngineInterface, cfg: Config, e: AgentSpawnIn
   // such as opusplan: then the model is never changed).
   const level = turn?.wanted ?? turn?.base ?? null
   const tier = tierOfModelId(e.parentModel)
-  const asking = cfg.agentShift && session.lock === null
+  // No backend to ask: the same path as agentShift off (the fableAgents cap still holds).
+  const asking = cfg.agentShift && session.lock === null && canAsk(cfg)
   const state = agentState({ task: e.prompt, agentType: e.subagentType, description: e.description })
   const r = asking ? await ask(ioOf($), cfg, { state, questions: agentQuestions() }, cfg.agentTimeoutMs) : null
   return settleSpawn(r, { cfg, e, tier, level, turn })

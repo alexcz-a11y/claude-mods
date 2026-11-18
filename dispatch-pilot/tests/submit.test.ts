@@ -4,9 +4,9 @@ import type { MockClock } from 'claude-code/testing'
 import { DREX_URL } from '../hooks/backend.ts'
 import { START } from '../hooks/decide.ts'
 import type { Decision } from '../hooks/log.ts'
-import type { SessionState } from '../hooks/state.ts'
+import type { SessionState, TurnState } from '../hooks/state.ts'
 import { estimateTokens } from '../hooks/statebuild.ts'
-import { KEYS, complete, dp, drexOk, noul, score, start, step, submit, turnStart, turns, world } from './support/world.ts'
+import { KEYS, NO_BACKEND, complete, dp, drexOk, noul, score, start, step, submit, turnStart, turns, world } from './support/world.ts'
 
 type World = ReturnType<typeof world>
 
@@ -15,6 +15,7 @@ const logged = (w: World): Decision[] => (w.storeWrites.filter((s) => s.key === 
 const recent = (w: World): Decision[] => (w.stateWrites.filter((s) => s.key === 'recent' && s.isSet).at(-1)?.value ?? []) as Decision[]
 const session = (w: World): SessionState => w.stateWrites.filter((s) => s.key === 'session' && s.isSet).at(-1)?.value as SessionState
 const efforts = (w: World): unknown[] => w.stepsSent.map((s) => s.effort)
+const turnState = (w: World): TurnState => w.stateWrites.filter((s) => s.key === 'turn' && s.isSet).at(-1)?.value as TurnState
 
 // Answers whose level, read from medium, is high: the open question moves one level up and no further.
 const RAISE = { open: score([0.02, 0.08, 0.25, 0.55, 0.1]), mechanical: noul(0.1), unknown_cause: noul(0.2) }
@@ -92,19 +93,25 @@ test('task-notification、peer 开始的轮不判断', { options: KEYS }, async 
   expect(logged(w)).toHaveLength(0)
 })
 
-test('没有密钥：不发请求，effort 不变（Review Focus 1）', { options: {} }, async ($, on) => {
-  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
-  await start($)
-  await submit($, TASK)
-  await step($, { turnId: 't1', index: 0, effort: 'medium' })
-  await step($, { turnId: 't1', index: 1, effort: 'medium' })
+// No backend can be asked: nothing is asked and nothing recorded, as with submitShift off (ruling R37).
+for (const [name, options] of NO_BACKEND) {
+  test(`没有可用的后端（${name}）：不发请求、不记录，第 0 步从引擎的档位起`, { options }, async ($, on) => {
+    const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
+    await start($)
+    await submit($, TASK)
+    await step($, { turnId: 't1', index: 0, effort: 'medium' })
+    await step($, { turnId: 't1', index: 1, effort: 'medium' })
 
-  expect(w.fetched).toHaveLength(0)
-  expect(efforts(w)).toEqual(['medium', 'medium'])
-  expect(logged(w)).toHaveLength(1)
-  expect(logged(w)[0]).toMatchObject({ kind: 'submit', backend: 'drex', failure: 'no-key', from: 'medium', to: 'medium', reason: null, raw: null, applied: false, turnId: 't1', step: 0 })
-  expect(logged(w)[0]!.detail).toContain('Drex')
-})
+    expect(w.submitted.map((s) => s.text)).toEqual([TASK])
+    expect(efforts(w)).toEqual(['medium', 'medium'])
+    expect(w.fetched).toHaveLength(0)
+    // No pending result was ever written; the turn starts from the engine's level and nothing was decided for it.
+    expect(w.stateWrites.filter((s) => s.key === 'session' && (s.value as SessionState).pending !== null)).toHaveLength(0)
+    expect(turnState(w)).toMatchObject({ turnId: 't1', base: 'medium', wanted: null, pendingMark: null })
+    expect(w.storeWrites.filter((s) => s.key === 'log')).toHaveLength(0)
+    expect(w.stateWrites.filter((s) => s.key === 'recent')).toHaveLength(0)
+  })
+}
 
 test('回答缺题：effort 不变，记录里 failure 是 bad-answer（Review Focus 2）', { options: KEYS }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: () => drexOk({ open: RAISE.open, mechanical: RAISE.mechanical }) })
