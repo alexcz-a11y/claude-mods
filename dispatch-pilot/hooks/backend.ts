@@ -59,6 +59,10 @@ function probabilities(v: unknown, keys: string[]): Record<string, number> | nul
   return out
 }
 
+/** How far a score's probabilities may sum from 1 (rounding in the answer) before it is a bad answer. */
+const SCORE_SUM_MIN = 0.9
+const SCORE_SUM_MAX = 1.1
+
 function readAnswer(a: unknown, q: Question): Answer | null {
   if (!isRecord(a) || a.type !== q.type) return null
   if (q.type === 'noul') return isProbability(a.noul) ? { type: 'noul', noul: a.noul } : null
@@ -67,7 +71,11 @@ function readAnswer(a: unknown, q: Question): Answer | null {
     const levels = q.criteria.map((_, i) => String(i))
     const p = probabilities(a.probabilities, levels)
     if (!p || typeof a.score !== 'number' || !Number.isFinite(a.score)) return null
-    return { type: 'score', score: a.score, probabilities: levels.map((k) => p[k]!) }
+    const list = levels.map((k) => p[k]!)
+    // A distribution over the levels: far from summing to 1 it is no answer (each level at 0.5 would read as two up).
+    const sum = list.reduce((s, x) => s + x, 0)
+    if (sum < SCORE_SUM_MIN || sum > SCORE_SUM_MAX) return null
+    return { type: 'score', score: a.score, probabilities: list }
   }
   const options = Object.keys(q.criteria)
   const p = probabilities(a.probabilities, options)

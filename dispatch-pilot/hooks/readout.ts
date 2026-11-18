@@ -16,8 +16,8 @@ import type { TurnState } from './state.ts'
 /** The main loop's step whose request is on its way; matched: one of its requests was read already. */
 export type OpenStep = { turnId: string; index: number; model: string; matched: boolean }
 
-/** unsure: stepOpen tells a request read while a main-loop step was open from one read between steps. */
-export type Reading = { kind: 'main'; effort: Level | null } | { kind: 'unsure'; stepOpen: boolean } | { kind: 'ignore' }
+/** unsure: a main-loop request read while a step was open, which cannot be told from an agent's (or a second one). */
+export type Reading = { kind: 'main'; effort: Level | null } | { kind: 'unsure' } | { kind: 'ignore' }
 
 const IGNORE: Reading = { kind: 'ignore' }
 
@@ -44,11 +44,12 @@ function isMessages(url: string): boolean {
 
 /**
  * What one request is. `agentStepsOpen`: the agent steps open now on the open main step's model (modelBase), whose
- * requests look just like the main loop's. The cheap checks come first; a body (it can be hundreds of KB) is parsed once, here, and
+ * requests look just like the main loop's. The cheap checks come first; with no main-loop step open nothing can be
+ * written (design 5.12), so the body is not even parsed. A body (it can be hundreds of KB) is parsed once, here, and
  * nothing of it leaves but the level.
  */
 export function classify(i: { originPlugin: string | undefined; url: string; body: unknown; open: OpenStep | null; agentStepsOpen: number }): Reading {
-  if (i.originPlugin !== 'engine' || !isMessages(i.url) || typeof i.body !== 'string') return IGNORE
+  if (i.originPlugin !== 'engine' || !isMessages(i.url) || typeof i.body !== 'string' || i.open === null) return IGNORE
   let body: unknown
   try {
     body = JSON.parse(i.body)
@@ -57,8 +58,7 @@ export function classify(i: { originPlugin: string | undefined; url: string; bod
   }
   if (!isRecord(body) || !('thread' in body)) return IGNORE
   const open = i.open
-  if (open === null) return { kind: 'unsure', stepOpen: false }
-  if (open.matched || typeof body.model !== 'string' || modelBase(body.model) !== modelBase(open.model) || i.agentStepsOpen > 0) return { kind: 'unsure', stepOpen: true }
+  if (open.matched || typeof body.model !== 'string' || modelBase(body.model) !== modelBase(open.model) || i.agentStepsOpen > 0) return { kind: 'unsure' }
   // The top level only: a message that carried a change has an output_config of its own (E6).
   const config = body.output_config
   return { kind: 'main', effort: isRecord(config) && isLevel(config.effort) ? config.effort : null }
@@ -104,14 +104,13 @@ export function sentOf(r: Reading, level: Level): Decision['sent'] {
  * - the main loop's request writes the level it carried (or not-sent) and clears the check (`clears`);
  * - an unsure one read while the turn's main step is open writes unverified and keeps the check, so a later main
  *   reading replaces it: unverified stays only when no clean main reading came;
- * - an unsure one read between steps (an agent's, a side request) does nothing.
+ * - a request read between steps (an agent's, a side request) is never classified at all (classify: ignore).
  * A request read in a step of a turn other than the one held does nothing either. `open`: the main step open when the
  * request was read.
  */
 export function settleReading(turn: TurnState | null, r: Reading, open: OpenStep | null): { awaited: Awaited; sent: Decision['sent']; clears: boolean } | null {
   const awaited = turn?.unverified ?? null
   if (turn === null || awaited === null || r.kind === 'ignore') return null
-  if (r.kind === 'unsure' && !r.stepOpen) return null
   if (open?.turnId !== turn.turnId) return null
   return { awaited, sent: sentOf(r, awaited.level), clears: r.kind === 'main' }
 }

@@ -546,7 +546,8 @@ test('enabled 关着：什么都不做，也不执行 fableAgents 的上限', { 
   expect(w.fetched).toHaveLength(0)
   expect(logged(w)).toHaveLength(0)
   expect(agentWrites(w)).toHaveLength(0)
-  expect(types(w)).toEqual([])
+  // No state written at all, the types learned included (final review G4).
+  expect(w.stateWrites).toEqual([])
 })
 
 test('主 agent 的模型认不出层级（opusplan）：模型不改，只定 effort', { options: KEYS }, async ($, on) => {
@@ -598,4 +599,17 @@ test('agent 的模型不收 effort（e.effort 缺省）或是数字：原样放�
   expect(w.listed.calls).toBe(1)
   expect(logged(w)[1]!.sent).toBe('unverified')
   expect(entry(w, 'agent-2')).toMatchObject({ effort: 'medium', isEffortExplicit: null, decisionId: logged(w)[1]!.id, steps: 2 })
+})
+
+// Final review G8: the entry is written first after next answers, before anything else is awaited, so the agent's first
+// steps find it as early as they can.
+test('派出之后先写 agent 的条目，再记这个类型、再记决定（G8）', { options: KEYS }, async ($, on) => {
+  const w = world(on, { answer: agentAnswer(LOOKUP), agents: [info('agent-1')] })
+  await mainAtHigh($)
+  const before = w.stateWrites.length
+  await teach($, { subagentType: 'Explore' })
+  const after = w.stateWrites.slice(before).filter((s) => s.isSet).map((s) => s.key)
+  // The entry, then the type learned (session), then the Decision (recent).
+  expect(after).toEqual(['agents', 'session', 'recent'])
+  expect(entry(w, 'agent-1')?.decisionId).toBe(logged(w)[0]!.id)
 })

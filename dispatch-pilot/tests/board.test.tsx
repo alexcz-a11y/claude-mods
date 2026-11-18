@@ -369,3 +369,17 @@ test('重画出错不连累调用它的 hook', { options: KEYS }, async ($, on) 
   expect(w.stepsSent.map((s) => s.effort)).toEqual(['high'])
   expect(w.invalidated).toEqual([])
 })
+
+// Final review G4: with the mod off nothing is drawn, and /dp answers that it is off.
+test('enabled 关着：时间轴、面板、脚部标签都交给下一个；/dp 回答 mod 关着，不开面板', { options: { ...KEYS, enabled: false } }, async ($, on) => {
+  const w = world(on, { scene: SCENES.up, pane: 'placed' })
+  await start($)
+  for (const target of [BAND, PANE, FOOTER]) {
+    const ui = await $.ui.mount(target)
+    expect(await ui.find({ type: 'Text', text: /已发出|换挡记录|dp high/ })).toBe(undefined)
+    await ui.unmount()
+  }
+  const shown = await dp($)
+  expect(shown).toContain('dispatch-pilot 已关闭')
+  expect(w.panes).toEqual([])
+})

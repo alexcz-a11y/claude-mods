@@ -344,3 +344,18 @@ test('普通会话一次回答并行调三个工具：一个工作步，第 2 �
   expect(turnState(w).journal).toMatchObject({ workSteps: 2, failedSteps: 1, consecutiveFailures: 1 })
   expect(w.fetched.filter((f) => 'same_failure' in f.body.questions)).toHaveLength(0)
 })
+
+// Final review G4: the switch off writes nothing on rows or steps.
+test('enabled 关着：发消息、每一步、每条行都不写状态，一步照原样走', { options: { ...KEYS, enabled: false } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, () => SAME_FAILURE) })
+  await start($)
+  const before = w.stateWrites.length
+  await submit($, TASK)
+  await stepT1($, 0)
+  await bash($, 'FAIL test_upload')
+  await stepT1($, 1)
+  await complete($, 't1')
+  expect(w.stateWrites.slice(before)).toEqual([])
+  expect(efforts(w)).toEqual(['medium', 'medium'])
+  expect(w.fetched).toHaveLength(0)
+})

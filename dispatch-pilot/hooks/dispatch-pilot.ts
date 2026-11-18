@@ -14,14 +14,14 @@ import { dropQueuedInput, noteCameBack, tickProgress } from './flows/progress.ts
 import { openStep, readout } from './flows/readout.ts'
 import { findSkill, foldListing, holdSkill, recordSkill, takeSkillFor, takeUnclaimed } from './flows/skills.ts'
 import { dropPending, endTurn, judgeMessage, mainStep, startTurn } from './flows/submit.ts'
-import { failOpen, keepSurfaces, verifies } from './runtime.ts'
+import { failOpen, firstDraw, verifies } from './runtime.ts'
 
 export const register: Register = (on, options) => {
   const cfg = readConfig(options)
 
   on('session.start', async ($, e, next) => {
     await failOpen($, 'session.start', null, () => registerDp($))
-    await failOpen($, 'session.start', null, () => keepSurfaces($))
+    if (cfg.enabled) await failOpen($, 'session.start', null, () => firstDraw($))
     return next(e)
   })
 
@@ -33,6 +33,8 @@ export const register: Register = (on, options) => {
   // The person is waiting for the message to go in: the asks are the only wait here. The pending decision is
   // written before next(e), inside which the engine starts the message's turn; a suggestion goes down as context.
   on('prompt.submit', async ($, e, next) => {
+    // Switched off (enabled): every hook below passes its event on as it came and writes nothing.
+    if (!cfg.enabled) return next(e)
     const skill = await failOpen($, 'prompt.submit', null, () => judgeMessage($, cfg, { text: e.text, origin: e.origin?.kind, turnId: e.turnId }))
     const block = skill?.skill && cfg.mode === 'apply' ? suggestionBlock(skill.skill) : null
     if (skill !== null) holdSkill({ text: e.text, outcome: skill, applied: block !== null })
@@ -63,6 +65,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.start', async ($, e, next) => {
+    if (!cfg.enabled) return next(e)
     // A new main-loop turn: no input of the last one waits for a progress note (a call still in the air is kept, and
     // dropped when it comes back).
     if (e.agentId === undefined) dropQueuedInput()
@@ -81,6 +84,7 @@ export const register: Register = (on, options) => {
 
   // The one turn.step hook (no matcher may be registered twice): the main loop's branch, and an agent's (e.agentId set).
   on('turn.step', async function* ($, e, next) {
+    if (!cfg.enabled) return yield* next(e)
     const agentId = e.agentId
     const plan = await failOpen<Stepped>($, 'turn.step', { step: e, check: null }, async () => (agentId === undefined ? { step: await mainStep($, cfg, e), check: null } : agentStep($, cfg, e, agentId)))
     // An agent's check runs beside its step, which does not wait for it; the hook returns once both are done.
@@ -107,6 +111,7 @@ export const register: Register = (on, options) => {
 
   // Each row is held here until the hook passes it on; at a checkpoint, for as long as the question is out.
   on('session.append', async ($, e, next) => {
+    if (!cfg.enabled) return next(e)
     // A progress note come back is read before the row, so a checkpoint on this very row asks with the newest one.
     if (e.agentId === undefined && noteCameBack()) await failOpen($, 'progress', null, () => tickProgress($, cfg, null))
     const out = await failOpen($, 'session.append', e, () => onRow($, cfg, e))
@@ -114,6 +119,7 @@ export const register: Register = (on, options) => {
   })
 
   on('turn.complete', async ($, e, next) => {
+    if (!cfg.enabled) return next(e)
     const agentId = e.agentId
     // The main loop's turn ends: no input of it waits for a progress note any more.
     if (agentId === undefined) dropQueuedInput()
@@ -121,7 +127,7 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  // The board: the timeline, the pane and the footer's label (design 5.14); nothing while cfg.board is off.
+  // The board: the timeline, the pane and the footer's label (design 5.14); nothing while cfg.board or the mod is off.
   registerBoard(on, cfg)
 
   // Every request the engine and the plugins send passes here. Each goes on as it came; the readout is written beside

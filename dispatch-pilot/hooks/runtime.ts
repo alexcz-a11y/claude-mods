@@ -1,5 +1,5 @@
 // What every flow shares: the fail-open wrapper and its debug line, the I/O backend.ts asks through, the decision
-// log's writes (recent, and $.store's log in one chain), and session.start's refresh of the surfaces.
+// log's writes (recent, and $.store's log in one chain), and session.start's first drawing on a desktop.
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
@@ -14,8 +14,8 @@ import { emptySession } from './state.ts'
 
 // $.state, through the state library: a read of a key never written gives the initial, and update()
 // writes with compare-and-set and tries again on a miss. So no key needs initialising: session.start,
-// which fires again on every hot reload and plugin enable, only refreshes session.surfaces, and an
-// existing session (its lock), turn, recent or skills stays as it was.
+// which fires again on every hot reload and plugin enable, writes nothing, and an existing session (its
+// lock), turn, recent or skills stays as it was.
 // The state atoms this file reads and writes, one line each and alike in every file that declares them: the module
 // scan takes only a const of the file that reads or writes (eval/validate.ts checks the copies are the same text).
 const SESSION = atom({ plugin: 'dispatch-pilot', key: 'session' } as const, emptySession())
@@ -26,13 +26,13 @@ const SKILLS = atom({ plugin: 'dispatch-pilot', key: 'skills' } as const, [])
 /** $.store key of the decision log, shared by every session on this machine. */
 export const LOG = 'log'
 
-// The config the board runs with, null while cfg.board is off (no board, no status line either). registerBoard sets it
+// The config the board runs with, null while cfg.board or the mod is off (no board, no status line either). registerBoard sets it
 // on every register; a hot reload runs register again before any hook, so losing it costs nothing.
 let board: Config | null = null
 
 /** registerBoard's word to redraw: the config the Desktop's status line is built with, or none while the board is off. */
 export function holdBoard(cfg: Config): void {
-  board = cfg.board ? cfg : null
+  board = cfg.board && cfg.enabled ? cfg : null
 }
 
 /**
@@ -187,12 +187,9 @@ export async function amendSent($: EngineInterface, id: string, sent: Decision['
   if (wrote) await redraw($)
 }
 
-// session.start's refresh: only the surfaces (the session state belongs to no one feature). With a desktop attached,
-// the board is drawn once now, so its status line shows before the first turn.
-export async function keepSurfaces($: EngineInterface): Promise<null> {
-  const surfaces = [...(await $.session.surfaces())]
-  // Only the surfaces are refreshed: a reload keeps the lock and everything else.
-  await update($, SESSION, (s) => ({ ...s, surfaces }))
-  if (surfaces.includes('desktop')) await redraw($)
+// session.start: with a desktop attached the board is drawn once now, so its status line shows before the first turn.
+// Nothing is written (the surfaces are asked afresh at every redraw), so a reload keeps the lock and everything else.
+export async function firstDraw($: EngineInterface): Promise<null> {
+  if ((await $.session.surfaces()).includes('desktop')) await redraw($)
   return null
 }

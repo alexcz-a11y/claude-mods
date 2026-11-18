@@ -123,10 +123,13 @@ async function takeBase($: EngineInterface, turn: TurnState, level: Level): Prom
 export async function mainStep($: EngineInterface, cfg: Config, e: TurnStepInput): Promise<TurnStepInput> {
   const session = await read($, SESSION)
   const engineLevel = e.effort
-  // The engine's own level, before the mod writes any: the board shows it between turns. Failing alone, as the cell does.
-  if (isLevel(engineLevel) && session.sessionLevel !== engineLevel) {
+  // The engine's own level, before the mod writes any: the board shows it between turns; and whether the session is
+  // on numeric effort, which the board names (it judges no level then). Failing alone, as the cell does.
+  const numeric = typeof engineLevel === 'number'
+  const level = isLevel(engineLevel) ? engineLevel : session.sessionLevel
+  if (session.sessionLevel !== level || session.effortIsNumber !== numeric) {
     await failOpen($, 'turn.step', null, async () => {
-      await update($, SESSION, (s) => ({ ...s, sessionLevel: engineLevel }))
+      await update($, SESSION, (s) => ({ ...s, sessionLevel: level, effortIsNumber: numeric }))
       return null
     })
   }

@@ -59,9 +59,10 @@ export type DpAgentType = { type: string; tier: DpTier | null; parentTier: DpTie
 export type DpSessionState = {
   lock: DpLevel | null
   codeMode: boolean
-  surfaces: string[]
   turnNo: number
   sessionLevel: DpLevel | null
+  /** The last main-loop step's effort was a number. */
+  effortIsNumber: boolean
   previous: DpPreviousTurn | null
   lastSent: DpLevel | null
   pending: { request: string; result: DpAskResult } | null
@@ -120,7 +121,7 @@ declare module 'claude-code' {
       turn: DpTurnState | null
       /** By agentId. */
       agents: StateFamily<DpAgentState>
-      /** The skills in the last skill listing. */
+      /** The candidates: every skill the session's main-loop listings named, merged by name (a later entry replaces one of its name). */
       skills: { name: string; description: string }[]
       /** This session's last 30 decisions; the board reads them. $.store's log is the machine's. */
       recent: DpDecision[]

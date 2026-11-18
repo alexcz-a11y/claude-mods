@@ -227,14 +227,15 @@ test('classify：请求体不是文本或不是 JSON：ignore，不抛错', () =
 test('classify：同模型的 agent 步同时开着，或这一步已经配过请求：unsure', () => {
   const main = body({ effort: 'high' })
   // An agent step open on the main step's model: its request cannot be told from the main loop's.
-  expect(read(main, { agentStepsOpen: 1 })).toEqual({ kind: 'unsure', stepOpen: true })
+  expect(read(main, { agentStepsOpen: 1 })).toEqual({ kind: 'unsure' })
   // The step's request was read already (a retry, or another request on the same thread).
-  expect(read(main, { open: { ...OPEN, matched: true } })).toEqual({ kind: 'unsure', stepOpen: true })
+  expect(read(main, { open: { ...OPEN, matched: true } })).toEqual({ kind: 'unsure' })
   // A model the step does not name, or none.
-  expect(read(body({ model: HAIKU, effort: 'high' }))).toEqual({ kind: 'unsure', stepOpen: true })
-  expect(read(JSON.stringify({ thread: {}, output_config: { effort: 'high' } }))).toEqual({ kind: 'unsure', stepOpen: true })
+  expect(read(body({ model: HAIKU, effort: 'high' }))).toEqual({ kind: 'unsure' })
+  expect(read(JSON.stringify({ thread: {}, output_config: { effort: 'high' } }))).toEqual({ kind: 'unsure' })
   // No main step open: between steps (an agent's request, a side request), or lost to a hot reload.
-  expect(read(main, { open: null })).toEqual({ kind: 'unsure', stepOpen: false })
+  // No main-loop step open: nothing can be written, so the body is not parsed at all (final review G7).
+  expect(read(main, { open: null })).toEqual({ kind: 'ignore' })
   // The same request with none of these is the main loop's.
   expect(read(main, { agentStepsOpen: 0, open: OPEN })).toEqual({ kind: 'main', effort: 'high' })
 })
@@ -246,7 +247,7 @@ test('模型名只差末尾一个方括号后缀（[1m]）时算同一个；别�
   expect(modelBase('claude-opus-5-5[1m][2m]')).toBe('claude-opus-5-5[1m]')
   expect(modelBase('opus[1m]-x')).toBe('opus[1m]-x')
   const main = { kind: 'main', effort: 'high' }
-  const unsure = { kind: 'unsure', stepOpen: true }
+  const unsure = { kind: 'unsure' }
   const pairs: [string, string, unknown][] = [
     ['claude-opus-5-5[1m]', 'claude-opus-5-5', main],
     ['claude-opus-5-5', 'claude-opus-5-5[1m]', main],
@@ -356,11 +357,10 @@ test('换挡之后的那条决策记录带上实际发出的档位；不一致�
     if (n < 4) await appendAll($, scriptByPoll(n + 1, `script ${n + 1}`, `result ${n + 1}`))
   }
   expect(efforts(w)).toEqual(['medium', 'high', 'high', 'high', 'medium'])
-  const down = midruns(w)[3]!
+  // The results of steps 2 and 3 come within the gap since the shift: not asked (final review G6).
+  const down = midruns(w)[1]!
   expect(midruns(w).map(row)).toEqual([
     ['midrun', 'medium', 'high', true, null],
-    ['midrun', 'high', 'high', false, null],
-    ['midrun', 'high', 'high', false, null],
     ['midrun', 'high', 'medium', true, null],
   ])
   // The newer shift took the place of the older one's check; holds are never checked.
@@ -369,7 +369,7 @@ test('换挡之后的那条决策记录带上实际发出的档位；不一致�
   await sendIn(b, [{ turnId: 't1', index: 4 }], [body({ effort: 'high' })])
   expect(b.log().find((d) => d.id === down.id)!.sent).toBe('not-sent')
   expect(b.recent().find((d) => d.id === down.id)!.sent).toBe('not-sent')
-  expect(b.log().filter((d) => d.id !== down.id).map((d) => d.sent)).toEqual([null, null, null, null, null])
+  expect(b.log().filter((d) => d.id !== down.id).map((d) => d.sent)).toEqual([null, null, null])
   expect(b.session().lastSent).toBe('high')
   expect(b.leaked()).toEqual([])
 })
@@ -441,10 +441,10 @@ test('排着的说明：放上行之前读到的请求不核对它，放上之�
   await stepT1($, 2)
   const b = fakeDollar(seedOf(w))
   await sendIn(b, [{ turnId: 't1', index: 2 }], [body({ effort: 'high' })])
+  // The second script's result came within the gap since the shift: not asked (final review G6).
   expect(b.log().map(row)).toEqual([
     ['submit', 'medium', 'medium', true, null],
     ['midrun', 'medium', 'high', true, 'high'],
-    ['midrun', 'high', 'high', false, null],
   ])
   expect(b.recent()).toEqual(b.log())
   expect(b.turn()!.unverified).toBe(null)
@@ -468,7 +468,8 @@ test('排着的换挡不占待核对的位置：前一条留着 unverified，说
     await stepT1($, n)
     await appendAll($, n < 3 ? scriptByPoll(n + 1, `script ${n + 1}`, `result ${n + 1}`) : scriptByDelivery(4, 'run the suite', '2 failed'))
   }
-  const down = midruns(w)[3]!
+  // Steps 2 and 3 come within the gap since the shift and are not asked; step 4's delivery is (final review G6).
+  const down = midruns(w)[1]!
   expect(row(down)).toEqual(['midrun', 'high', 'medium', true, null])
   expect(turnState(w)).toMatchObject({ pendingNote: NOTE_MEDIUM, unverified: { id: up.id, level: 'high' }, queuedCheck: { id: down.id, level: 'medium', note: NOTE_MEDIUM } })
 
@@ -479,8 +480,6 @@ test('排着的换挡不占待核对的位置：前一条留着 unverified，说
   await sendIn(b, [{ turnId: 't1', index: 4 }], [body({ effort: 'high' })])
   expect(b.log().filter((d) => d.kind === 'midrun').map((d) => [d.id === up.id ? 'up' : d.id === down.id ? 'down' : 'hold', d.sent])).toEqual([
     ['up', 'high'],
-    ['hold', null],
-    ['hold', null],
     ['down', null],
   ])
   expect(b.recent().find((d) => d.id === up.id)!.sent).toBe('high')
@@ -620,10 +619,10 @@ test('Code Mode：说明放在回执行上，脚本里 agent 的请求先到（�
   expect(f.turn()!.unverified).toEqual({ id: shift.id, level: 'high' })
   // The main loop's next step: its request carries high.
   await sendIn(f, [{ turnId: 't1', index: 2 }], [body({ effort: 'high' })])
+  // The second script's result came within the gap since the shift: not asked (final review G6).
   expect(f.log().map(row)).toEqual([
     ['submit', 'medium', 'medium', true, null],
     ['midrun', 'medium', 'high', true, 'high'],
-    ['midrun', 'high', 'high', false, null],
   ])
   expect(f.recent()).toEqual(f.log())
   expect(f.turn()!.unverified).toBe(null)
@@ -769,7 +768,8 @@ test('enabled 关着（verifyEffort 开着）：读数什么都不做：hook 不
   expect(during[0]!.links.length).toBeGreaterThan(0)
   expect(during[0]!.links.split(',')).not.toContain('dispatch-pilot')
   expect([during[0]!.state, during[0]!.store]).toEqual([0, 0])
-  expect(w.stateWrites.filter((s) => s.key === 'session').length).toBeGreaterThan(0)
+  // The switch off writes no state at all, on steps or anywhere (final review G4).
+  expect(w.stateWrites).toEqual([])
   expect(sentLevels(w)).toEqual([])
   expect(w.storeWrites).toEqual([])
 })
@@ -988,4 +988,23 @@ test('只有上限改了模型的 agent（没有密钥）：模型读回一样�
     ['opus · —', null],
     ['opus · —', 'not-sent'],
   ])
+})
+
+// Final review minors.
+
+test('shadow：/dp 的档位是步上的（引擎自己的），不把只记录的升档写成 mod 要的（G1）', { options: { ...KEYS, mode: 'shadow', board: false } }, async ($, on) => {
+  world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, HOLD) })
+  await begin($)
+  const shown = await dp($)
+  expect(shown).toContain('档位：medium')
+  expect(shown).not.toContain('mod 要的是 high')
+  expect(shown).not.toContain('档位：high')
+})
+
+test('没有主循环的一步开着：请求体不解析，状态不读（G7）', () => {
+  const body = JSON.stringify({ model: OPUS, thread: [], output_config: { effort: 'high' } })
+  expect(classify({ originPlugin: 'engine', url: MESSAGES, body, open: null, agentStepsOpen: 0 })).toEqual({ kind: 'ignore' })
+  // Nothing to write, so nothing read: no promise comes back.
+  const f = fakeDollar({ state: {}, store: { log: [] } })
+  expect(readout(f.$, { url: MESSAGES, init: init(body) } as never, 'engine')).toBe(null)
 })

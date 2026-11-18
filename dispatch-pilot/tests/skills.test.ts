@@ -21,6 +21,7 @@ import {
   pickMany,
   queryOf,
   shortlist,
+  skillDecision,
   stageOne,
   stageTwo,
   suggestionBlock,
@@ -850,4 +851,23 @@ test('到时判断只给人发的消息：别的来源开始的一轮，列表�
   await turnStart($, 't1', 'A background task finished.')
   const r = await attach($, listingOf(FIVE))
   expect([r.text, w.fetched.length, skillDecisions(w).length]).toEqual([LISTING_NOTE, 0, 0])
+})
+
+// Final review G2: a skill Decision keeps what a person can read: the yes-or-no answers, and of each choice the picked
+// option and the five likeliest (a real listing has 169 options per choice).
+test('skill 决定的 raw：是非题全留，每道选择题只留选中的和概率最高的五个（G2）', { options: KEYS }, async ($, on) => {
+  const many = Array.from({ length: 40 }, (_, i) => ({ name: 'skill-' + i, description: 'Does thing ' + i }))
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { 'skill-3': 0.5, 'skill-7': 0.2, 'skill-9': 0.1 }, which: 'skill-3', fits: { 'skill-3': 0.9 } }) })
+  await sendWithListing($, w, many)
+  const raw = skillDecisions(w)[0]!.raw as Record<string, { type: string; choice?: string; probabilities?: Record<string, number> }>
+  expect(Object.keys(raw)).toEqual(['skill_0', ...GATE_IDS, 'which', 'fits_0', 'fits_1', 'fits_2'])
+  expect(raw.skill_0!.choice).toBe('skill-3')
+  expect(Object.keys(raw.skill_0!.probabilities!)).toHaveLength(5)
+  expect(Object.keys(raw.skill_0!.probabilities!).slice(0, 3)).toEqual(['skill-3', 'skill-7', 'skill-9'])
+  for (const id of [...GATE_IDS, 'fits_0']) expect(raw[id]!.type).toBe('noul')
+  // A pick outside the five likeliest is kept beside them.
+  const probabilities = { a: 0.3, b: 0.2, c: 0.2, d: 0.1, e: 0.1, z: 0.05, y: 0.05 }
+  const first = { ok: true as const, answers: { skill_0: { type: 'choice' as const, choice: 'z', probabilities } }, model: 'drex-max-v1.1', backend: 'drex' as const, ms: 10 }
+  const d = skillDecision({ first, asked: ['skill_0'], second: null, skill: null, detail: '' }, { id: 'x', at: 0, turnId: null, applied: false })
+  expect(d.raw).toEqual({ skill_0: { type: 'choice', choice: 'z', probabilities: { a: 0.3, b: 0.2, c: 0.2, d: 0.1, e: 0.1, z: 0.05 } } })
 })

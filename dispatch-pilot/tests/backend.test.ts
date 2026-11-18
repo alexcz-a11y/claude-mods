@@ -386,3 +386,15 @@ test('partial：缺一道题时其余的照样作数，partOf 按部分拆开', 
   expect(canAsk(drexOnly)).toBe(true)
   expect(canAsk(readConfig({ jevApiKey: 'k' }))).toBe(false)
 })
+
+// Final review G9: a score's probabilities far from summing to 1 are no distribution (each at 0.5 read as two up).
+test('分档题的概率加起来低于 0.9 或高于 1.1：bad-answer；在这之间照常读', async () => {
+  for (const p of [{ '0': 0.5, '1': 0.5 + 0.11 }, { '0': 0.4, '1': 0.45 }, { '0': 0.5, '1': 0.5 }]) {
+    const answers = { ...goodAnswers(), open: { type: 'score', score: 0.9, probabilities: p } }
+    const { io } = fakeIo([{ body: drexBody({ answers }) }])
+    const r = await ask(io, drexOnly, REQ, 4000)
+    const sum = p['0'] + p['1']
+    if (sum < 0.9 || sum > 1.1) expect(r).toEqual({ ok: false, reason: 'bad-answer', backend: 'drex', requestId: 'req_d', ms: 0 })
+    else expect(r.ok).toBe(true)
+  }
+})

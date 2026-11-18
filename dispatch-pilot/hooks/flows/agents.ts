@@ -26,7 +26,10 @@ const TURN = atom({ plugin: 'dispatch-pilot', key: 'turn' } as const, null)
 // The judgement when an agent is dispatched (design 5.5): the hook waits here for the answer, up to agentTimeoutMs.
 // Null: an agent this mod leaves alone. A resumed run keeps what it had, a fork shares the parent's prompt cache
 // (another model would lose it), and a workflow's script decides its own agents.
-export async function planSpawn($: EngineInterface, cfg: Config, e: AgentSpawnInput): Promise<Spawned | null> {
+/** A spawn settled, and when: its Decision's time, read here so nothing after next(e) awaits before the entry is written. */
+export type Planned = Spawned & { at: number }
+
+export async function planSpawn($: EngineInterface, cfg: Config, e: AgentSpawnInput): Promise<Planned | null> {
   if (!cfg.enabled || e.resume !== undefined || e.fork || e.workflow !== undefined) return null
   const session = await read($, SESSION)
   const turn = await read($, TURN)
@@ -40,13 +43,17 @@ export async function planSpawn($: EngineInterface, cfg: Config, e: AgentSpawnIn
   const r = asking ? await ask(ioOf($), cfg, { state, questions: agentQuestions() }, cfg.agentTimeoutMs) : null
   // What a spawn of this type under this parent ran on, when the mod gave it no model (null: none yet).
   const known = knownType(session.agentTypes, e.subagentType, tier)
-  return settleSpawn(r, { cfg, e, tier, level, turn, known })
+  return { ...settleSpawn(r, { cfg, e, tier, level, turn, known }), at: await $.clock.now() }
 }
 
-// After the spawn's next: what the type ran on is learned when the mod gave it no model and the call named none
-// (Spawned.learn), and an agent started here gets its entry and Decision (keepAgent). A refused spawn keeps nothing.
-export async function keepSpawn($: EngineInterface, s: Spawned, r: AgentSpawnResult): Promise<null> {
+// After the spawn's next: an agent started here gets its entry first (the engine starts the agent inside next(e), so its
+// first steps may be running already, and each one before the entry goes as it came), then what the type ran on is
+// learned when the mod gave it no model and the call named none (Spawned.learn), then the Decision is recorded. A
+// refused spawn keeps nothing.
+export async function keepSpawn($: EngineInterface, s: Planned, r: AgentSpawnResult): Promise<null> {
   if (r.deny !== undefined) return null
+  const agentId = r.agentId
+  const id = agentId !== undefined ? await keepAgent($, s, agentId) : null
   const learn = s.learn
   if (learn !== null) {
     const learned = { type: learn.type, tier: tierOfModelId(r.model), parentTier: learn.parentTier }
@@ -57,22 +64,19 @@ export async function keepSpawn($: EngineInterface, s: Spawned, r: AgentSpawnRes
       await update($, SESSION, (cur) => ({ ...cur, agentTypes: learnType(cur.agentTypes, learned) }))
     }
   }
-  if (r.agentId !== undefined) await keepAgent($, s, r.agentId)
+  if (id !== null && s.decision !== null) await record($, { ...s.decision, id, at: s.at })
   return null
 }
 
-// The spawn started an agent: its entry (an effort of null: not handled, its steps are left alone) and the Decision.
-// A spawn with no Decision (nothing asked, nothing changed) keeps no entry either: there is nothing to do on its steps.
-// Every spawn keeps its own values here and writes its own key; record() serialises the shared log, so spawns in
-// flight at once do not mix.
-export async function keepAgent($: EngineInterface, s: Spawned, agentId: string): Promise<null> {
-  const decision = s.decision
-  if (decision === null) return null
-  const at = await $.clock.now()
-  const id = decisionId(at)
+// The spawn started an agent: its entry (an effort of null: not handled, its steps are left alone), written before
+// anything else is awaited (final review G8). Its Decision's id, or null: a spawn with no Decision (nothing asked,
+// nothing changed) keeps no entry either, there being nothing to do on its steps. Every spawn writes its own key;
+// record() serialises the shared log, so spawns in flight at once do not mix.
+async function keepAgent($: EngineInterface, s: Planned, agentId: string): Promise<string | null> {
+  if (s.decision === null) return null
+  const id = decisionId(s.at)
   await update($, { plugin: 'dispatch-pilot', key: 'agents', id: agentId } as const, () => ({ effort: s.effort, model: s.model, isEffortExplicit: null, decisionId: id, steps: 0 }))
-  await record($, { ...decision, id, at })
-  return null
+  return id
 }
 
 /** A step as it goes on, and the agent whose check is due beside it (null: none). */

@@ -157,10 +157,11 @@ test('结果经 delivery 行到达：这一行不改，说明加在下一条回�
   await appendAll($, second)
   const receipt = second.find((r) => r.door === 'tool-result' && r.origin.kind === 'tool' && r.origin.tool === 'REPL')!
   expect(reached(w, receipt)!.message.content).toEqual([receipt.message.content[0], noteBlock(NOTE_HIGH)])
-  // Every other row of the second script went on as it came; its result was judged (hold) and got nothing.
+  // Every other row of the second script went on as it came; its result came within the gap since the shift, so no
+  // shift could be made and it was not asked (final review G6).
   for (const r of second.filter((r) => r !== receipt)) expect(reached(w, r)).toEqual(r)
-  expect(asked(w)).toHaveLength(2)
-  expect(midruns(w)[1]).toMatchObject({ from: 'high', to: 'high', reason: 'hold', applied: false, step: 2 })
+  expect(asked(w)).toHaveLength(1)
+  expect(midruns(w)).toHaveLength(1)
   expect(turnState(w)).toMatchObject({ wanted: 'high', pendingNote: null, midrun: { notes: 1, lastShiftAt: 1 } })
   await stepT1($, 2)
   expect(efforts(w)).toEqual(['medium', 'high', 'high'])
@@ -200,7 +201,7 @@ test('midrunEveryScripts 为 2：第一次脚本结果不发请求，第二次�
   expect(asked(w).map((f) => f.body.state.latest.result)).toEqual(['r2', 'r4'])
 })
 
-test('一轮最多 4 条说明，用完之后脚本结果不再发请求；两次换挡之间不足 3 个工作步时照常评估但不换', { options: KEYS }, async ($, on) => {
+test('一轮最多 4 条说明，用完之后脚本结果不再发请求；两次换挡之间不足 3 个工作步时不评估', { options: KEYS }, async ($, on) => {
   // Up from medium, down from high: every check wants to move.
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (s) => (s.current_level === 'medium' ? SAME_FAILURE : CAUSE_FOUND)) })
   await begin($)
@@ -213,19 +214,14 @@ test('一轮最多 4 条说明，用完之后脚本结果不再发请求；两�
     asks.push(asked(w).length)
     await stepT1($, n)
   }
-  // Every script is judged until the fourth note; after it, script results send nothing.
-  expect(asks).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10])
-  // Shifts at work steps 1, 4, 7 and 10 (three apart); the checks between were made but changed nothing.
+  // A script is judged once the gap since the last shift has passed, until the fourth note; after it, nothing is sent.
+  expect(asks).toEqual([1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4])
+  // Shifts at work steps 1, 4, 7 and 10 (three apart); the results between came within the gap and were not asked
+  // (final review G6): no shift could have been made on them.
   expect(midruns(w).map((d) => [d.step, d.from, d.to, d.applied])).toEqual([
     [1, 'medium', 'high', true],
-    [2, 'high', 'medium', false],
-    [3, 'high', 'medium', false],
     [4, 'high', 'medium', true],
-    [5, 'medium', 'high', false],
-    [6, 'medium', 'high', false],
     [7, 'medium', 'high', true],
-    [8, 'high', 'medium', false],
-    [9, 'high', 'medium', false],
     [10, 'high', 'medium', true],
   ])
   const DOWN = '[dispatch-pilot] effort is now medium: the cause is found and what remains is routine.'
@@ -255,10 +251,9 @@ test('中途最高到 xhigh', { options: KEYS }, async ($, on) => {
     await stepT1($, n)
   }
   expect(efforts(w)).toEqual(['high', 'xhigh', 'xhigh', 'xhigh', 'xhigh', 'xhigh'])
+  // Steps 2 and 3 come within the gap since the shift and are not asked; from step 4 each is, and holds at the top.
   expect(midruns(w).map((d) => [d.step, d.from, d.to, d.reason, d.applied])).toEqual([
     [1, 'high', 'xhigh', 'more-open', true],
-    [2, 'xhigh', 'xhigh', 'hold', false],
-    [3, 'xhigh', 'xhigh', 'hold', false],
     [4, 'xhigh', 'xhigh', 'hold', false],
     [5, 'xhigh', 'xhigh', 'hold', false],
   ])
@@ -888,4 +883,21 @@ test('applyShift：说明用完时，后一条排着的说明照样替换还排�
   const replaced = applyShift({ ...spent, pendingNote: OLD }, { to: 'xhigh', note: null, queued: NEW }, { asked: 'high', cfg, locked: false })
   expect(replaced).toMatchObject({ wanted: 'xhigh', pendingNote: NEW, midrun: { notes: 1, lastShiftAt: 5 } })
   expect(applyShift({ ...spent, pendingNote: null }, { to: 'xhigh', note: null, queued: NEW }, { asked: 'high', cfg, locked: false })).toBeNull()
+})
+
+// Final review G6: a result row's checkpoint is not asked while no shift could be made (the gap since the last one).
+test('换挡间隔之内：结果行的检查点不问，新输入照问', () => {
+  const on = readConfig({ ...KEYS, midrunEverySteps: 1, midrunEveryScripts: 1 })
+  const j = (o: Partial<TurnJournal> = {}): TurnJournal => ({ ...emptyJournal(), workSteps: 5, ...o })
+  // Shifted after step 4: the gap (3 work steps) has not passed at step 5.
+  const recent: MidrunCounters = { ...emptyCounters(), notes: 1, lastShiftAt: 4 }
+  expect(gapOk(recent, j())).toBe(false)
+  expect(isCheckpoint('tool-result', j({ consecutiveFailures: 2 }), recent, on, false)).toBe(false)
+  expect(isCheckpoint('tool-result', j(), recent, on, false)).toBe(false)
+  expect(isCheckpoint('script-result-poll', j(), recent, on, true)).toBe(false)
+  expect(isCheckpoint('script-result-delivery', j(), recent, on, true)).toBe(false)
+  expect(isCheckpoint('new-input', j(), recent, on, false)).toBe(true)
+  expect(isCheckpoint('delivered-input', j(), recent, on, false)).toBe(true)
+  // Once the gap has passed the result rows are asked again.
+  expect(isCheckpoint('tool-result', j({ workSteps: 7 }), recent, on, false)).toBe(true)
 })

@@ -218,12 +218,11 @@ test('readLog：$.store 里的 log 不是数组或混着别的东西时，只留
   expect(readLog([good, null, 'x', { id: 3 }, { id: 'y', at: 1, kind: 'nonsense' }])).toEqual([good])
 })
 
-test('session.start 注册 /dp，并记下这个会话的端', { options: KEYS }, async ($, on) => {
+test('session.start 注册 /dp，不写状态（端每次重画时现查）', { options: KEYS }, async ($, on) => {
   const w = world(on, { surfaces: ['terminal', 'desktop'] })
   await start($)
   expect(w.commands.map((c) => c.name)).toEqual(['dp'])
-  const session = w.stateWrites.filter((s) => s.key === 'session' && s.isSet).at(-1)
-  expect(session?.value).toMatchObject({ surfaces: ['terminal', 'desktop'], lock: null })
+  expect(w.stateWrites.filter((s) => s.isSet)).toEqual([])
 })
 
 test('热重载（再一次 session.start）不清锁定，也不重写 turn、recent、skills', { options: KEYS }, async ($, on) => {
@@ -232,10 +231,8 @@ test('热重载（再一次 session.start）不清锁定，也不重写 turn、r
   await dp($, 'lock xhigh')
   const before = w.stateWrites.length
   await start($)
-  // The reload refreshes the surfaces in session and writes nothing else.
-  const reload = w.stateWrites.slice(before)
-  expect(reload.map((s) => [s.key, s.isSet])).toEqual([['session', true]])
-  expect(reload[0]!.value).toMatchObject({ lock: 'xhigh', surfaces: ['terminal'] })
+  // The reload writes nothing.
+  expect(w.stateWrites.slice(before)).toEqual([])
   await step($, { turnId: 't1', index: 0, effort: 'low' })
   expect(w.stepsSent.map((s) => s.effort)).toEqual(['xhigh'])
   expect(await dp($)).toContain('锁定：xhigh')
@@ -304,4 +301,14 @@ test('Jev 标「未校准」：/dp 的后端行、决策行和 /dp log；Drex �
   // Drex chosen, Jev as the fallback: the fallback is named with it too; Drex's own line is unchanged.
   const both = renderDp({ cfg: readConfig({ drexApiKey: 'k', jevApiKey: 'k', fallback: true }), wanted: null, lastSent: null, lock: null, log: [] })
   expect(both).toContain('后端：Drex（drex-max-v1.1）· 可用；请求失败时改问 Jev（jev-latest，未校准）')
+})
+
+// Final review G11: a lock set while a turn runs reaches its requests only at a step that carries new input (E4).
+test('/dp lock 的回答写明：一轮中途锁定，要到下一个带新输入的步才发得出去', { options: KEYS }, async ($, on) => {
+  world(on)
+  await start($)
+  const r = await dp($, 'lock high')
+  expect(r).toContain('已锁定')
+  expect(r).toContain('下一个带新输入的步')
+  expect(r).not.toContain('每一步都用')
 })

@@ -65,11 +65,11 @@ export type SessionState = {
   /** Set by /dp lock: every main-loop step is written at this level and no effort is judged. */
   lock: Level | null
   codeMode: boolean
-  /** What $.session.surfaces() reported at the last session.start. */
-  surfaces: string[]
   turnNo: number
   /** The effort the engine itself gave the last main-loop step, before the mod wrote any. */
   sessionLevel: Level | null
+  /** The last main-loop step's effort was a number (the session uses numeric effort): no level to judge. */
+  effortIsNumber: boolean
   previous: PreviousTurn | null
   /** The effort the last main-loop request actually carried (read at http.fetch). */
   lastSent: Level | null
@@ -114,9 +114,9 @@ export function emptySession(): SessionState {
   return {
     lock: null,
     codeMode: false,
-    surfaces: [],
     turnNo: 0,
     sessionLevel: null,
+    effortIsNumber: false,
     previous: null,
     lastSent: null,
     pending: null,

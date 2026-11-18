@@ -12,7 +12,7 @@ import { LEVELS, isLevel } from '../levels.ts'
 import type { Level } from '../levels.ts'
 import { UNCALIBRATED, answeredBy, backendName } from '../log.ts'
 import type { Decision } from '../log.ts'
-import { notesLeft } from '../midrun.ts'
+import { gapLeft, notesLeft } from '../midrun.ts'
 import { stepLevel } from '../submit.ts'
 import type { Skill } from '../skills.ts'
 import type { Mark, SessionState, TrackCell, TurnState } from '../state.ts'
@@ -126,7 +126,21 @@ export function takeStep(turn: TurnState, level: Level | null): TurnState {
 export function keepJudged(turn: TurnState, d: Decision): TurnState {
   const mark = markOf(d)
   const shifts = mark === 'up' || mark === 'down' ? [...turn.shifts, d].slice(-SHIFTS_KEEP) : turn.shifts
-  return { ...turn, pendingMark: mark, lastJudged: d, shifts }
+  // Two evaluations before the same cell: it shows the weightier (design 5.14), a later one of the same weight.
+  const held = turn.pendingMark
+  const pendingMark = held !== null && MARK_WEIGHT[held] > MARK_WEIGHT[mark] ? held : mark
+  return { ...turn, pendingMark, lastJudged: d, shifts }
+}
+
+/** A cell's mark by how much it matters: a failure, then a shift (either way), then no change. */
+const MARK_WEIGHT: Record<Mark, number> = { fail: 2, up: 1, down: 1, hold: 0 }
+
+/**
+ * The level read for now: inside a turn the one the current step's own request carried (its cell's; none read yet:
+ * null, 未核对), never an older step's; between turns the last one read, the level the last turn ended at. /dp's too.
+ */
+export function currentSent(session: SessionState, turn: TurnState | null): Level | null {
+  return turn === null ? session.lastSent : (turn.track.at(-1)?.sent ?? null)
 }
 
 /** The turn with the level a main-loop request carried written into the last cell, while that cell has none. */
@@ -138,17 +152,20 @@ export function cellSent(turn: TurnState, level: Level): TurnState {
 
 const LABELS = ['发消息定档', '中途换挡', 'agent 定档', 'skill 推荐', '档位核对', '进展记录'] as const
 
+/** Why a turn's steps have no level: a session on numeric effort, or a model that takes none. */
+const noLevel = (numeric: boolean): string => (numeric ? '数字 effort，不判断' : '这个模型不收 effort')
+
 const atStep = (step: number | null): string => (step === null || step === 0 ? '发消息时' : `第 ${step} 步后`)
 const isJudged = (d: Decision): boolean => d.kind === 'submit' || d.kind === 'midrun'
 const two = (n: number): string => n.toFixed(2)
 
 // starting: the turn's first step has not come (its level is not known yet, which is not a model without effort). Its
 // message was judged inside prompt.submit, before turn.start, so nothing is being judged meanwhile.
-function statusOf(s: { locked: boolean; idle: boolean; starting: boolean }, wanted: Level | null, sent: Level | null): BoardModel['status'] {
+function statusOf(s: { locked: boolean; idle: boolean; starting: boolean; numeric: boolean }, wanted: Level | null, sent: Level | null): BoardModel['status'] {
   if (s.locked) return { kind: 'locked', text: '已锁定' }
   if (s.idle) return { kind: 'idle', text: '空闲' }
   if (s.starting) return { kind: 'starting', text: '这一轮刚开始' }
-  if (wanted === null) return { kind: 'none', text: '这个模型不收 effort' }
+  if (wanted === null) return { kind: 'none', text: noLevel(s.numeric) }
   if (sent === null) return { kind: 'unverified', text: '未核对' }
   if (sent !== wanted) return { kind: 'mismatch', text: `要 ${wanted}，实际发出 ${sent}` }
   return { kind: 'sent', text: '已发出' }
@@ -249,19 +266,25 @@ function nextOf(cfg: Config, s: { session: SessionState; turn: TurnState | null;
     return { main: '不评估', sub: '发消息定档和中途换挡都关着', ahead: 0 }
   }
   // No level to judge: the mid-run check asks nothing. Not before the first step, whose level is not known yet.
-  if (s.wanted === null && !s.starting) return { main: '不评估', sub: '这个模型不收 effort', ahead: 0 }
+  if (s.wanted === null && !s.starting) return { main: '不评估', sub: noLevel(session.effortIsNumber), ahead: 0 }
   if (!cfg.midrunShift || !s.ask) return { main: '本轮不再评估', sub: cfg.midrunShift ? '没有可用的后端' : '中途换挡关着', ahead: 0 }
   const left = notesLeft(turn.midrun, cfg)
   if (left === 0) return { main: '本轮不再换挡', sub: '说明条数已用完；有新输入时仍会评估', ahead: 0 }
+  // Within the gap since the last shift no result row is asked (midrun.ts isCheckpoint): the count waits for it.
+  const gap = gapLeft(turn.midrun, turn.journal)
   if (session.codeMode) {
     const every = cfg.midrunEveryScripts
     if (every === 0) return { main: '只在有新输入时', sub: '按脚本结果的评估关着', ahead: 0 }
-    const n = Math.max(1, every - turn.midrun.scriptsSinceCheck)
-    return { main: n === 1 ? '下一份脚本结果到达时' : `再 ${n} 份脚本结果`, sub: `每 ${every} 份脚本结果评估一次 · 本轮还可换挡 ${left} 次`, ahead: n }
+    const byCount = Math.max(1, every - turn.midrun.scriptsSinceCheck)
+    const n = Math.max(byCount, gap)
+    const why = n > byCount ? '换挡后隔 3 份脚本结果才再评估' : `每 ${every} 份脚本结果评估一次`
+    return { main: n === 1 ? '下一份脚本结果到达时' : `再 ${n} 份脚本结果`, sub: `${why} · 本轮还可换挡 ${left} 次`, ahead: n }
   }
   const every = cfg.midrunEverySteps
-  if (every === 0) return { main: '失败成簇时', sub: '按步数的评估关着', ahead: 0 }
-  const n = Math.max(1, every - turn.midrun.stepsSinceCheck)
+  if (every === 0) return { main: gap > 0 ? `再 ${gap} 步之后，失败成簇时` : '失败成簇时', sub: '按步数的评估关着', ahead: 0 }
+  const byCount = Math.max(1, every - turn.midrun.stepsSinceCheck)
+  const n = Math.max(byCount, gap)
+  if (n > byCount) return { main: `再 ${n} 步`, sub: '换挡后隔 3 步才再评估 · 有新输入时照常评估', ahead: n }
   return { main: `再 ${n} 步`, sub: `每 ${every} 步评估一次 · 同一失败复现或连续两步失败会提前`, ahead: n }
 }
 
@@ -305,7 +328,12 @@ function featuresOf(cfg: Config, s: BoardState & { locked: boolean; ask: boolean
 }
 
 function backendOf(cfg: Config, recent: readonly Decision[]): BoardModel['backend'] {
-  if (!canAsk(cfg)) return { isOk: false, text: '没有密钥' }
+  if (!canAsk(cfg)) {
+    // Only the other backend has a key: the setting to change, as /dp's text says it.
+    const other = cfg.backend === 'drex' ? 'jev' : 'drex'
+    const key = other === 'jev' ? cfg.jevApiKey : cfg.drexApiKey
+    return { isOk: false, text: key ? `${backendName(cfg.backend)} 没有密钥 · 要用 ${backendName(other)} 就把「决策模型的后端」改成 ${other}` : '没有密钥' }
+  }
   // Jev's mark follows its model's name, before what is said of it.
   const label = cfg.backend === 'drex' ? `${backendName('drex')} ${cfg.drexModel} ·` : `${backendName('jev')} ${cfg.jevModel}${UNCALIBRATED}·`
   // The last decision that asked a decision model: a progress note's failure is another model's.
@@ -322,9 +350,7 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   const ask = canAsk(cfg)
   // The level the steps go at, built on what the mod writes (stepLevel on ownLevel), so the two cannot disagree.
   const wanted = stepLevel(cfg, session, turn)
-  // Inside a turn the level the current step's own request carried (its cell's; none read yet: null, 未核对), never an
-  // older step's; between turns the last one read, the level the last turn ended at.
-  const sent = turn === null ? session.lastSent : (turn.track.at(-1)?.sent ?? null)
+  const sent = currentSent(session, turn)
   const thisTurn = turn === null ? [] : recent.filter((d) => d.turnId === turn.turnId)
   const agents = thisTurn.filter((d) => d.kind === 'agent')
   // Inside a turn its own last evaluation (none yet: null), kept on the turn; between turns the one the last turns
@@ -340,7 +366,7 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
     level: turn === null ? (wanted ?? session.sessionLevel) : starting ? (session.lock ?? session.sessionLevel) : (sent ?? wanted),
     wanted,
     sent,
-    status: statusOf({ locked, idle: isIdle, starting }, wanted, sent),
+    status: statusOf({ locked, idle: isIdle, starting, numeric: session.effortIsNumber }, wanted, sent),
     track: turn === null ? [] : turn.track,
     shifts: turn === null ? [] : shiftsOf(turn),
     last: locked || judged === null ? null : lastOf(cfg, judged, turn === null ? '此前 · ' : ''),

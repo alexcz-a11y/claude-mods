@@ -130,12 +130,12 @@ function drawDesktopRow(el: DesktopElements, row: Row, barWidth: number) {
 
 /**
  * The board's hooks (design 5.14): three drawings on the terminal and the Desktop, and the pane's close; none while
- * cfg.board is off, and then no Desktop status line either.
+ * cfg.board or the mod (cfg.enabled) is off, and then no Desktop status line either: each surface draws as without it.
  */
 export function registerBoard(on: On, cfg: Config): void {
   // The status line (runtime.ts redraw) follows the same switch.
   holdBoard(cfg)
-  if (!cfg.board) return
+  if (!cfg.board || !cfg.enabled) return
   // The sites whose failure is in the debug log already. Per registration: a hot reload runs register again, so a
   // hook still failing then writes its line once more.
   const failing = new Set<string>()

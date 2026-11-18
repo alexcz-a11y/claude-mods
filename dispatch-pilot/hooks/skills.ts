@@ -339,11 +339,25 @@ export const SECOND_LATE = `剩下的时间不足 ${SECOND_MIN_MS} ms，没有�
 /** A message's skill judgement: the first request (and the ids of its skill questions), the second if sent, the outcome. */
 export type SkillOutcome = { first: AskResult; asked: string[]; second: AskResult | null; skill: Skill | null; detail: string }
 
-/** The Decision of kind skill: to is the suggested skill's name; raw the skill answers of both requests. */
+/** Of a choice answer's options, how many of the likeliest a Decision keeps (beside the one picked). */
+const RAW_TOP = 5
+
+// What a person can read of one answer (final review G2): a yes-or-no answer whole; a choice's pick and its RAW_TOP
+// likeliest options, likeliest first (a real listing gives each choice about 170 options, some 7 KB a Decision).
+function readable(a: Answer): Answer {
+  if (a.type !== 'choice') return a
+  const ranked = Object.entries(a.probabilities).sort((x, y) => y[1] - x[1])
+  const kept = ranked.slice(0, RAW_TOP)
+  const picked = ranked.find(([k]) => k === a.choice)
+  if (picked !== undefined && !kept.some(([k]) => k === a.choice)) kept.push(picked)
+  return { type: 'choice', choice: a.choice, probabilities: Object.fromEntries(kept) }
+}
+
+/** The Decision of kind skill: to is the suggested skill's name; raw the skill answers of both requests, made readable. */
 export function skillDecision(o: SkillOutcome, c: { id: string; at: number; turnId: string | null; applied: boolean }): Decision {
   const raw: Record<string, Answer> = {}
-  if (o.first.ok) for (const id of o.asked) if (o.first.answers[id] !== undefined) raw[id] = o.first.answers[id]!
-  if (o.second?.ok) Object.assign(raw, o.second.answers)
+  if (o.first.ok) for (const id of o.asked) if (o.first.answers[id] !== undefined) raw[id] = readable(o.first.answers[id]!)
+  if (o.second?.ok) for (const [id, a] of Object.entries(o.second.answers)) raw[id] = readable(a)
   const failed = !o.first.ok ? o.first : o.second !== null && !o.second.ok ? o.second : null
   const last = o.second ?? o.first
   const model = last.ok ? last.model : o.first.ok ? o.first.model : null

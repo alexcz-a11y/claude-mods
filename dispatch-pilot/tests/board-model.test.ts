@@ -149,7 +149,8 @@ test('六个场景：其余各项', () => {
   ])
   // Mid-run the cap is xhigh, so no level further up; the shift came from a flag, so its reason says why.
   expect(notsent.last).toMatchObject({ at: '第 7 步后', mark: 'up', text: '升到 xhigh', rules: ['升到这一档：最新结果和原计划矛盾'] })
-  expect(notsent.next).toMatchObject({ sub: '每 1 份脚本结果评估一次 · 本轮还可换挡 2 次' })
+  // Just shifted (step 7): the next results within the gap are not asked, so the count waits for it (final review G6).
+  expect(notsent.next).toMatchObject({ main: '再 3 份脚本结果', sub: '换挡后隔 3 份脚本结果才再评估 · 本轮还可换挡 2 次' })
 
   const idle = of('idle')
   expect([idle.where, idle.wanted, idle.sent, idle.shifts, idle.agents, idle.skill]).toEqual(['空闲', null, 'high', [], [], null])
@@ -224,8 +225,8 @@ test('功能：mod 关着六行都是关；开关关着是关；锁定时关着�
 test('后端：没有密钥；Jev；最近一次失败；进展记录的失败不算后端的', () => {
   const s = scenes.ordinary
   expect(boardModel(readConfig({}), s).backend).toEqual({ isOk: false, text: '没有密钥' })
-  // Only the chosen backend's key counts.
-  expect(boardModel(readConfig({ backend: 'jev', drexApiKey: 'k' }), s).backend).toEqual({ isOk: false, text: '没有密钥' })
+  // Only the chosen backend's key counts; the row says which setting would use the other's (final review G3).
+  expect(boardModel(readConfig({ backend: 'jev', drexApiKey: 'k' }), s).backend).toEqual({ isOk: false, text: 'Jev 没有密钥 · 要用 Drex 就把「决策模型的后端」改成 drex' })
   expect(boardModel(readConfig({ backend: 'jev', jevApiKey: 'k' }), scenes.up).backend).toEqual({ isOk: true, text: 'Jev jev-latest（未校准）· 可用' })
   const progress: Decision = { ...s.recent.at(-1)!, id: 'p1', kind: 'progress', backend: null, model: 'haiku', failure: 'http', detail: 'HTTP 500' }
   const ok = scenes.up.recent.at(-1)!
@@ -556,4 +557,45 @@ test('shadow：功能里 skill 那一行写「只记录，不改」，这条消�
   const m = boardModel(readConfig({ drexApiKey: 'k', mode: 'shadow' }), { ...s, recent })
   expect(m.features[3]).toEqual({ label: 'skill 推荐', state: 'inactive', note: '只记录，不改' })
   expect(m.skill).toBe('superpowers:systematic-debugging（只记录，不改）')
+})
+
+test('选中的后端没有密钥、另一家有：后端那一行写要改哪一项（G3）', () => {
+  const s = scenes.up
+  expect(boardModel(readConfig({ jevApiKey: 'k' }), s).backend).toEqual({ isOk: false, text: 'Drex 没有密钥 · 要用 Jev 就把「决策模型的后端」改成 jev' })
+  expect(boardModel(readConfig({ backend: 'jev', drexApiKey: 'k' }), s).backend).toEqual({ isOk: false, text: 'Jev 没有密钥 · 要用 Drex 就把「决策模型的后端」改成 drex' })
+  expect(boardModel(readConfig({}), s).backend).toEqual({ isOk: false, text: '没有密钥' })
+})
+
+test('数字 effort 的会话：状态和下次评估写「数字 effort，不判断」，不收 effort 的模型照旧（G5）', () => {
+  const s = scenes.up
+  const turn = { ...s.turn!, base: null, wanted: null }
+  const numeric = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn, session: { ...s.session, effortIsNumber: true } })
+  expect([numeric.status.text, numeric.next.sub]).toEqual(['数字 effort，不判断', '数字 effort，不判断'])
+  const none = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn, session: { ...s.session, effortIsNumber: false } })
+  expect([none.status.text, none.next.sub]).toEqual(['这个模型不收 effort', '这个模型不收 effort'])
+})
+
+test('同一格之前两次评估：留下更要紧的记号，失败重于换档，换档重于不变（G12）', () => {
+  const t = { ...scenes.up.turn!, lastJudged: null, shifts: [], pendingMark: null }
+  const hold = scenes.up.recent.find((d) => d.id === 't7-m9')!
+  const up = scenes.up.recent.find((d) => d.id === 't7-m6')!
+  const fail = { ...hold, id: 'f', failure: 'timeout' as const }
+  expect(keepJudged(keepJudged(t, up), hold).pendingMark).toBe('up')
+  expect(keepJudged(keepJudged(t, hold), up).pendingMark).toBe('up')
+  expect(keepJudged(keepJudged(t, fail), up).pendingMark).toBe('fail')
+  expect(keepJudged(keepJudged(t, up), fail).pendingMark).toBe('fail')
+  expect(keepJudged(keepJudged(t, hold), hold).pendingMark).toBe('hold')
+  // The last evaluation is still the later one.
+  expect(keepJudged(keepJudged(t, up), hold).lastJudged?.id).toBe('t7-m9')
+})
+
+test('换挡间隔之内：下次评估数到间隔过了的那一份结果（G6）', () => {
+  const s = scenes.up
+  const t = s.turn!
+  const done = t.journal.workSteps
+  const within = { ...t, midrun: { ...t.midrun, lastShiftAt: done - 1, scriptsSinceCheck: 0 } }
+  const m = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, turn: within })
+  expect([m.next.main, m.next.sub, m.next.ahead]).toEqual(['再 2 份脚本结果', '换挡后隔 3 份脚本结果才再评估 · 本轮还可换挡 3 次', 2])
+  const ordinary = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, session: { ...s.session, codeMode: false }, turn: { ...within, midrun: { ...within.midrun, stepsSinceCheck: 7 } } })
+  expect([ordinary.next.main, ordinary.next.sub]).toEqual(['再 2 步', '换挡后隔 3 步才再评估 · 有新输入时照常评估'])
 })

@@ -287,7 +287,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
   - `stated_next`：助手最近写的下一步打算，有才放，标明是它的说法。思考内容不放。
   - `progress`：进展记录（5.13 节），开着并且已经有一份时才放。
 - 要换挡时，在这条结果行存下之前给它加一个 text 块（E5），下一步起每个 `turn.step` 发新档。说明是一行英文事实，例如 `[dispatch-pilot] effort is now high: the same test failed again after a fix.`，不带命令语气。
-- 限制：一轮最多加 4 条说明（`midrunMaxNotes`）；两次换挡至少隔 3 个工作步；一轮中途最高升到 `xhigh`，不升到 `max`；新档和当前档相同时不加说明。说明条数用完之后，脚本结果、步数和 `delivery` 行送进来的输入都不再触发评估（换挡要靠说明行才发得出去，问了也用不上）；作为 prompt 行进来的新输入照常评估，它的换挡不用说明、也不占条数。
+- 限制：一轮最多加 4 条说明（`midrunMaxNotes`）；两次换挡至少隔 3 个工作步，这期间到达的结果行（工具结果、脚本结果）不触发评估（换不了档，问了只会按住那一行），新输入照常评估；一轮中途最高升到 `xhigh`，不升到 `max`；新档和当前档相同时不加说明。说明条数用完之后，脚本结果、步数和 `delivery` 行送进来的输入都不再触发评估（换挡要靠说明行才发得出去，问了也用不上）；作为 prompt 行进来的新输入照常评估，它的换挡不用说明、也不占条数。
 - 锁定期间排着的说明不加到行上，也不丢：同一轮里解锁之后照常加上。
 - Code Mode 下 `REPL` 的结果行不是 `(dispatched #N)` 回执（调用被拒或出错）时，当作普通的工具结果，结束它那一步。
 - Code Mode 下说明只加在 `REPL` 或 `Poll` 的结果行上（E6），不加在 `delivery` 行上，也不加在脚本内部调用的行上。
@@ -339,7 +339,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 
 ### 5.10 配置（`userConfig`）
 
-`enabled`、`board`（看板，默认开；关掉后不画任何界面，只剩 `/dp` 的文字版）、`mode`（`apply` 或 `shadow`，后者只判断和记录、不改任何东西；默认 `apply`。shadow 里 skill 列表照样并进候选集但原样放行，发消息时照样问 skill 的题、记 skill 决定，不加推荐，看板上 skill 那一行写「只记录，不改」）、`backend`、`fallback`（默认关）、`drexApiKey`、`jevApiKey`（sensitive）、`drexModel`、`jevModel`、`midrunEverySteps`（普通会话，默认 8）、`midrunEveryScripts`（Code Mode 会话，默认 1）、`midrunMaxNotes`、`verifyEffort`（默认开）、`progressNote`（校准前关，默认值由校准定）、`progressNoteModel`（默认 `haiku`）、`agentModels`、`fableAgents`（默认关）、三个时限，以及四个布尔开关 `submitShift`、`midrunShift`、`agentShift`、`skills`，分别开关发消息定档、中途换挡、agent 定档和 skill 一组功能，默认都开。没有密钥的后端视为不可用；两个都没有时 mod 什么也不做，并在 `/dp` 里说明。
+`enabled`（总开关；关掉后每个 hook 原样放行，不读不写状态，看板不画，`/dp` 回答 mod 关着）、`board`（看板，默认开；关掉后不画任何界面，只剩 `/dp` 的文字版）、`mode`（`apply` 或 `shadow`，后者只判断和记录、不改任何东西；默认 `apply`。shadow 里 skill 列表照样并进候选集但原样放行，发消息时照样问 skill 的题、记 skill 决定，不加推荐，看板上 skill 那一行写「只记录，不改」）、`backend`、`fallback`（默认关）、`drexApiKey`、`jevApiKey`（sensitive）、`drexModel`、`jevModel`、`midrunEverySteps`（普通会话，默认 8）、`midrunEveryScripts`（Code Mode 会话，默认 1）、`midrunMaxNotes`、`verifyEffort`（默认开）、`progressNote`（校准前关，默认值由校准定）、`progressNoteModel`（默认 `haiku`）、`agentModels`、`fableAgents`（默认关）、三个时限，以及四个布尔开关 `submitShift`、`midrunShift`、`agentShift`、`skills`，分别开关发消息定档、中途换挡、agent 定档和 skill 一组功能，默认都开。没有密钥的后端视为不可用；两个都没有时 mod 什么也不做，并在 `/dp` 里说明。
 
 ### 5.11 放行规则
 
@@ -399,7 +399,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 - Code Mode 会话：「下一份脚本结果到达时」，`midrunEveryScripts` 大于 1 时是「再 N 份脚本结果」。
 - 普通会话：「再 N 步」，并注明同一失败复现或连续两步失败会提前。
 - 这一轮的说明条数用完：「本轮不再换挡」。锁定：「不评估」。空闲：「发出下一条消息时」。
-- 看板不预告不会发生的评估，按下面的先后取第一条成立的：mod 关着，「不评估 · dispatch-pilot 已关闭」；锁定，「不评估 · /dp unlock 解锁后恢复」；空闲时按下一条消息实际会遇到的写（发消息定档开着并且有可用的后端，「发出下一条消息时」；没有可用的后端，「不评估」；只开着中途换挡，「下一轮中途」；两者都关着，「不评估」）；这个模型不收 effort，「不评估」；然后才是上面按触发条件写的几种。
+- 看板不预告不会发生的评估，按下面的先后取第一条成立的（mod 关着时看板整个不画，见 5.10 节的 `enabled`）：mod 关着，「不评估 · dispatch-pilot 已关闭」；锁定，「不评估 · /dp unlock 解锁后恢复」；空闲时按下一条消息实际会遇到的写（发消息定档开着并且有可用的后端，「发出下一条消息时」；没有可用的后端，「不评估」；只开着中途换挡，「下一轮中途」；两者都关着，「不评估」）；这个模型不收 effort，「不评估」（会话用数字 effort 时写「数字 effort，不判断」）；然后才是上面按触发条件写的几种，换挡间隔之内数到间隔过了的那一份结果。
 
 面板的分区和顺序固定：
 
@@ -560,3 +560,5 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 30. **三种读数，三种字。** 换挡和 agent 的读数分「已发出」「没发出」「未核对」三种，各有各的字；「（还没发出）」只留给说明还排着、没放上行的换挡。状态行和脚部标签取这一步自己格子的读数，这一步还没读到就是「未核对」，不拿更早一步的读数（同一模型的 agent 在跑时主循环的读数会认不准）。agent 只在 mod 给它定了模型或 effort 时才有读数，模型从 `lastRequest.model` 读回，按层级比（5.12、5.14 节）。
 31. **一次回答的结果是一个工作步。** 普通会话里一次回答并行调了几个工具，回答之后的第一条结果结束这一步，下一条回答之前到达的其余结果并进这一步的记录（工具名加进去，有一条失败就算失败，结果文字取失败的那条，否则取最后一条），不再给工作步、失败步和连续失败计数；并进来的结果只有把这一步变成失败时才可能是检查点，而且只按失败成簇算，不按步数算。按每条结果数步时，三条并行结果会算成三步，「再 N 步」和换挡间隔在一次请求之内就走完，两条并行的失败会被当成连续两步报错（GLOSSARY、5.14 节）。Code Mode 的回执和脚本结果不变。
 32. **skill 的三处补齐。** 第一条消息早于第一份列表时，到列表来时再判断那条消息（每轮一次，不在 shadow 里做）；`find-skill` 没查成时列出记下的候选（约 6000 token 以内），因为列表已经收起，查不成就什么也不给会让主 agent 比不装 mod 时更差；shadow 里列表记下候选、照样问 skill 的题并记决定、不加推荐，这样 shadow 跑出来的记录能看出 skill 推荐会怎么判断（5.6、5.10、5.11 节）。代价：晚到的那次判断让那份列表的附件多等两次请求（合起来不超过 `submitTimeoutMs`）。
+33. **换挡间隔之内不问结果行。** 上次换挡之后不足 3 个工作步时换挡反正会被拒绝，工具结果和脚本结果的检查点就不问，免得把行按住；新输入照问，它的评估照样记下（5.4 节）。看板的「下次评估」按这条数（5.14 节）。
+34. **总开关关着就什么也不做。** `enabled` 关着时 hook 不读不写状态，看板不画，`/dp` 只回答 mod 关着；之前关着的 mod 照样在每一行和每一步上写状态、画时间轴（5.10 节）。

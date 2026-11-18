@@ -240,7 +240,8 @@ export function badLevelReply(word: string): string {
 }
 
 export function lockReply(level: Level, cfg: Config): string {
-  const text = `已锁定：本会话主循环每一步都用 ${level}，三项 effort 判断都不做。/dp unlock 解锁。`
+  // A changed effort goes out only on a step that carries new input (E4, E6): mid-turn the lock waits for one.
+  const text = `已锁定：本会话主循环的步都用 ${level}，三项 effort 判断都不做。一轮进行中锁定时，这一轮只带工具结果的步发不出新档，要到下一个带新输入的步（例如你的下一条消息）才用上 ${level}。/dp unlock 解锁。`
   if (!cfg.enabled) return `${text}\n注意：dispatch-pilot 现在是关的（「启用」），打开之前锁定不起作用。`
   if (cfg.mode === 'shadow') return `${text}\n注意：运行方式是 shadow，锁定的档位不会写出去。`
   return text

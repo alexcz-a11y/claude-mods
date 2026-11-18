@@ -7,7 +7,9 @@ import { PANE_ID, isPaneShown } from '../board/board.tsx'
 import type { Config } from '../config.ts'
 import { DP_USAGE, badLevelReply, lockReply, parseDp, readLog, renderDp, renderLog, unlockReply } from '../log.ts'
 import { LOG, failOpen, redraw } from '../runtime.ts'
+import { currentSent } from '../board/model.ts'
 import { emptySession } from '../state.ts'
+import { stepLevel } from '../submit.ts'
 
 // The state atoms this file reads and writes, one line each and alike in every file that declares them: the module
 // scan takes only a const of the file that reads or writes (eval/validate.ts checks the copies are the same text).
@@ -31,8 +33,9 @@ const shown = (text: string): CommandRunResult => ({ text, isTextDisplayOnly: tr
 async function textDp($: EngineInterface, cfg: Config): Promise<string> {
   const session = await read($, SESSION)
   const turn = await read($, TURN)
-  const wanted = turn?.wanted ?? turn?.base ?? null
-  return renderDp({ cfg, wanted, lastSent: session.lastSent, lock: session.lock, log: await read($, RECENT) })
+  // The board's level and reading (stepLevel, currentSent), so the two never disagree: in shadow no level the mod only
+  // recorded reads as wanted.
+  return renderDp({ cfg, wanted: stepLevel(cfg, session, turn), lastSent: currentSent(session, turn), lock: session.lock, log: await read($, RECENT) })
 }
 
 // The pane on screen closes; otherwise it opens. One the surface cannot place is closed again, so it does not turn up
@@ -55,8 +58,8 @@ async function togglePane($: EngineInterface, cfg: Config): Promise<string> {
 export async function answerDp($: EngineInterface, cfg: Config, args: string): Promise<CommandRunResult> {
   const c = parseDp(args)
   if (c.kind === 'show') {
-    // A pane call that fails answers with the text version all the same.
-    const pane = cfg.board ? await failOpen($, 'command.run', null, () => togglePane($, cfg)) : null
+    // A pane call that fails answers with the text version all the same. With the mod off no pane draws: the text says so.
+    const pane = cfg.board && cfg.enabled ? await failOpen($, 'command.run', null, () => togglePane($, cfg)) : null
     return shown(pane ?? (await textDp($, cfg)))
   }
   if (c.kind === 'lock') {

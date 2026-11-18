@@ -12,13 +12,14 @@ import { fileURLToPath } from 'node:url'
 
 const hooksDir = fileURLToPath(new URL('../hooks/', import.meta.url))
 
+// Matched over each file's whole text (global), so on( and the event name on two lines are found too.
 const FORBIDDEN: { why: string; pattern: RegExp }[] = [
   {
     why: 'registers an event the mod keeps out of its hooks (no decision per tool call)',
-    pattern: /\bon\(\s*(['"`])(tool\.call|tool\.check|tool\.run|tool\.judge|agent\.offer|session\.send)\1/,
+    pattern: /\bon\(\s*(['"`])(tool\.call|tool\.check|tool\.run|tool\.judge|agent\.offer|session\.send)\1/g,
   },
-  { why: 'registers a classic.* event, which the mod keeps out of its hooks', pattern: /\bon\(\s*(['"`])classic\./ },
-  { why: 'registers a tool with $.tool.register', pattern: /\$\.tool\.register\b/ },
+  { why: 'registers a classic.* event, which the mod keeps out of its hooks', pattern: /\bon\(\s*(['"`])classic\./g },
+  { why: 'registers a tool with $.tool.register', pattern: /\$\.tool\.register\b/g },
 ]
 
 const files = readdirSync(hooksDir, { recursive: true, encoding: 'utf8' })
@@ -32,13 +33,17 @@ const found: string[] = []
 /** The first declaration of each atom key: where it is, and its line trimmed. */
 const atoms = new Map<string, { at: string; text: string }>()
 for (const name of files) {
-  readFileSync(join(hooksDir, name), 'utf8')
+  const source = readFileSync(join(hooksDir, name), 'utf8')
+  for (const { why, pattern } of FORBIDDEN) {
+    for (const m of source.matchAll(pattern)) {
+      const line = source.slice(0, m.index).split('\n').length
+      found.push(`hooks/${name}:${line}: ${why}: ${m[0].replace(/\s+/g, ' ')}`)
+    }
+  }
+  source
     .split('\n')
     .forEach((line, i) => {
       const at = `hooks/${name}:${i + 1}`
-      for (const { why, pattern } of FORBIDDEN) {
-        if (pattern.test(line)) found.push(`${at}: ${why}: ${line.trim()}`)
-      }
       if (!ATOM_DECLARATION.test(line)) return
       const key = ATOM_KEY.exec(line)?.[2]
       if (key === undefined) {

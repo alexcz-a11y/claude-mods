@@ -74,7 +74,7 @@ function judgedOf(recent: Decided[], turnId: string): { lastJudged: Decided | nu
 
 function session(o: { codeMode: boolean; turnNo: number; lastSent: Level | null; lock?: Level; previous?: Level; lastJudged?: Decided }) {
   const previous = o.previous === undefined ? null : { request: 'Fix the flaky retry in the uploader', lastReply: '三处都改好了，测试全部通过。', ended: 'answered' as const, level: o.previous }
-  return { lock: o.lock ?? null, codeMode: o.codeMode, surfaces: ['terminal', 'desktop'], turnNo: o.turnNo, sessionLevel: 'medium' as const, previous, lastSent: o.lastSent, pending: null, progressBlocked: false, agentTypes: [], lastJudged: o.lastJudged ?? null }
+  return { lock: o.lock ?? null, codeMode: o.codeMode, turnNo: o.turnNo, sessionLevel: 'medium' as const, effortIsNumber: false, previous, lastSent: o.lastSent, pending: null, progressBlocked: false, agentTypes: [], lastJudged: o.lastJudged ?? null }
 }
 
 function turn(o: {

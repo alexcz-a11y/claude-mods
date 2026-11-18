@@ -29,6 +29,14 @@ export type { MidrunCounters } from './state.ts'
 const SHIFT_GAP = 3
 
 /** No shift yet this turn, or the last one SHIFT_GAP or more work steps back. */
+/**
+ * How many more work steps until a result row may be asked again after a shift (0: it may now). The k-th next result
+ * row ends work step workSteps + k, and gapOk wants SHIFT_GAP since lastShiftAt; the board's 下次评估 counts it.
+ */
+export function gapLeft(m: MidrunCounters, j: TurnJournal): number {
+  return m.lastShiftAt === null ? 0 : Math.max(0, SHIFT_GAP - (j.workSteps - m.lastShiftAt))
+}
+
 export function gapOk(m: MidrunCounters, j: TurnJournal): boolean {
   return m.lastShiftAt === null || j.workSteps - m.lastShiftAt >= SHIFT_GAP
 }
@@ -91,6 +99,11 @@ export function isCheckpoint(kind: RowKind, j: TurnJournal, m: MidrunCounters, c
   if (notesLeft(m, cfg) === 0) return false
   // Input that came by delivery, in either kind of session.
   if (kind === 'delivered-input') return true
+  // A result row within the gap since the last shift: no shift could be made (applyShift refuses it), so asking would
+  // hold the row for an answer that cannot be acted on (final review G6). Input is still asked above (the controller's
+  // ruling): it is new to the turn, and its evaluation is recorded and shown as the last one even when the gap
+  // refuses its shift too.
+  if (!gapOk(m, j)) return false
   if (codeMode) {
     if (kind !== 'script-result-poll' && kind !== 'script-result-delivery') return false
     return cfg.midrunEveryScripts > 0 && m.scriptsSinceCheck + 1 >= cfg.midrunEveryScripts
