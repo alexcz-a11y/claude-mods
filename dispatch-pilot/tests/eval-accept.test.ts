@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { ownMidrun } from '../eval/accept/lib/decisions.ts'
 import { levelsOf, recordDir, turnEnded, turnSpan } from '../eval/accept/lib/records.ts'
-import { holdsUser, paneCommand, pasted, screenState, sessionEnv, settingsFor, trustSelected } from '../eval/accept/lib/session.ts'
+import { holdsUser, noteDefault, paneCommand, pasted, ranWithNote, screenState, sessionEnv, settingsFor, trustSelected } from '../eval/accept/lib/session.ts'
 import type { Decision } from '../hooks/log.ts'
 
 const USER_CONFIG = {
@@ -17,17 +17,31 @@ const USER_CONFIG = {
 }
 
 test('settingsFor：关掉装好的旧版，内联 mod 的选项是默认值加上这几项，midrunShift 按组', () => {
-  const s = settingsFor({ arm: 'off', mode: 'code', key: 'K', userConfig: USER_CONFIG })
+  const s = settingsFor({ arm: 'off', mode: 'code', key: 'K', userConfig: USER_CONFIG, note: false })
   expect(s.enabledPlugins).toEqual({ 'dispatch-pilot@alex-mods': false, 'dispatch-pilot-extras@alex-mods': false })
   expect(s.pluginConfigs['dispatch-pilot@inline']!.options).toEqual({
     enabled: true, mode: 'apply', backend: 'drex', drexApiKey: 'K', drexModel: 'drex-max-v1.1', submitShift: true, midrunShift: false, progressNote: false, agentModels: 'haiku,sonnet,opus',
   })
-  expect(settingsFor({ arm: 'on', mode: 'code', key: 'K', userConfig: USER_CONFIG }).pluginConfigs['dispatch-pilot@inline']!.options.midrunShift).toBe(true)
+  expect(settingsFor({ arm: 'on', mode: 'code', key: 'K', userConfig: USER_CONFIG, note: false }).pluginConfigs['dispatch-pilot@inline']!.options.midrunShift).toBe(true)
+})
+
+test('settingsFor：进展记录按 --note 写进选项，不管清单的默认值', () => {
+  const opts = (note: boolean) => settingsFor({ arm: 'on', mode: 'code', key: 'K', userConfig: USER_CONFIG, note }).pluginConfigs['dispatch-pilot@inline']!.options
+  expect([opts(true).progressNote, opts(false).progressNote]).toEqual([true, false])
+})
+
+test('noteDefault：不给 --note 时取清单里 progressNote 的默认值', () => {
+  expect(noteDefault({ progressNote: { type: 'boolean', default: true } })).toBe(true)
+  expect(noteDefault({ progressNote: { type: 'boolean', default: false } })).toBe(false)
+})
+
+test('ranWithNote：accept.jsonl 的一行带 progressNote；之前记下的 16 行没有这个字段，读作关着', () => {
+  expect([ranWithNote({ progressNote: true }), ranWithNote({ progressNote: false }), ranWithNote({ task: '01', arm: 'on' })]).toEqual([true, false, false])
 })
 
 test('settingsFor：Code Mode 按模式写进 env（盖过用户设置里的值）', () => {
-  expect(settingsFor({ arm: 'on', mode: 'code', key: 'K', userConfig: USER_CONFIG }).env).toEqual({ CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '1' })
-  expect(settingsFor({ arm: 'on', mode: 'ordinary', key: 'K', userConfig: USER_CONFIG }).env).toEqual({ CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '' })
+  expect(settingsFor({ arm: 'on', mode: 'code', key: 'K', userConfig: USER_CONFIG, note: false }).env).toEqual({ CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '1' })
+  expect(settingsFor({ arm: 'on', mode: 'ordinary', key: 'K', userConfig: USER_CONFIG, note: false }).env).toEqual({ CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '' })
 })
 
 test('sessionEnv：去掉遥测变量和 Nace 密钥；code 加上 Code Mode，ordinary 去掉它', () => {

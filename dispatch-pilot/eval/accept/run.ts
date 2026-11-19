@@ -1,5 +1,5 @@
-// Run with `node dispatch-pilot/eval/accept/run.ts --task <id> --arm on|off --mode code|ordinary [--model <model>]
-// [--data <dir>] [--work <dir>] [--max-minutes <n>] [--dry-run]` (calibration plan, Task 15 Step 3). One acceptance run:
+// Run with `node dispatch-pilot/eval/accept/run.ts --task <id> --arm on|off --mode code|ordinary [--note on|off]
+// [--model <model>] [--data <dir>] [--work <dir>] [--max-minutes <n>] [--dry-run]` (calibration plan, Task 15 Step 3). One acceptance run:
 // the task's project/ copied to <work>/<task>-<arm>-<mode>-<timestamp>-<random>/project, an interactive session in tmux
 // (server dpacc, session acc-<the same name>) that loads this mod with --plugin-dir, the task's prompt
 // sent, the turn waited out (at most --max-minutes), then check.sh, the session record's usage and the levels its
@@ -7,6 +7,8 @@
 // to <data>/accept.jsonl. The session, the settings file (the only place the Nace key is written) and the run's
 // directory are removed at the end, on failure and on SIGINT, SIGTERM or SIGHUP too.
 //
+//   --note         the progress note on or off; default the manifest's default for progressNote. Each line records it
+//                  (progressNote); a line without it ran with the note off (ranWithNote)
 //   --model        default sonnet
 //   --data         default ~/.config/dispatch-pilot/calibration
 //   --work         default /private/tmp/dp-accept; never a path with the user's name in it (the mod sends the session's
@@ -24,12 +26,12 @@ import { fileURLToPath } from 'node:url'
 import { readLog } from '../../hooks/log.ts'
 import { ownMidrun } from './lib/decisions.ts'
 import { levelsOf, recordDir, turnEnded, turnSpan } from './lib/records.ts'
-import { holdsUser, paneCommand, pasted, screenState, sessionEnv, settingsFor, trustSelected } from './lib/session.ts'
+import { holdsUser, noteDefault, paneCommand, pasted, screenState, sessionEnv, settingsFor, trustSelected } from './lib/session.ts'
 import type { Arm, Mode } from './lib/session.ts'
 import { usageOf } from './lib/usage.ts'
 import type { Usage } from './lib/usage.ts'
 
-const USAGE = 'usage: node dispatch-pilot/eval/accept/run.ts --task <id> --arm on|off --mode code|ordinary [--model <model>] [--data <dir>] [--work <dir>] [--max-minutes <n>] [--dry-run]'
+const USAGE = 'usage: node dispatch-pilot/eval/accept/run.ts --task <id> --arm on|off --mode code|ordinary [--note on|off] [--model <model>] [--data <dir>] [--work <dir>] [--max-minutes <n>] [--dry-run]'
 const MOD_DIR = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/+$/, '')
 const TASKS = fileURLToPath(new URL('./tasks/', import.meta.url))
 const SERVER = 'dpacc'
@@ -52,10 +54,12 @@ function fail(message: string, code = 1): never {
   process.exit(code)
 }
 
-type Args = { task: string; arm: Arm; mode: Mode; model: string; data: string; work: string; maxMinutes: number; dryRun: boolean }
+/** note: null without --note, the manifest's default then. */
+type Args = { task: string; arm: Arm; mode: Mode; note: boolean | null; model: string; data: string; work: string; maxMinutes: number; dryRun: boolean }
 
 function parseArgs(argv: readonly string[]): Args {
-  const a: Partial<Args> & { model: string; data: string; work: string; maxMinutes: number; dryRun: boolean } = {
+  const a: Partial<Args> & { note: boolean | null; model: string; data: string; work: string; maxMinutes: number; dryRun: boolean } = {
+    note: null,
     model: 'sonnet',
     data: join(homedir(), '.config', 'dispatch-pilot', 'calibration'),
     work: '/private/tmp/dp-accept',
@@ -74,6 +78,10 @@ function parseArgs(argv: readonly string[]): Args {
       const v = value()
       if (v !== 'code' && v !== 'ordinary') fail(`--mode takes code or ordinary\n${USAGE}`, 2)
       a.mode = v
+    } else if (flag === '--note') {
+      const v = value()
+      if (v !== 'on' && v !== 'off') fail(`--note takes on or off\n${USAGE}`, 2)
+      a.note = v === 'on'
     } else if (flag === '--model') a.model = value()
     else if (flag === '--data') a.data = value()
     else if (flag === '--work') a.work = value()
@@ -139,6 +147,8 @@ type Line = {
   arm: Arm
   mode: Mode
   model: string
+  /** The progress note in this run's settings. */
+  progressNote: boolean
   pass: boolean
   reason?: string
   usage: Usage
@@ -176,6 +186,8 @@ async function main(): Promise<void> {
   const session = `acc-${name}`
   const env = sessionEnv(process.env, a.mode)
   let live = false
+  // Set from --note or the manifest once the manifest is read.
+  let note = false
 
   const cleanUp = (): void => {
     rmSync(settingsPath, { force: true })
@@ -193,7 +205,8 @@ async function main(): Promise<void> {
     mkdirSync(runDir, { recursive: true, mode: 0o700 })
     cpSync(join(taskDir, 'project'), project, { recursive: true })
     const manifest = JSON.parse(readFileSync(join(MOD_DIR, '.claude-plugin', 'plugin.json'), 'utf8')) as { userConfig?: Record<string, unknown> }
-    writeFileSync(settingsPath, JSON.stringify(settingsFor({ arm: a.arm, mode: a.mode, key, userConfig: manifest.userConfig ?? {} }), null, 2) + '\n', { mode: 0o600 })
+    note = a.note ?? noteDefault(manifest.userConfig ?? {})
+    writeFileSync(settingsPath, JSON.stringify(settingsFor({ arm: a.arm, mode: a.mode, key, userConfig: manifest.userConfig ?? {}, note }), null, 2) + '\n', { mode: 0o600 })
     chmodSync(settingsPath, 0o600)
     const pane = paneCommand({ pluginDir: MOD_DIR, settings: settingsPath, model: a.model, mode: a.mode })
     const newSession = ['new-session', '-d', '-s', session, '-x', '220', '-y', '50', '-c', project, '/bin/sh', '-c', pane]
@@ -201,6 +214,7 @@ async function main(): Promise<void> {
 
     if (a.dryRun) {
       console.log(`run directory: ${runDir}`)
+      console.log(`progress note: ${note ? 'on' : 'off'}${a.note === null ? " (the manifest's default)" : ''}`)
       console.log(`settings file (mode ${(statSync(settingsPath).mode & 0o777).toString(8)}):\n${readFileSync(settingsPath, 'utf8')}`)
       console.log(`tmux command: tmux -L ${SERVER} ${newSession.map((s) => (/^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`)).join(' ')}`)
       console.log(`session record folder: ${recordDir(homedir(), project)}`)
@@ -298,6 +312,7 @@ async function main(): Promise<void> {
       arm: a.arm,
       mode: a.mode,
       model: a.model,
+      progressNote: note,
       pass,
       ...(reason === undefined ? {} : { reason }),
       usage: usageOf(recs),

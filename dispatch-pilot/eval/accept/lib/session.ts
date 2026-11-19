@@ -16,21 +16,33 @@ export type Settings = {
 /**
  * The --settings file. The installed copies are switched off; the mod loaded with --plugin-dir takes its options only
  * from pluginConfigs (DEVELOPMENT.md, 「内联插件的选项」), so every option is written: the manifest's default, then the
- * run's own. The two arms differ in midrunShift alone. env sets Code Mode by the mode: the user's own settings can set it
- * in their env, which the engine applies over the process's, and these settings come after the user's.
+ * run's own. The two arms differ in midrunShift alone; the progress note is the run's (--note). env sets Code Mode by the
+ * mode: the user's own settings can set it in their env, which the engine applies over the process's, and these settings
+ * come after the user's.
  */
-export function settingsFor(o: { arm: Arm; mode: Mode; key: string; userConfig: Record<string, unknown> }): Settings {
+export function settingsFor(o: { arm: Arm; mode: Mode; key: string; userConfig: Record<string, unknown>; note: boolean }): Settings {
   const defaults: Record<string, unknown> = {}
   for (const [name, spec] of Object.entries(o.userConfig)) {
     if (typeof spec === 'object' && spec !== null && 'default' in spec) defaults[name] = (spec as { default: unknown }).default
   }
-  const options = { ...defaults, backend: 'drex', drexModel: 'drex-max-v1.1', drexApiKey: o.key, mode: 'apply', submitShift: true, midrunShift: o.arm === 'on' }
+  const options = { ...defaults, backend: 'drex', drexModel: 'drex-max-v1.1', drexApiKey: o.key, mode: 'apply', submitShift: true, midrunShift: o.arm === 'on', progressNote: o.note }
   return {
     enabledPlugins: { 'dispatch-pilot@alex-mods': false, 'dispatch-pilot-extras@alex-mods': false },
     pluginConfigs: { 'dispatch-pilot@inline': { options } },
     // An empty value reads as unset whether the engine tests the variable for truth or for presence of a value.
     env: { [CODE_MODE]: o.mode === 'code' ? '1' : '' },
   }
+}
+
+/** A run without --note: the progress note as the manifest ships it. */
+export function noteDefault(userConfig: Record<string, unknown>): boolean {
+  const spec = userConfig.progressNote
+  return typeof spec === 'object' && spec !== null && (spec as { default?: unknown }).default === true
+}
+
+/** Whether a line of accept.jsonl ran with the progress note: the 16 lines recorded before the field existed ran with it off. */
+export function ranWithNote(line: Record<string, unknown>): boolean {
+  return line.progressNote === true
 }
 
 /**
