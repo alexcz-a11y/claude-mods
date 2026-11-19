@@ -163,7 +163,8 @@ test('六个场景：其余各项', () => {
   const locked = of('locked')
   expect([locked.level, locked.wanted, locked.where]).toEqual(['high', 'high', '第 2 轮 · 第 5 步'])
   expect(locked.next).toEqual({ main: '不评估', sub: '/dp unlock 解锁后恢复', ahead: 0 })
-  expect(locked.features.slice(3).map((f) => f.state)).toEqual(['active', 'active', 'active'])
+  // No checkpoint while locked, so no progress note either.
+  expect(locked.features.slice(3).map((f) => f.state)).toEqual(['active', 'active', 'locked'])
 })
 
 test('总能算出：空的 recent、raw 为 null 或没有 open、bars 为 null、没有格子、不认识的题、reason 为 null', () => {
@@ -206,15 +207,18 @@ test('功能：mod 关着六行都是关；开关关着是关；锁定时关着�
   expect(of('locked', { midrunShift: false }).features.slice(0, 3).map((f) => f.state)).toEqual(['locked', 'off', 'locked'])
   const off = of('up', { submitShift: false, agentShift: false, skills: false, verifyEffort: false, progressNote: false })
   expect(off.features.map((f) => f.state)).toEqual(['off', 'active', 'off', 'off', 'off', 'off'])
-  // Without the backend's key the three judgements and the skills cannot ask; the rest do not need it.
+  // Without the backend's key the three judgements and the skills cannot ask, and with no checkpoint no progress note
+  // is written; only the readout needs no backend.
   expect(boardModel(readConfig({}), scenes.up).features.map((f) => [f.state, f.note])).toEqual([
     ['inactive', '没有可用的后端'],
     ['inactive', '没有可用的后端'],
     ['inactive', '没有可用的后端'],
     ['inactive', '没有可用的后端'],
     ['active', ''],
-    ['active', ''],
+    ['inactive', '没有可用的后端'],
   ])
+  // Mid-run shifts off: no checkpoint, so no note is written.
+  expect(of('up', { midrunShift: false }).features[5]).toEqual({ label: '进展记录', state: 'inactive', note: '中途换挡关着' })
   // The progress note's model refused this session.
   const s = scenes.up
   expect(boardModel(readConfig({ drexApiKey: 'k', progressNote: true }), { ...s, session: { ...s.session, progressBlocked: true } }).features[5]).toEqual({ label: '进展记录', state: 'inactive', note: '模型被拒绝' })

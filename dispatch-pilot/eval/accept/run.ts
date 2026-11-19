@@ -8,7 +8,7 @@
 // directory are removed at the end, on failure and on SIGINT, SIGTERM or SIGHUP too.
 //
 //   --note         the progress note on or off; default the manifest's default for progressNote. Each line records it
-//                  (progressNote); a line without it ran with the note off (ranWithNote)
+//                  (progressNote); a line without it ran with the note off
 //   --model        default sonnet
 //   --data         default ~/.config/dispatch-pilot/calibration
 //   --work         default /private/tmp/dp-accept; never a path with the user's name in it (the mod sends the session's

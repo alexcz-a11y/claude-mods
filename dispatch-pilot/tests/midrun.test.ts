@@ -274,26 +274,23 @@ test('中途最高到 xhigh', { options: KEYS }, async ($, on) => {
   expect(turnState(w).midrun.notes).toBe(1)
 })
 
-test('普通会话：同一步的两条并行结果行，只在一条上加说明（Review Focus 5）', { options: { ...KEYS, midrunEverySteps: '2' } }, async ($, on) => {
+test('普通会话：同一步的两条并行结果行，只在一条上加说明（Review Focus 5）', { options: { ...KEYS, midrunEverySteps: '1' } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, SAME_FAILURE) })
   await begin($)
-  // One step first, so the next ends the second and is a checkpoint by the count (every 2 steps).
-  await appendAll($, [assistantToolUse('Read', { file_path: 'upload.ts' }), toolResult('Read', 'upload.ts')])
-  await stepT1($, 1)
   const upload = toolResult('Bash', 'FAIL test_upload', { error: true })
   const download = toolResult('Bash', 'FAIL test_download', { error: true })
   await appendAll($, [assistantToolUse('Bash', { command: 'npm test -- upload' }), assistantToolUse('Bash', { command: 'npm test -- download' }), upload, download])
-  await stepT1($, 2)
+  await stepT1($, 1)
 
   // One response, one work step (final review I3): the first row ends it and is the checkpoint; the second joins the
   // step, which had failed already, so it asks nothing and carries nothing.
   expect(asked(w)).toHaveLength(1)
   expect(reached(w, upload)!.message.content).toEqual([upload.message.content[0], noteBlock(NOTE_HIGH)])
   expect(reached(w, download)).toEqual(download)
-  expect(midruns(w).map((d) => [d.step, d.from, d.to, d.applied])).toEqual([[2, 'medium', 'high', true]])
-  expect(turnState(w).journal).toMatchObject({ workSteps: 2, failedSteps: 1, consecutiveFailures: 1 })
-  expect(efforts(w)).toEqual(['medium', 'medium', 'high'])
-  expect(turnState(w).midrun).toMatchObject({ notes: 1, lastShiftAt: 2 })
+  expect(midruns(w).map((d) => [d.step, d.from, d.to, d.applied])).toEqual([[1, 'medium', 'high', true]])
+  expect(turnState(w).journal).toMatchObject({ workSteps: 1, failedSteps: 1, consecutiveFailures: 1 })
+  expect(efforts(w)).toEqual(['medium', 'high'])
+  expect(turnState(w).midrun).toMatchObject({ notes: 1, lastShiftAt: 1 })
   expect(session(w).codeMode).toBe(false)
 })
 
@@ -372,19 +369,22 @@ test('经 delivery 行来的新输入：照常判断，换挡的说明排到下�
   expect(turnState(w)).toMatchObject({ pendingNote: null, midrun: { notes: 1 } })
 })
 
-test('同一步的两条结果行，两个请求同时在途：写入时再核对一次，只有一条换挡、一条说明', { options: { ...KEYS, midrunEverySteps: '2' } }, async ($, on) => {
+test('同一步的两条结果行，两个请求同时在途：写入时再核对一次，只有一条换挡、一条说明', { options: { ...KEYS, midrunEverySteps: '1' } }, async ($, on) => {
   const late: { clock: MockClock | null } = { clock: null }
+  let asks = 0
   const w = world(on, {
     onSubmit: turns($),
     answer: async ({ body }) => {
       if (!('same_failure' in body.questions)) return drexOk(SUBMIT_HOLD)
+      asks += 1
+      const n = asks
       await late.clock!.sleep(500)
-      return drexOk(SAME_FAILURE)
+      return drexOk(n === 1 ? HOLD : SAME_FAILURE)
     },
   })
   late.clock = w.clock
   await begin($)
-  // A failed step first (no checkpoint: one failure, one step of two), so the response after it can fail twice in a row.
+  // A failed step first (its checkpoint holds), so the response after it can fail twice in a row.
   const before = appendAll($, [assistantToolUse('Bash', { command: 'npm test' }), toolResult('Bash', 'FAIL test_upload', { error: true })])
   await w.clock.settle()
   await w.clock.advance(500)
@@ -398,7 +398,7 @@ test('同一步的两条结果行，两个请求同时在途：写入时再核�
   const first = append($, read)
   const second = append($, download)
   await w.clock.settle()
-  expect(asked(w)).toHaveLength(2)
+  expect(asked(w)).toHaveLength(3)
   await w.clock.advance(500)
   await Promise.all([first, second])
   await stepT1($, 2)
@@ -407,11 +407,11 @@ test('同一步的两条结果行，两个请求同时在途：写入时再核�
   const noted = [read, download].filter((r) => reached(w, r)!.message.content.length === 2)
   expect(noted).toHaveLength(1)
   expect(reached(w, noted[0]!)!.message.content.at(-1)).toEqual(noteBlock(NOTE_HIGH))
-  expect(midruns(w).map((d) => [d.from, d.to])).toEqual([
+  expect(midruns(w).slice(1).map((d) => [d.from, d.to])).toEqual([
     ['medium', 'high'],
     ['medium', 'high'],
   ])
-  expect(midruns(w).map((d) => d.applied).sort()).toEqual([false, true])
+  expect(midruns(w).slice(1).map((d) => d.applied).sort()).toEqual([false, true])
   expect(turnState(w)).toMatchObject({ wanted: 'high', midrun: { notes: 1 }, journal: { workSteps: 2, failedSteps: 2, consecutiveFailures: 2 } })
   expect(efforts(w)).toEqual(['medium', 'medium', 'high'])
 })
@@ -522,7 +522,7 @@ for (const [name, keys] of NO_BACKEND) {
   })
 }
 
-test('没有密钥：普通会话的三份工具结果也不评估、不记录', { options: { midrunEverySteps: '2', progressNote: true } }, async ($, on) => {
+test('没有密钥：普通会话的三份工具结果也不评估、不记录', { options: { midrunEverySteps: '1', progressNote: true } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, SAME_FAILURE), complete: () => 'Rerunning the upload test.' })
   await begin($)
   const rows: SessionAppendInput[] = []
@@ -608,7 +608,7 @@ test('说明排着时锁定了：不再加它，每步是锁定的档', { option
   expect(efforts(w)).toEqual(['medium', 'low', 'low', 'high'])
 })
 
-test('计数：到检查点清零，没到时数工作步和脚本结果', { options: { ...KEYS, midrunEverySteps: '4' } }, async ($, on) => {
+test('计数：到检查点清零，没到时数工作步和脚本结果', { options: { ...KEYS, midrunEverySteps: '3' } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, HOLD) })
   await begin($)
   const seen: [number, TurnState['midrun']][] = []
@@ -620,8 +620,8 @@ test('计数：到检查点清零，没到时数工作步和脚本结果', { opt
   expect(seen).toEqual([
     [0, { notes: 0, lastShiftAt: null, stepsSinceCheck: 1, scriptsSinceCheck: 0 }],
     [0, { notes: 0, lastShiftAt: null, stepsSinceCheck: 2, scriptsSinceCheck: 0 }],
-    [0, { notes: 0, lastShiftAt: null, stepsSinceCheck: 3, scriptsSinceCheck: 0 }],
     [1, { notes: 0, lastShiftAt: null, stepsSinceCheck: 0, scriptsSinceCheck: 0 }],
+    [1, { notes: 0, lastShiftAt: null, stepsSinceCheck: 1, scriptsSinceCheck: 0 }],
   ])
 })
 

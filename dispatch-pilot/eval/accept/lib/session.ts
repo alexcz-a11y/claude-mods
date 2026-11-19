@@ -40,11 +40,6 @@ export function noteDefault(userConfig: Record<string, unknown>): boolean {
   return typeof spec === 'object' && spec !== null && (spec as { default?: unknown }).default === true
 }
 
-/** Whether a line of accept.jsonl ran with the progress note: the 16 lines recorded before the field existed ran with it off. */
-export function ranWithNote(line: Record<string, unknown>): boolean {
-  return line.progressNote === true
-}
-
 /**
  * The environment the session starts with: no telemetry variable, no Nace key (the mod takes it from the settings
  * file; a key in the environment is one \`env\` away from the session's record), Code Mode by the mode.

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import { ownMidrun } from '../eval/accept/lib/decisions.ts'
 import { levelsOf, recordDir, turnEnded, turnSpan } from '../eval/accept/lib/records.ts'
-import { holdsUser, noteDefault, paneCommand, pasted, ranWithNote, screenState, sessionEnv, settingsFor, trustSelected } from '../eval/accept/lib/session.ts'
+import { holdsUser, noteDefault, paneCommand, pasted, screenState, sessionEnv, settingsFor, trustSelected } from '../eval/accept/lib/session.ts'
 import type { Decision } from '../hooks/log.ts'
 
 const USER_CONFIG = {
@@ -34,11 +34,6 @@ test('noteDefault：不给 --note 时取清单里 progressNote 的默认值', ()
   expect(noteDefault({ progressNote: { type: 'boolean', default: true } })).toBe(true)
   expect(noteDefault({ progressNote: { type: 'boolean', default: false } })).toBe(false)
 })
-
-test('ranWithNote：accept.jsonl 的一行带 progressNote；之前记下的 16 行没有这个字段，读作关着', () => {
-  expect([ranWithNote({ progressNote: true }), ranWithNote({ progressNote: false }), ranWithNote({ task: '01', arm: 'on' })]).toEqual([true, false, false])
-})
-
 test('settingsFor：Code Mode 按模式写进 env（盖过用户设置里的值）', () => {
   expect(settingsFor({ arm: 'on', mode: 'code', key: 'K', userConfig: USER_CONFIG, note: false }).env).toEqual({ CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '1' })
   expect(settingsFor({ arm: 'on', mode: 'ordinary', key: 'K', userConfig: USER_CONFIG, note: false }).env).toEqual({ CLAUDE_CODE_EXPERIMENTAL_CODE_MODE: '' })

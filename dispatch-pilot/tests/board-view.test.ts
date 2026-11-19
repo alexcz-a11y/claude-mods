@@ -293,12 +293,12 @@ test('时间轴各行在别的场景里：没核对、锁定、失败、后端�
   expect(rowsOf(notsent)[2]).toBe('评 ···▲···▲   第 7 步后 high → xhigh（还没发出） · 最新结果和原计划矛盾')
   expect(rowsOf(locked)[0]).toBe('▮▮▮▯▯ high  ■ 已锁定   第 2 轮 · 第 5 步 · 普通会话')
   expect(rowsOf(locked)[2]).toBe('上次评估 锁定期间不评估')
-  expect(rowsOf(locked)[3]).toBe('生效 skill 推荐 · 档位核对 · 进展记录   锁定 发消息定档 · 中途换挡 · agent 定档')
+  expect(rowsOf(locked)[3]).toBe('生效 skill 推荐 · 档位核对   锁定 发消息定档 · 中途换挡 · agent 定档 · 进展记录')
   expect(rowsOf(ordinary)[1]).toBe('步 ██████████████┄┄┄┄┄┄◇   下次评估 再 8 步')
   expect(rowsOf(ordinary)[3]).toBe('上次评估 × 评估失败，档位不变    第 13 步后 · Drex 超时')
   expect(rowsOf(ordinary)[4]).toMatch(/   ! Drex drex-max-v1\.1 · 最近一次超时$/)
   const noBackend = boardModel(readConfig({}), SCENES.up)
-  expect(timelineRows(noBackend, { columns: 200, isPaneOpen: false }).map(rowText)[4]).toBe('生效 档位核对 · 进展记录   未生效 发消息定档 · 中途换挡 · agent 定档 · skill 推荐   ! 没有密钥')
+  expect(timelineRows(noBackend, { columns: 200, isPaneOpen: false }).map(rowText)[4]).toBe('生效 档位核对   未生效 发消息定档 · 中途换挡 · agent 定档 · skill 推荐 · 进展记录   ! 没有密钥')
 })
 
 test('第一行最后是会话种类，行太长时最先去掉；空闲的那一行也有；面板的「现在」写在第几轮第几步那一行', () => {

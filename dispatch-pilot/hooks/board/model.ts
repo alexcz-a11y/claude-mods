@@ -321,7 +321,8 @@ function featuresOf(cfg: Config, s: BoardState & { locked: boolean; ask: boolean
     [cfg.agentShift, true, judging, s.agents > 0 ? `本轮 ${s.agents} 个` : ''],
     [cfg.skills, false, noBackend ?? (s.skills.length === 0 ? '还没拿到 skill 列表' : cfg.mode === 'shadow' ? SHADOW_NOTE : null), `${s.skills.length} 个候选`],
     [cfg.verifyEffort, false, unread, ''],
-    [cfg.progressNote, false, s.session.progressBlocked ? '模型被拒绝' : null, ''],
+    // A note is written only after a mid-run checkpoint, so it needs what the mid-run row needs, and lock holds it too.
+    [cfg.progressNote, true, !cfg.midrunShift ? '中途换挡关着' : (noBackend ?? (s.session.progressBlocked ? '模型被拒绝' : null)), ''],
   ]
   return rows.map(([on, lockable, inactive, note], i) => {
     const label = LABELS[i] ?? ''

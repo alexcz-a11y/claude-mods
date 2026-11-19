@@ -136,8 +136,11 @@
       "description": "普通会话：每满这么多个工作步判断一次。0 为关。",
       "options": [
         "0",
+        "1",
         "2",
+        "3",
         "4",
+        "5",
         "6",
         "8",
         "10",
@@ -228,7 +231,7 @@
     "submitTimeoutMs": {
       "type": "string",
       "title": "发消息 · 时限（毫秒）",
-      "description": "超时就放行，不重试。",
+      "description": "到时还没有回答就放行。",
       "options": [
         "500",
         "1000",
@@ -247,7 +250,7 @@
     "midrunTimeoutMs": {
       "type": "string",
       "title": "中途 · 时限（毫秒）",
-      "description": "超时就放行，不重试。",
+      "description": "到时还没有回答就放行。",
       "options": [
         "500",
         "1000",
@@ -266,7 +269,7 @@
     "agentTimeoutMs": {
       "type": "string",
       "title": "agent · 时限（毫秒）",
-      "description": "超时就放行，不重试。",
+      "description": "到时还没有回答就放行。",
       "options": [
         "500",
         "1000",
@@ -557,7 +560,7 @@
     "skillFits": {
       "type": "string",
       "title": "skill · 合适门槛",
-      "description": "候选 skill 合适的概率达到这个值，才推荐它。越高越少推荐。",
+      "description": "最合适的候选达到这个值，才推荐一个 skill。越高越少推荐。",
       "options": [
         "0.10",
         "0.15",
