@@ -12,7 +12,7 @@ import { answerDp, registerDp } from './flows/dp.ts'
 import { onRow } from './flows/midrun.ts'
 import { dropQueuedInput, noteCameBack, tickProgress } from './flows/progress.ts'
 import { openStep, readout } from './flows/readout.ts'
-import { findSkill, foldListing, holdSkill, recordDropped, recordSkill, takeSkillFor } from './flows/skills.ts'
+import { findSkill, foldListing, holdSkill, letGoStale, recordDropped, recordSkill, takeSkillFor } from './flows/skills.ts'
 import { dropPending, endTurn, judgeMessage, mainStep, startTurn } from './flows/submit.ts'
 import { failOpen, firstDraw, verifies } from './runtime.ts'
 
@@ -36,9 +36,11 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     // Switched off (enabled): every hook below passes its event on as it came and writes nothing.
     if (!cfg.enabled) return next(e)
+    // A judgement no turn took is recorded with none before this message is judged (flows/skills.ts).
+    await failOpen($, 'prompt.submit', null, () => letGoStale($))
     const skill = await failOpen($, 'prompt.submit', null, () => judgeMessage($, cfg, { text: e.text, origin: e.origin?.kind, turnId: e.turnId }))
     const block = skill?.skill && cfg.mode === 'apply' ? suggestionBlock(skill.skill) : null
-    if (skill !== null) await failOpen($, 'prompt.submit', null, () => holdSkill($, { text: e.text, outcome: skill, applied: block !== null }))
+    if (skill !== null) holdSkill({ text: e.text, outcome: skill, applied: block !== null })
     const r = await next(block === null ? e : { ...e, context: [...(e.context ?? []), block] })
     if (r.drop !== undefined) {
       await failOpen($, 'prompt.submit', null, () => dropPending($))

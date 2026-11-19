@@ -815,6 +815,46 @@ test('一条消息的判断没有轮来取，下一条消息的判断放下时�
   ])
 })
 
+test('没有轮来取的判断在下一次 prompt.submit 开始时记下并放掉，那条消息没有自己的判断也一样：同样文字的轮不会拿走它', { options: KEYS }, async ($, on) => {
+  const w = world(on, { answer: answering(ONLY_PDF) })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+  expect(skillDecisions(w)).toHaveLength(0)
+
+  // The same text again, from where nothing is judged: no judgement of its own (a failed ask still is one).
+  await submit($, TASK, { kind: 'task-notification' })
+  expect(w.fetched).toHaveLength(2)
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: false, turnId: null })
+  await turnStart($, 't2', TASK)
+  expect(skillDecisions(w)).toHaveLength(1)
+})
+
+test('记那条没有轮来取的判断时写不进去：新的判断照样放下，由它的轮记', { options: KEYS }, async ($, on) => {
+  // The first write of the log is refused, so the mod's $.store.set rejects for the stale Decision.
+  const refusals = { left: 1 }
+  const w = world(on, {
+    answer: answering(ONLY_PDF),
+    refuseStoreSet: (e) => {
+      if (e.key !== 'log' || refusals.left === 0) return false
+      refusals.left -= 1
+      return true
+    },
+  })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+
+  const OTHER = 'Merge the two PDF files in ~/Downloads into one'
+  await submit($, OTHER)
+  expect(refusals.left).toBe(0)
+  expect(skillDecisions(w)).toHaveLength(0)
+  await turnStart($, 't2', OTHER)
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, turnId: 't2' })
+})
+
 test('锁定时只问 skill 题', { options: KEYS }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 } }) })
   await start($)

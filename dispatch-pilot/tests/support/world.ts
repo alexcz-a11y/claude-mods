@@ -64,6 +64,8 @@ export type WorldOptions = {
    * the mod's call neither throws nor rejects, measured on 2.1.327).
    */
   refuse?: string[]
+  /** Answers this $.store.set with { deny } when it returns true (one write refused among others), so the mod's call rejects. */
+  refuseStoreSet?: (e: { key: string }) => boolean
   /**
    * The board's state (tests/support/scenes.ts): every read of session, turn, recent and skills answers it. The
    * version comes from the kit's own store, so the mod's update()s still land there (a scene that answered a fixed
@@ -183,7 +185,7 @@ export function world(on: On, o: WorldOptions = {}) {
     return { value: text === undefined ? undefined : JSON.parse(text) }
   })
   on('store.set', (_$, e) => {
-    if (refused('store.set')) return REFUSED
+    if (refused('store.set') || o.refuseStoreSet?.({ key: e.key }) === true) return REFUSED
     const text = JSON.stringify(e.value)
     store.set(e.key, text)
     storeWrites.push({ key: e.key, value: JSON.parse(text) })

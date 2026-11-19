@@ -52,21 +52,24 @@ export async function suggestSkill($: EngineInterface, cfg: Config, c: { skills:
 // (prompt.submit's own reads cannot see that turn: one dispatch reads one moment). prompt.submit cannot tell after
 // next(e) whether a turn took it: next(e) returns once turn.start's hook has started, and that hook may finish after
 // (measured on 2.1.328; F1). So it stays held until one of three records it, once: the turn.start of its text; the
-// prompt.submit of a dropped message; or the next message's holdSkill, with no turn, when no turn took it (none
-// started, or another mod rewrote the text). Module level: a hot reload or the session's end loses a held judgement.
+// prompt.submit of a dropped message; or, with no turn, the next prompt.submit (letGoStale) when no turn took it
+// (none started, or another mod rewrote the text). A judgement recorded late carries the time it was recorded, not
+// the time it was judged. Module level: a hot reload or the session's end loses a held judgement.
 let skillOut: { text: string; outcome: SkillOutcome; applied: boolean } | null = null
 
-// A message's skill judgement, held for the turn.start of its text. One still held (no turn took it) is recorded
-// first, with no turn; the new one is held even when that write fails.
-export async function holdSkill($: EngineInterface, held: NonNullable<typeof skillOut>): Promise<null> {
+// At the start of every prompt.submit: a judgement still held belongs to no turn (the running turn's own was taken at
+// its turn.start), so it is recorded with none and let go, whether or not this message is judged. Never left for a
+// later turn.start whose text happens to match.
+export async function letGoStale($: EngineInterface): Promise<null> {
   const stale = skillOut
+  if (stale === null) return null
   skillOut = null
-  try {
-    if (stale !== null) await recordSkill($, stale.outcome, { turnId: null, applied: false })
-  } finally {
-    skillOut = held
-  }
-  return null
+  return recordSkill($, stale.outcome, { turnId: null, applied: false })
+}
+
+// A message's skill judgement, held for the turn.start of its text.
+export function holdSkill(held: NonNullable<typeof skillOut>): void {
+  skillOut = held
 }
 
 // The judgement held for this text, taken so it is recorded once (null: none held for it).
