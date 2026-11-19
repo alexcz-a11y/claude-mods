@@ -4,14 +4,15 @@ import { agentQuestions, midrunQuestions, submitQuestions } from '../../hooks/qu
 import type { Question } from '../../hooks/questions.ts'
 import { stageOne, stageTwo } from '../../hooks/skills.ts'
 import type { Skill } from '../../hooks/skills.ts'
-import { agentState, fitState, midrunState, submitState } from '../../hooks/statebuild.ts'
+import { agentState, clip, fitState, midrunState, submitState } from '../../hooks/statebuild.ts'
 import type { Case, Category } from './case.ts'
 import { DIRECT_LEVEL, LONG_UNATTENDED } from './controls.ts'
 
 /**
- * One way of asking. A field left out is what the mod does (previous on, recent 5, stated_next on, no progress note,
- * stage 1); controls, skills and shuffle are off unless set. skills: the questions the mod's submit flow adds for the
- * session's skills go into the same request.
+ * One way of asking. A field left out is what the mod does (previous on, recent 5, no progress note, stage 1);
+ * statedNext, controls, skills and shuffle are off unless set. skills: the questions the mod's submit flow adds for the
+ * session's skills go into the same request. statedNext: the assistant's stated plan, which the mod no longer sends,
+ * put back as midrunState used to put it, so the requests asked with it keep their hash.
  */
 export type Variant = { name: string; previous?: boolean; recent?: 1 | 3 | 5; statedNext?: boolean; progress?: 'none' | 'before' | 'after'; controls?: boolean; skills?: boolean; shuffle?: number; stage?: 1 | 2 }
 export type Built = { caseId: string; variant: string; state: Record<string, unknown>; questions: Record<string, Question>; hash: string }
@@ -31,11 +32,11 @@ export const VARIANTS: Record<Category, readonly Variant[]> = {
   ],
   midrun: [
     { name: 'default', recent: 5, statedNext: true, progress: 'none', controls: true },
-    { name: 'recent-1', recent: 1, controls: true },
-    { name: 'recent-3', recent: 3, controls: true },
-    { name: 'no-stated-next', statedNext: false, controls: true },
-    { name: 'progress-before', progress: 'before', controls: true },
-    { name: 'progress-after', progress: 'after', controls: true },
+    { name: 'recent-1', recent: 1, statedNext: true, controls: true },
+    { name: 'recent-3', recent: 3, statedNext: true, controls: true },
+    { name: 'no-stated-next', controls: true },
+    { name: 'progress-before', progress: 'before', statedNext: true, controls: true },
+    { name: 'progress-after', progress: 'after', statedNext: true, controls: true },
     { name: 'direct-shuffled', recent: 5, statedNext: true, progress: 'none', controls: true, shuffle: 1 },
   ],
   agent: [
@@ -74,9 +75,9 @@ export function build(c: Case, v: Variant, ctx: { skills: readonly Skill[]; shor
       failedSteps: i.failedSteps,
       recent: i.recent.slice(-(v.recent ?? 5)),
       latest: i.latest,
-      statedNext: v.statedNext === false ? '' : i.statedNext,
       progress,
     })
+    if (v.statedNext === true) state = withStatedNext(state, i.statedNext)
     questions = midrunQuestions()
     // The long-unattended flag is about a whole job handed over, which a check in mid-run is not.
     if (v.controls) questions = { ...questions, direct: DIRECT_LEVEL }
@@ -99,6 +100,18 @@ export function build(c: Case, v: Variant, ctx: { skills: readonly Skill[]; shor
   state = fitState(state)
   return { caseId: c.id, variant: v.name, state, questions, hash: fnv1a64(JSON.stringify({ state, questions })) }
 }
+
+/** As midrunState put stated_next until calibration dropped it: only when there is text, after latest, before progress. */
+function withStatedNext(state: Record<string, unknown>, text: string): Record<string, unknown> {
+  if (!text.trim()) return state
+  const { progress, ...rest } = state
+  const out: Record<string, unknown> = { ...rest, stated_next: clip(text, STATED_NEXT_TOKENS) }
+  if ('progress' in state) out.progress = progress
+  return out
+}
+
+// The clip midrunState gave stated_next.
+const STATED_NEXT_TOKENS = 200
 
 // mulberry32: a small seeded generator, so a shuffle is the same on every run.
 function generator(seed: number): () => number {

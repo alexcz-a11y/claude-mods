@@ -86,7 +86,7 @@ mod 只向两个地址发判断请求：Drex 是 `https://console.nace.ai/v1/sys
 | 判断 | `state` 的字段 |
 |---|---|
 | 发消息时 | `note`（一句怎么读这份内容的说明）；`request`：你这条消息（1200）；有上一轮时 `previous_turn`：上一轮你的消息（300）、助手最后的回答（300）、怎么结束的（答完、报错、被打断）、用的档位 |
-| 一轮中途 | `note`；`request`：这一轮你的消息（600）；`current_level`、`steps_so_far`、`failed_steps`；`recent`：最近至多 5 步，每步是做了什么（脚本自带的说明或工具名，60）、调用过的工具名、成败、结果文字的头尾（150）；`latest`：最新这一步，结果给到 600（检查点是新输入时，`latest` 是那段输入本身，例如后台任务的通知或 agent 交回的报告）；助手写过下一步打算时 `stated_next`（200，思考内容不发）；`progressNote` 开着并且已有记录时 `progress`（已完成、还剩、原因是否查明，各 150） |
+| 一轮中途 | `note`；`request`：这一轮你的消息（600）；`current_level`、`steps_so_far`、`failed_steps`；`recent`：最近至多 5 步，每步是做了什么（脚本自带的说明或工具名，60）、调用过的工具名、成败、结果文字的头尾（150）；`latest`：最新这一步，结果给到 600（检查点是新输入时，`latest` 是那段输入本身，例如后台任务的通知或 agent 交回的报告）；`progressNote` 开着并且已有记录时 `progress`（已完成、还剩、原因是否查明，各 150） |
 | 派出 agent | `note`；`task`：派出时的任务原文（2500）；`agent_type`；`description`（100） |
 | `find-skill` | `note`；`request`：主 agent 写的那几个词（1200） |
 

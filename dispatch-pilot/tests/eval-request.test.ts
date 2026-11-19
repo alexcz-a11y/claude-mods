@@ -82,11 +82,23 @@ test('submit 的 no-previous：没有 previous_turn，也没有 continues', () =
 test('midrun 的 default：最近 5 条、带 stated_next、不带进展记录，对照题只问 direct', () => {
   const b = build(midrunCase, variant('midrun', 'default'), ctx)
   const i = midrunCase.input
-  expect(b.state).toEqual(midrunState({ ...i, progress: null }))
+  expect(b.state).toEqual({ ...midrunState({ ...i, progress: null }), stated_next: i.statedNext })
   expect(b.state.progress).toBe(undefined)
   for (const [id, q] of Object.entries(midrunQuestions())) expect(b.questions[id]).toEqual(q)
   expect(b.questions.direct).toEqual(DIRECT_LEVEL)
   expect(b.questions.long_unattended).toBe(undefined)
+})
+
+test('midrunState 不再放 stated_next；statedNext: true 的给法照原来的位置和截法加上', () => {
+  const i = midrunCase.input
+  // The case's input carries statedNext; midrunState leaves it out whatever it is given.
+  const plain = midrunState({ ...i, progress: after })
+  expect('stated_next' in plain).toBe(false)
+  const withIt = build(midrunCase, { name: 'x', statedNext: true, progress: 'after' }, ctx)
+  expect(withIt.state.stated_next).toBe('add a lock around the cache')
+  // Where midrunState used to put it: after latest, before progress.
+  expect(Object.keys(withIt.state)).toEqual(['note', 'request', 'current_level', 'steps_so_far', 'failed_steps', 'recent', 'latest', 'stated_next', 'progress'])
+  expect('stated_next' in build(midrunCase, { name: 'x' }, ctx).state).toBe(false)
 })
 
 test('midrun 的 recent-1 只给最近 1 条，no-stated-next 没有 stated_next', () => {

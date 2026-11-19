@@ -16,7 +16,7 @@ test('分档题五档，每档单独成句；是非题两边都写了情形', ()
   }
 })
 test('题面里反引号指到的字段都在 state 里', () => {
-  const state = midrunState({ request: 'r', current: 'medium', stepsSoFar: 2, failedSteps: 1, recent: [{ did: 'a', tools: ['Read'], ok: true, result: 'x' }], latest: { did: 'b', tools: ['Bash'], ok: false, result: 'boom' }, statedNext: '', progress: null })
+  const state = midrunState({ request: 'r', current: 'medium', stepsSoFar: 2, failedSteps: 1, recent: [{ did: 'a', tools: ['Read'], ok: true, result: 'x' }], latest: { did: 'b', tools: ['Bash'], ok: false, result: 'boom' }, progress: null })
   const top = [...JSON.stringify(midrunQuestions()).matchAll(/`([a-z_]+)/g)].map((m) => m[1])
   for (const name of top) expect(Object.keys(state)).toContain(name)
 })
@@ -59,7 +59,7 @@ test('有上一轮时 previous_turn 带四个字段', () => {
 })
 test('recent 最多 5 条，从早到晚；字段形状和 latest 一致', () => {
   const recent = [1, 2, 3, 4, 5, 6, 7].map((n) => step(n))
-  const s = midrunState({ request: 'r', current: 'low', stepsSoFar: 8, failedSteps: 0, recent, latest: { ...step(8), ok: false }, statedNext: '', progress: null })
+  const s = midrunState({ request: 'r', current: 'low', stepsSoFar: 8, failedSteps: 0, recent, latest: { ...step(8), ok: false }, progress: null })
   const got = s.recent as { did: string; outcome: string }[]
   expect(got.map((e) => e.did)).toEqual(['step 3', 'step 4', 'step 5', 'step 6', 'step 7'])
   expect(got[0]).toEqual({ did: 'step 3', tools: ['Read'], outcome: 'ok', result: 'ok' })
@@ -67,16 +67,17 @@ test('recent 最多 5 条，从早到晚；字段形状和 latest 一致', () =>
   expect([s.current_level, s.steps_so_far, s.failed_steps]).toEqual(['low', 8, 0])
 })
 test('中途 state 的 note：progress 是另一个模型的转述，仍按结果判断', () => {
-  const s = midrunState({ request: 'r', current: 'medium', stepsSoFar: 1, failedSteps: 0, recent: [], latest: step(1), statedNext: '', progress: { done: 'a', remaining: 'b', cause_known: false } })
+  const s = midrunState({ request: 'r', current: 'medium', stepsSoFar: 1, failedSteps: 0, recent: [], latest: step(1), progress: { done: 'a', remaining: 'b', cause_known: false } })
   expect(s.note).toBe('Entries in "recent" are oldest first. Judge by the results, not by what the assistant says it achieved; "stated_next" is the assistant\'s own account, and "progress" is another model\'s paraphrase of the turn so far, not a result.')
 })
-test('stated_next 和 progress 空或为 null 时不放，有就放', () => {
+test('progress 为 null 时不放，有就放；助手写的下一步打算（stated_next）不放', () => {
   const base = { request: 'r', current: 'medium' as const, stepsSoFar: 1, failedSteps: 0, recent: [], latest: step(1) }
-  const bare = midrunState({ ...base, statedNext: '  ', progress: null })
-  expect('stated_next' in bare).toBe(false)
+  const bare = midrunState({ ...base, progress: null })
   expect('progress' in bare).toBe(false)
-  const full = midrunState({ ...base, statedNext: 'run tests', progress: { done: 'a', remaining: 'b', cause_known: true } })
-  expect(full.stated_next).toBe('run tests')
+  // A caller that still hands over a stated plan gets no stated_next.
+  const said = { statedNext: 'run tests' }
+  const full = midrunState({ ...base, ...said, progress: { done: 'a', remaining: 'b', cause_known: true } })
+  expect('stated_next' in full).toBe(false)
   expect(full.progress).toEqual({ done: 'a', remaining: 'b', cause_known: true })
 })
 test('clip：中间放 …，头尾各一半，截断后不超预算', () => {
@@ -102,7 +103,7 @@ test('中途 state：五条很长的结果、很长的 progress 也不超预算'
     request: long, current: 'high', stepsSoFar: 30, failedSteps: 9,
     recent: [1, 2, 3, 4, 5].map((n) => ({ did: long, tools: ['Bash'], ok: false, result: long })),
     latest: { did: long, tools: ['Bash'], ok: false, result: long },
-    statedNext: long, progress: { done: long, remaining: long, cause_known: false },
+    progress: { done: long, remaining: long, cause_known: false },
   })
   expect(estimateTokens(JSON.stringify(s))).toBeLessThanOrEqual(STATE_BUDGET)
 })
@@ -118,7 +119,7 @@ test('fitState：满是引号和换行的 state，转义后超预算，截到预
     request: quotes, current: 'high', stepsSoFar: 12, failedSteps: 3,
     recent: [1, 2, 3, 4, 5].map((n) => ({ did: 'step ' + n, tools: ['Bash'], ok: false, result: lines })),
     latest: { did: 'run tests', tools: ['Bash'], ok: false, result: quotes },
-    statedNext: lines, progress: { done: quotes, remaining: lines, cause_known: false },
+    progress: { done: quotes, remaining: lines, cause_known: false },
   })
   // Each field is within its own clip budget, but escaping doubles every quote and newline.
   expect(estimateTokens(JSON.stringify(s))).toBeGreaterThan(STATE_BUDGET)

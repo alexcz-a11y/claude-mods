@@ -142,7 +142,6 @@ export function midrunState(i: {
   failedSteps: number
   recent: StepRecord[]
   latest: StepRecord
-  statedNext: string
   progress: ProgressNote | null
 }): Record<string, unknown> {
   const state: Record<string, unknown> = {
@@ -155,7 +154,6 @@ export function midrunState(i: {
     recent: i.recent.slice(-5).map((step) => stepEntry(step, 150)),
     latest: stepEntry(i.latest, 600),
   }
-  if (i.statedNext.trim()) state.stated_next = clip(i.statedNext, 200)
   // The brief gives progress no budget; 150 per text field keeps the whole state under STATE_BUDGET.
   if (i.progress) {
     state.progress = { done: clip(i.progress.done, 150), remaining: clip(i.progress.remaining, 150), cause_known: i.progress.cause_known }

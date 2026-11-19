@@ -178,7 +178,6 @@ export function planRow(turn: TurnState, row: Row, kind: RowKind, c: { cfg: Conf
     stepsSoFar: journal.workSteps,
     failedSteps: journal.failedSteps,
     ...evidence,
-    statedNext: journal.statedNext,
     progress: turn.progress,
   })
   return { turn: next, note, ask: { current, state, latest: evidence.latest } }

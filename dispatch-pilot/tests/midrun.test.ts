@@ -728,7 +728,7 @@ test('请求失败：行原样放行，记一条失败的决策', { options: KEY
   expect(midruns(w)[0]).toMatchObject({ from: 'medium', to: 'medium', reason: null, raw: null, failure: 'network', applied: false, detail: '连不上 Drex', turnId: 't1', step: 1 })
 })
 
-test('发出的中途 state：recent 从早到晚、latest、current_level、steps_so_far、failed_steps；没有打算时不带 stated_next', { options: KEYS }, async ($, on) => {
+test('发出的中途 state：recent 从早到晚、latest、current_level、steps_so_far、failed_steps；不带 stated_next', { options: KEYS }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, HOLD) })
   await begin($)
   await appendAll($, scriptByPoll(1, 'read the uploader', 'r1', { inner: [innerToolUse('Read'), innerCall('Read')] }))
@@ -749,9 +749,9 @@ test('发出的中途 state：recent 从早到晚、latest、current_level、ste
   })
   expect(typeof third.note).toBe('string')
   expect('stated_next' in third).toBe(false)
-  // With a stated plan, it goes in.
+  // A plan the assistant states stays out too (calibration: the field made no case right).
   await appendAll($, [assistantText('Next I add a backoff to the retry.'), ...scriptByPoll(4, 'add backoff', 'r4')])
-  expect(asked(w)[3]!.body.state.stated_next).toBe('Next I add a backoff to the retry.')
+  expect('stated_next' in asked(w)[3]!.body.state).toBe(false)
 })
 
 // A turn the message judgement did not set (controller ruling after Task 8): its base is the engine's own level at
