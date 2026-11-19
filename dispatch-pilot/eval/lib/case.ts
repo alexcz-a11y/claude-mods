@@ -289,6 +289,20 @@ export function checkSet(category: Category, cases: readonly Case[]): string[] {
   return problems
 }
 
+/**
+ * The sessions whose cases sit in more than one set, over all four categories together (amendments A2, A13): checkSet
+ * sees one category at a time. An empty array means it passes.
+ */
+export function checkSessions(cases: readonly Case[]): string[] {
+  const sessions = new Map<string, Case[]>()
+  for (const c of cases) if (c.session !== undefined) sessions.set(c.session, [...(sessions.get(c.session) ?? []), c])
+  const problems: string[] = []
+  for (const [session, group] of sessions) {
+    if (new Set(group.map((c) => c.set)).size > 1) problems.push(`all cases of session ${session} must sit in one set across the categories (${group.map((c) => `${c.id} in ${c.set}`).join(', ')})`)
+  }
+  return problems
+}
+
 // Prefixed tokens need 8 more characters, so prose like "the sk- prefix" passes; a bearer token also needs a digit,
 // so "Bearer authentication" passes.
 const PREFIXED = [/\b(?:sk-|ghp_)[A-Za-z0-9_-]{8,}/g, /\bnace_sk_[A-Za-z0-9_-]{8,}/g]
