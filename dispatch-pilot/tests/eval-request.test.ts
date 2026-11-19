@@ -55,7 +55,7 @@ function variant(category: keyof typeof VARIANTS, name: string): Variant {
 const optionsOf = (q: unknown): string[] => Object.keys((q as { criteria: Record<string, unknown> }).criteria)
 
 test('每一类登记的给法和名字；第一项是 default（skill 是 stage-1）', () => {
-  expect(VARIANTS.submit.map((v) => v.name)).toEqual(['default', 'no-previous', 'direct-shuffled'])
+  expect(VARIANTS.submit.map((v) => v.name)).toEqual(['default', 'no-previous', 'direct-shuffled', 'with-skills'])
   expect(VARIANTS.midrun.map((v) => v.name)).toEqual(['default', 'recent-1', 'recent-3', 'no-stated-next', 'progress-before', 'progress-after', 'direct-shuffled'])
   expect(VARIANTS.agent.map((v) => v.name)).toEqual(['default', 'direct-shuffled'])
   expect(VARIANTS.skill.map((v) => v.name)).toEqual(['stage-1', 'stage-2', 'stage-1-shuffled', 'stage-2-shuffled'])
@@ -147,6 +147,27 @@ test('direct-shuffled（修订 A13）：只有 direct 的选项换了顺序，�
     expect(Object.keys(shuffled.questions)).toEqual(Object.keys(plain.questions))
     for (const id of Object.keys(plain.questions)) if (id !== 'direct') expect(shuffled.questions[id]).toEqual(plain.questions[id])
   }
+})
+
+test('submit、midrun、agent 的每一种给法都带对照题：题号和这一类的 default 相同（no-previous 只少 continues）', () => {
+  for (const c of [submitCase, midrunCase, agentCase]) {
+    const ids = Object.keys(build(c, variant(c.category, 'default'), ctx).questions).sort()
+    for (const v of VARIANTS[c.category]) {
+      if (v.name === 'with-skills') continue
+      const got = Object.keys(build(c, v, ctx).questions).sort()
+      // The mod asks continues only when there is a previous turn to go on from.
+      const want = v.name === 'no-previous' ? ids.filter((id) => id !== 'continues') : ids
+      expect([c.category, v.name, got]).toEqual([c.category, v.name, want])
+    }
+  }
+})
+
+test('submit 的 with-skills：default 的题加上 mod 为 skill 加的第一次请求的题，state 和 default 相同', () => {
+  const plain = build(submitCase, variant('submit', 'default'), ctx)
+  const b = build(submitCase, variant('submit', 'with-skills'), ctx)
+  expect(b.state).toEqual(plain.state)
+  expect(b.questions).toEqual({ ...plain.questions, ...stageOne(skills, 'drex', true) })
+  expect(b.hash === plain.hash).toBe(false)
 })
 
 test('readDirect：选中项不低于 0.5 取它，否则取概率最高两项里较低的一档', () => {

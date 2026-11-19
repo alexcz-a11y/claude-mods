@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Answer } from '../hooks/backend.ts'
 import { START, submitLevel } from '../hooks/decide.ts'
-import { START_BARS, mark, outcomeOf } from '../eval/lib/read.ts'
+import { START_BARS, mark, outcomeOf, shortlistOf } from '../eval/lib/read.ts'
 import type { Bars, Stored } from '../eval/lib/read.ts'
 import { conservativeFor, gridFor, plateau, sweep } from '../eval/lib/sweep.ts'
 import type { Row } from '../eval/lib/sweep.ts'
@@ -79,6 +79,16 @@ test('midrun：期望 hold 而换了挡是 needless-shift；期望换而没换�
   expect(stays.level).toBe('medium')
   expect(mark(midrunCase, stays)).toBe('right')
   expect(mark({ ...midrunCase, expect: { action: 'up', accept: ['high'] } }, stays)).toBe('missed-shift')
+})
+
+test("midrun 的 form 'direct'：升档和 midrunLevel 一样不超过 xhigh，已在 xhigh 以上不再升；降档照读", () => {
+  const direct = (pick: string) => ok({ direct: choice(pick, { low: 0.02, medium: 0.03, high: 0.05, xhigh: 0.1, max: 0.8, [pick]: 0.8 }) })
+  const at = (current: MidrunCase['input']['current'], pick: string) => outcomeOf({ ...midrunCase, input: { ...midrunCase.input, current } }, direct(pick), START_BARS, { form: 'direct' })?.level
+  expect(at('medium', 'max')).toBe('xhigh')
+  expect(at('xhigh', 'max')).toBe('xhigh')
+  expect(at('max', 'max')).toBe('max')
+  expect(at('medium', 'high')).toBe('high')
+  expect(at('max', 'low')).toBe('low')
 })
 
 const agentCase: AgentCase = {
@@ -180,8 +190,50 @@ test('sweep 读 skill 用例的两次请求', () => {
   expect(rows.at(-1)!.marks).toEqual({ 'skill-01': 'missed-skill' })
 })
 
+// Below the start bar (0.3) only: the action answers' mean is 0.25.
+const borderline = { acts_on_user_system: n(0.25), would_follow_documented_procedure: n(0.25), prose_suffices: n(0.75), named: n(0.1) }
+const skillCase2: SkillCase = { ...skillCase, id: 'skill-02' }
+
+test('sweep 把 skill.action 降到初值以下：两次请求都有回答的用例每一行都在（unusable 为 0）', () => {
+  const stored = (id: string, variant: string): Stored | undefined =>
+    variant === 'stage-1' ? firstOf(id === 'skill-01' ? acting : borderline) : variant === 'stage-2' ? secondOf('code-review', [0.8, 0.1, 0.1]) : undefined
+  const rows = sweep([skillCase, skillCase2], stored, START_BARS, 'skill.action')
+  for (const r of rows) {
+    expect(Object.keys(r.marks).sort()).toEqual(['skill-01', 'skill-02'])
+    expect(r.unusable).toBe(0)
+  }
+  // skill-02 passes the gate only where the bar is at or below its mean
+  expect(rows.filter((r) => r.marks['skill-02'] === 'right').map((r) => r.value)).toEqual([0.1, 0.15, 0.2, 0.25])
+})
+
+test('sweep：没有第二次请求的回答的用例记进 unusable，不是悄悄少一例', () => {
+  const stored = (id: string, variant: string): Stored | undefined =>
+    variant === 'stage-1' ? firstOf(id === 'skill-01' ? acting : borderline) : variant === 'stage-2' && id === 'skill-01' ? secondOf('code-review', [0.8, 0.1, 0.1]) : undefined
+  const rows = sweep([skillCase, skillCase2], stored, START_BARS, 'skill.action')
+  for (const r of rows) {
+    const lets = r.value <= 0.25
+    expect([r.value, r.unusable, r.marks['skill-02']]).toEqual([r.value, lets ? 1 : 0, lets ? undefined : 'missed-skill'])
+    expect(r.marks['skill-01']).toBe('right')
+  }
+})
+
+test('shortlistOf：第一次请求的回答给出的 short，和读第二次请求时用的是同一个', () => {
+  const first = firstOf(acting)
+  expect(first.ok && shortlistOf(first.answers).map((s) => s.name)).toEqual(['code-review', 'tdd', 'research'])
+  // A tie at the cut: the second request asked about the list shortlistOf gives is read; one about the other tied name is not.
+  const tied = { skill_0: choice('a', { a: 0.4, b: 0.2, c: 0.15, d: 0.15, other: 0.1 }), ...acting }
+  const short = shortlistOf(tied).map((s) => s.name)
+  expect(short.length).toBe(3)
+  const second = (names: string[]): Stored =>
+    ok({ which: choice('a', { ...Object.fromEntries(names.map((x) => [x, 0.1])), a: 0.7, other: 0.0 }), fits_0: n(0.8), fits_1: n(0.1), fits_2: n(0.1) })
+  const other = ['a', 'b', short[2] === 'c' ? 'd' : 'c']
+  const c: SkillCase = { ...skillCase, expect: { skill: 'a', alsoOk: [] } }
+  expect(outcomeOf(c, ok(tied), START_BARS, { second: second(short) })?.skill).toBe('a')
+  expect(outcomeOf(c, ok(tied), START_BARS, { second: second(other) })).toBe(null)
+})
+
 test('plateau：对得最多的一段，high 取最大的值，low 取最小的', () => {
-  const rows: Row[] = [3, 5, 5, 5, 4].map((right, i) => ({ value: [0.5, 0.55, 0.6, 0.65, 0.7][i]!, right, marks: {} }))
+  const rows: Row[] = [3, 5, 5, 5, 4].map((right, i) => ({ value: [0.5, 0.55, 0.6, 0.65, 0.7][i]!, right, unusable: 0, marks: {} }))
   expect(plateau(rows, 'high')).toEqual({ best: 5, from: 0.55, to: 0.65, pick: 0.65 })
   expect(plateau(rows, 'low')).toEqual({ best: 5, from: 0.55, to: 0.65, pick: 0.55 })
 })

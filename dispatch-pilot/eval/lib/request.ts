@@ -10,26 +10,32 @@ import { DIRECT_LEVEL, LONG_UNATTENDED } from './controls.ts'
 
 /**
  * One way of asking. A field left out is what the mod does (previous on, recent 5, stated_next on, no progress note,
- * stage 1); controls and shuffle are off unless set.
+ * stage 1); controls, skills and shuffle are off unless set. skills: the questions the mod's submit flow adds for the
+ * session's skills go into the same request.
  */
-export type Variant = { name: string; previous?: boolean; recent?: 1 | 3 | 5; statedNext?: boolean; progress?: 'none' | 'before' | 'after'; controls?: boolean; shuffle?: number; stage?: 1 | 2 }
+export type Variant = { name: string; previous?: boolean; recent?: 1 | 3 | 5; statedNext?: boolean; progress?: 'none' | 'before' | 'after'; controls?: boolean; skills?: boolean; shuffle?: number; stage?: 1 | 2 }
 export type Built = { caseId: string; variant: string; state: Record<string, unknown>; questions: Record<string, Question>; hash: string }
 
-/** 每一类预先登记的给法；第一项是默认（和 mod 发的一样）。 */
+/**
+ * 每一类预先登记的给法；第一项是默认（和 mod 发的一样）。Every variant of submit, midrun and agent carries the control
+ * questions, so one differs from its default in the state only (Ruling C18a); with-skills adds questions, nothing else.
+ */
 export const VARIANTS: Record<Category, readonly Variant[]> = {
   submit: [
     { name: 'default', previous: true, controls: true },
-    { name: 'no-previous', previous: false },
+    { name: 'no-previous', previous: false, controls: true },
     // Amendment A13: the direct question's options in another order, to see whether its pick follows the order.
     { name: 'direct-shuffled', previous: true, controls: true, shuffle: 1 },
+    // Ruling C18b: the request as the mod sends it when the session has skills, the skill questions beside the level's.
+    { name: 'with-skills', previous: true, controls: true, skills: true },
   ],
   midrun: [
     { name: 'default', recent: 5, statedNext: true, progress: 'none', controls: true },
-    { name: 'recent-1', recent: 1 },
-    { name: 'recent-3', recent: 3 },
-    { name: 'no-stated-next', statedNext: false },
-    { name: 'progress-before', progress: 'before' },
-    { name: 'progress-after', progress: 'after' },
+    { name: 'recent-1', recent: 1, controls: true },
+    { name: 'recent-3', recent: 3, controls: true },
+    { name: 'no-stated-next', statedNext: false, controls: true },
+    { name: 'progress-before', progress: 'before', controls: true },
+    { name: 'progress-after', progress: 'after', controls: true },
     { name: 'direct-shuffled', recent: 5, statedNext: true, progress: 'none', controls: true, shuffle: 1 },
   ],
   agent: [
@@ -56,6 +62,8 @@ export function build(c: Case, v: Variant, ctx: { skills: readonly Skill[]; shor
     state = submitState({ request: c.input.request, previous })
     questions = submitQuestions(previous !== null)
     if (v.controls) questions = { ...questions, direct: DIRECT_LEVEL, long_unattended: LONG_UNATTENDED }
+    // Merged as hooks/flows/submit.ts merges them: the level's questions first, the skill questions after.
+    if (v.skills) questions = { ...questions, ...stageOne([...ctx.skills], BACKEND, true) }
   } else if (c.category === 'midrun') {
     const i = c.input
     const progress = v.progress === 'before' ? (i.notes?.before ?? null) : v.progress === 'after' ? (i.notes?.after ?? null) : null

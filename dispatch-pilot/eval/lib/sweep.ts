@@ -5,7 +5,8 @@ import { mark, outcomeOf } from './read.ts'
 import type { Bars, Mark, Stored } from './read.ts'
 import { VARIANTS } from './request.ts'
 
-export type Row = { value: number; right: number; marks: Record<string, Mark> }
+/** unusable: the cases whose outcome is null at this value (no answer, a failed one, or a second request missing). */
+export type Row = { value: number; right: number; unusable: number; marks: Record<string, Mark> }
 
 const LEVEL_BARS = ['up', 'upHigh', 'down', 'yes', 'no', 'modelDown']
 const SKILL_BARS = ['action', 'named', 'fits']
@@ -48,20 +49,22 @@ function withBar(base: Bars, path: string, value: number): Bars {
 /**
  * 只动一个门槛（path 如 'submit.up'、'skill.fits'），其余用 base。stored(id, variant) gives a case's answers to one
  * variant: the category's default (VARIANTS' first entry), and for a skill case also 'stage-2'. A case with no usable
- * answer is left out of every row.
+ * outcome at a value has no mark in that row and is counted in its unusable: a gate moved below its start value can
+ * let a case through whose second request was never asked, and the rows' right counts are then over different cases.
  */
 export function sweep(cases: readonly Case[], stored: (id: string, variant: string) => Stored | undefined, base: Bars, path: string, grid: readonly number[] = gridFor(path)): Row[] {
   split(path)
   return grid.map((value) => {
     const bars = withBar(base, path, value)
     const marks: Record<string, Mark> = {}
+    let unusable = 0
     for (const c of cases) {
       const first = stored(c.id, VARIANTS[c.category][0]!.name)
-      if (first === undefined) continue
-      const o = outcomeOf(c, first, bars, c.category === 'skill' ? { second: stored(c.id, 'stage-2') } : {})
-      if (o !== null) marks[c.id] = mark(c, o)
+      const o = first === undefined ? null : outcomeOf(c, first, bars, c.category === 'skill' ? { second: stored(c.id, 'stage-2') } : {})
+      if (o === null) unusable += 1
+      else marks[c.id] = mark(c, o)
     }
-    return { value, right: Object.values(marks).filter((m) => m === 'right').length, marks }
+    return { value, right: Object.values(marks).filter((m) => m === 'right').length, unusable, marks }
   })
 }
 

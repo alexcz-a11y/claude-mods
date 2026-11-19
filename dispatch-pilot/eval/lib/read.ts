@@ -58,10 +58,16 @@ function submitOutcome(c: SubmitCase, a: Answers, t: Thresholds, opt: Opt): Outc
   return out === null ? null : { level: out, model: null, skill: null }
 }
 
+// A rise mid-run stops at xhigh, as in midrunLevel; a level already above it is not raised.
+function capRise(current: Level, level: Level | null): Level | null {
+  if (level === null || rank(level) <= rank(current)) return level
+  return rank(current) < rank('xhigh') ? LEVELS[Math.min(rank(level), rank('xhigh'))]! : current
+}
+
 // long_unattended is not asked mid-run (Task 4), so the rule does not apply here.
 function midrunOutcome(c: MidrunCase, a: Answers, t: Thresholds, opt: Opt): Outcome | null {
   let level: Level | null
-  if (opt.form === 'direct') level = readDirect(a.direct)
+  if (opt.form === 'direct') level = capRise(c.input.current, readDirect(a.direct))
   else {
     if (!has(a, 'score', 'open') || !has(a, 'noul', 'same_failure', 'cause_found', 'only_carrying_out', 'contradicts_plan')) return null
     level = midrunLevel(
@@ -96,8 +102,17 @@ function candidatesOf(a: Answers): Skill[] {
   return names.map((name) => ({ name, description: '' }))
 }
 
+/**
+ * The shortlist a first skill answer gives, names only (descriptions empty). The runner builds the second request from
+ * this very function, so a tie at the cut can never give the runner one list and the reader another.
+ */
+export function shortlistOf(a: Answers): Skill[] {
+  return shortlist(candidatesOf(a), a)
+}
+
 // As readStageOne and readStageTwo: the gate, the shortlist, then the second request's pick. The second request is
-// needed only when the gate lets the message through, as in the mod.
+// needed only when the gate lets the message through, as in the mod; the runner asks it of every case with a first
+// answer, so a sweep that lowers the gate still finds it.
 function skillOutcome(a: Answers, b: SkillBars, opt: Opt): Outcome | null {
   const gate = ['acts_on_user_system', 'would_follow_documented_procedure', 'prose_suffices', 'named']
   const candidates = candidatesOf(a)
@@ -108,7 +123,7 @@ function skillOutcome(a: Answers, b: SkillBars, opt: Opt): Outcome | null {
     { action: b.action, named: b.named },
   )
   if (!wants) return none
-  const short = shortlist(candidates, a)
+  const short = shortlistOf(a)
   if (short.length === 0) return none
   const second = usable(opt.second)
   if (second === null || !short.every((_, i) => has(second, 'noul', `fits_${i}`))) return null
