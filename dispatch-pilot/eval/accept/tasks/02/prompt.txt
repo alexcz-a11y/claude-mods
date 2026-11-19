@@ -1,0 +1,5 @@
+Tiered pricing isn't being applied on ORD-1187. Line 3 is 60 rolls of P-100 for Warehouse 2, and from 50 rolls up the unit price is supposed to drop to 7.20, but the quote still charges 8.00:
+
+$ node bin/quote.mjs orders/ORD-1187.json
+
+The total should come to 497.00 and we get 545.00. Can you find out why and fix it?

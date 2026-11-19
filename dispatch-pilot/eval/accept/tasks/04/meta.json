@@ -1,0 +1,7 @@
+{
+  "id": "04",
+  "kind": "hard-then-mechanical",
+  "expect": "down",
+  "title": "rollcall: valid rows are rejected, and which ones depends on their order",
+  "why": "It opens as an order-dependent failure: 11 of 12 rows are rejected for values that are plainly valid, a rejected row passes when imported alone, and the unit tests (one good and one bad value per field) are green. The cause is that each field module keeps a module-level RegExp with the g (or y) flag and calls test()/exec() on it, so lastIndex carries over from one row to the next. Once that is seen, the fix is the same in 18 of the 20 field modules: take the stateful flag off the pattern used for testing. The modules spell it differently (literals with g or gi, new RegExp with a flags string or a FLAGS constant, a sticky pattern, exec() instead of test()), and three other patterns need their g for replace()/matchAll(), so a blanket edit breaks the import. The patterns are private to their modules; nothing in the runner can fix them from one place."
+}

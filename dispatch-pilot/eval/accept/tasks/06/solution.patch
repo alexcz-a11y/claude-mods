@@ -1,0 +1,251 @@
+diff -ruN a/README.md b/README.md
+--- a/README.md	2026-11-18 21:38:34
++++ b/README.md	2026-11-18 21:38:34
+@@ -4,6 +4,7 @@
+ 
+ ```
+ python3 -m standings data/results-2031.txt
++python3 -m standings data/results-2031.txt --division "Division Two"
+ ```
+ 
+ ## The results file
+@@ -11,14 +12,20 @@
+ - `[Division One]` starts a division. The lines after it belong to that division, up to the next
+   such line.
+ - `Harbour Rovers 2-1 Kestrel Park` is one match: home team, home goals, away goals, away team.
++- `Harbour Rovers w/o Kestrel Park` is a walkover: the first team is awarded the match, which counts
++  as a 3-0 win for it.
++- `deduct Kestrel Park 3` takes 3 points off that team in the division the line stands in.
+ - Blank lines and lines that start with `#` are skipped.
+ - Any other line is an error. The message names the line number and nothing is printed.
+ 
+ ## The table
+ 
+ One table per division, in the order the divisions come in the file. A win is worth 3 points and a
+-draw 1. The columns are the place, the team, then played, won, drawn, lost and points. Teams are
+-ordered by points; teams level on points are listed alphabetically.
++draw 1; a deduction comes off the total. The columns are the place, the team, then played, won,
++drawn, lost, goals for, goals against, goal difference and points. Teams are ordered by points;
++teams level on points by goal difference, then by goals scored, then alphabetically.
++
++`--division NAME` prints the table of that division only.
+ 
+ ## Layout
+ 
+diff -ruN a/standings/cli.py b/standings/cli.py
+--- a/standings/cli.py	2026-11-18 21:38:34
++++ b/standings/cli.py	2026-11-18 21:38:34
+@@ -1,4 +1,4 @@
+-"""The command line: python3 -m standings <results file>."""
++"""The command line: python3 -m standings <results file> [--division NAME]."""
+ 
+ import argparse
+ import sys
+@@ -11,6 +11,7 @@
+ def main(argv=None):
+     parser = argparse.ArgumentParser(prog="standings", description="League tables from a results file.")
+     parser.add_argument("results", help="the results file")
++    parser.add_argument("--division", metavar="NAME", help="print only the table of this division")
+     args = parser.parse_args(argv)
+ 
+     try:
+@@ -20,5 +21,14 @@
+         print(f"error: {error}", file=sys.stderr)
+         return 1
+ 
+-    print("\n\n".join(render(division.name, standings(division.matches)) for division in divisions))
++    if args.division is not None:
++        wanted = " ".join(args.division.split())
++        divisions = [division for division in divisions if division.name == wanted]
++        if not divisions:
++            print(f"error: no division named {wanted!r} in {args.results}", file=sys.stderr)
++            return 1
++
++    print("\n\n".join(
++        render(division.name, standings(division.matches, division.deductions)) for division in divisions
++    ))
+     return 0
+diff -ruN a/standings/render.py b/standings/render.py
+--- a/standings/render.py	2026-11-18 21:38:34
++++ b/standings/render.py	2026-11-18 21:38:34
+@@ -6,6 +6,9 @@
+     ("W", "won"),
+     ("D", "drawn"),
+     ("L", "lost"),
++    ("GF", "goals_for"),
++    ("GA", "goals_against"),
++    ("GD", "goal_difference"),
+     ("Pts", "points"),
+ )
+ 
+diff -ruN a/standings/results.py b/standings/results.py
+--- a/standings/results.py	2026-11-18 21:38:34
++++ b/standings/results.py	2026-11-18 21:38:34
+@@ -5,8 +5,13 @@
+ 
+ HEADER = re.compile(r"^\[(?P<name>[^\]]+)\]$")
+ MATCH = re.compile(r"^(?P<home>.+?)\s+(?P<home_goals>\d+)-(?P<away_goals>\d+)\s+(?P<away>.+)$")
++WALKOVER = re.compile(r"^(?P<winner>.+?)\s+w/o\s+(?P<loser>.+)$")
++DEDUCTION = re.compile(r"^deduct\s+(?P<team>.+?)\s+(?P<points>\d+)$")
+ 
++# A walkover goes into the table as a win by this score for the team that was awarded the match.
++WALKOVER_SCORE = (3, 0)
+ 
++
+ class ResultsError(ValueError):
+     """A line of the results file that cannot be read."""
+ 
+@@ -23,6 +28,8 @@
+ class Division:
+     name: str
+     matches: list = field(default_factory=list)
++    # Points taken off a team in this division, by team.
++    deductions: dict = field(default_factory=dict)
+ 
+ 
+ def clean(name):
+@@ -43,15 +50,27 @@
+             continue
+         if not divisions:
+             raise ResultsError(f"line {number}: a result before the first [division] line")
+-        divisions[-1].matches.append(read_match(line, number))
++        division = divisions[-1]
++        deduction = DEDUCTION.match(line)
++        if deduction:
++            team = clean(deduction["team"])
++            division.deductions[team] = division.deductions.get(team, 0) + int(deduction["points"])
++            continue
++        division.matches.append(read_match(line, number))
+     return divisions
+ 
+ 
+ def read_match(line, number):
+     found = MATCH.match(line)
+-    if not found:
+-        raise ResultsError(f"line {number}: cannot read {line!r}")
+-    home, away = clean(found["home"]), clean(found["away"])
++    if found:
++        home, away = clean(found["home"]), clean(found["away"])
++        score = (int(found["home_goals"]), int(found["away_goals"]))
++    else:
++        found = WALKOVER.match(line)
++        if not found:
++            raise ResultsError(f"line {number}: cannot read {line!r}")
++        home, away = clean(found["winner"]), clean(found["loser"])
++        score = WALKOVER_SCORE
+     if home == away:
+         raise ResultsError(f"line {number}: {home} cannot play itself")
+-    return Match(home, away, int(found["home_goals"]), int(found["away_goals"]))
++    return Match(home, away, *score)
+diff -ruN a/standings/table.py b/standings/table.py
+--- a/standings/table.py	2026-11-18 21:38:34
++++ b/standings/table.py	2026-11-18 21:38:34
+@@ -13,20 +13,35 @@
+     won: int = 0
+     drawn: int = 0
+     lost: int = 0
++    goals_for: int = 0
++    goals_against: int = 0
++    deducted: int = 0
+ 
+     @property
++    def goal_difference(self):
++        return self.goals_for - self.goals_against
++
++    @property
+     def points(self):
+-        return WIN_POINTS * self.won + DRAW_POINTS * self.drawn
++        return WIN_POINTS * self.won + DRAW_POINTS * self.drawn - self.deducted
+ 
+ 
+-def standings(matches):
+-    """The rows of the table, best team first."""
++def standings(matches, deductions=None):
++    """The rows of the table, best team first.
++
++    Teams level on points are separated by goal difference, then goals scored, then name.
++    deductions maps a team to the points taken off it.
++    """
+     rows = {}
+     for match in matches:
+         home = rows.setdefault(match.home, Row(match.home))
+         away = rows.setdefault(match.away, Row(match.away))
+         home.played += 1
+         away.played += 1
++        home.goals_for += match.home_goals
++        home.goals_against += match.away_goals
++        away.goals_for += match.away_goals
++        away.goals_against += match.home_goals
+         if match.home_goals > match.away_goals:
+             home.won += 1
+             away.lost += 1
+@@ -36,4 +51,6 @@
+         else:
+             home.drawn += 1
+             away.drawn += 1
+-    return sorted(rows.values(), key=lambda row: (-row.points, row.team))
++    for team, points in (deductions or {}).items():
++        rows.setdefault(team, Row(team)).deducted += points
++    return sorted(rows.values(), key=lambda row: (-row.points, -row.goal_difference, -row.goals_for, row.team))
+diff -ruN a/tests/test_render.py b/tests/test_render.py
+--- a/tests/test_render.py	2026-11-18 21:38:34
++++ b/tests/test_render.py	2026-11-18 21:38:35
+@@ -21,6 +21,10 @@
+         self.assertEqual(self.lines[2].split()[-1], "4")
+         self.assertEqual(self.lines[4].split()[:3], ["3", "Brook", "End"])
+ 
++    def test_goal_columns_stand_between_lost_and_points(self):
++        self.assertEqual(self.lines[1].split()[-5:], ["L", "GF", "GA", "GD", "Pts"])
++        self.assertEqual(self.lines[2].split()[-4:], ["3", "1", "2", "4"])
++
+     def test_columns_line_up(self):
+         self.assertEqual(len({len(line) for line in self.lines[1:]}), 1)
+ 
+diff -ruN a/tests/test_results.py b/tests/test_results.py
+--- a/tests/test_results.py	2026-11-18 21:38:34
++++ b/tests/test_results.py	2026-11-18 21:38:34
+@@ -27,6 +27,15 @@
+         with self.assertRaisesRegex(ResultsError, "line 3"):
+             parse("[Division One]\nAlder Green 2-0 Brook End\nAlder Green beat Brook End\n")
+ 
++    def test_a_walkover_is_a_three_nil_win_for_the_first_team(self):
++        (division,) = parse("[Division One]\nAlder Green w/o Brook End\n")
++        self.assertEqual(division.matches, [Match("Alder Green", "Brook End", 3, 0)])
++
++    def test_deductions_belong_to_their_division(self):
++        first, second = parse("[One]\ndeduct Alder Green 3\nAlder Green 1-0 Brook End\n[Two]\nDene Park 1-0 Elm Cross\n")
++        self.assertEqual(first.deductions, {"Alder Green": 3})
++        self.assertEqual(second.deductions, {})
++
+     def test_a_result_needs_a_division(self):
+         with self.assertRaisesRegex(ResultsError, "line 1"):
+             parse("Alder Green 2-0 Brook End\n")
+diff -ruN a/tests/test_table.py b/tests/test_table.py
+--- a/tests/test_table.py	2026-11-18 21:38:34
++++ b/tests/test_table.py	2026-11-18 21:38:35
+@@ -32,6 +32,25 @@
+         rows = standings([Match("Dene Park", "Castle Mill", 1, 1), Match("Brook End", "Alder Green", 1, 1)])
+         self.assertEqual([found.team for found in rows], ["Alder Green", "Brook End", "Castle Mill", "Dene Park"])
+ 
++    def test_goals_are_added_up(self):
++        rows = standings([Match("Alder Green", "Brook End", 2, 1), Match("Brook End", "Alder Green", 0, 3)])
++        alder = row(rows, "Alder Green")
++        self.assertEqual((alder.goals_for, alder.goals_against, alder.goal_difference), (5, 1, 4))
++
++    def test_level_on_points_goal_difference_then_goals_scored_decide(self):
++        rows = standings([
++            Match("Dene Park", "Elm Cross", 5, 4),
++            Match("Castle Mill", "Fir Lane", 2, 0),
++            Match("Brook End", "Gorse Hill", 3, 1),
++            Match("Alder Green", "Holm Oak", 2, 0),
++        ])
++        self.assertEqual([found.team for found in rows][:4], ["Brook End", "Alder Green", "Castle Mill", "Dene Park"])
++
++    def test_a_deduction_comes_off_the_points(self):
++        matches = [Match("Alder Green", "Brook End", 1, 0), Match("Castle Mill", "Brook End", 0, 0)]
++        rows = standings(matches, {"Alder Green": 3})
++        self.assertEqual([(found.team, found.points) for found in rows], [("Castle Mill", 1), ("Brook End", 1), ("Alder Green", 0)])
++
+     def test_no_matches_no_rows(self):
+         self.assertEqual(standings([]), [])
+ 

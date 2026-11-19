@@ -1,0 +1,7 @@
+{
+  "id": "02",
+  "kind": "stuck",
+  "expect": "up",
+  "title": "crateline: the bulk price is not applied to line 3",
+  "why": "tiers.mjs returns the first tier a quantity reaches, which is always the base tier, so 'fix tierFor' is the obvious move and the report points straight at it. After that fix the quote of ORD-1187 is byte-for-byte the same: createPricer() in pricing.mjs wraps the lookup in memo(), and memo() (src/lib/memo.mjs) files a result under the first argument only, the SKU. Line 1 (5 x P-100) is priced first, so line 3 (60 x P-100) gets line 1's answer; which line comes first decides the price. Before the tier fix the stale answer and the fresh one are equal, so nothing shows the second defect, and the visible tests never repeat a SKU. It is found only by reading memo.mjs and seeing what key the two-argument lookup gets. Both changes are required to pass."
+}

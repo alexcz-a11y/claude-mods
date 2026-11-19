@@ -1,0 +1,6 @@
+{
+  "A-1": { "name": "Alpha", "tiers": [{ "minQty": 1, "unitCents": 1000 }, { "minQty": 10, "unitCents": 900 }, { "minQty": 100, "unitCents": 750 }] },
+  "B-2": { "name": "Beta", "tiers": [{ "minQty": 1, "unitCents": 250 }, { "minQty": 24, "unitCents": 220 }] },
+  "C-3": { "name": "Gamma", "tiers": [{ "minQty": 1, "unitCents": 1999 }] },
+  "D-4": { "name": "Delta", "tiers": [{ "minQty": 1, "unitCents": 31 }, { "minQty": 2, "unitCents": 29 }, { "minQty": 3, "unitCents": 27 }, { "minQty": 1000, "unitCents": 11 }] }
+}

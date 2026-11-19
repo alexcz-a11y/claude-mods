@@ -1,0 +1,22 @@
+{
+  "member_id": { "type": "memberId", "required": true },
+  "name": { "type": "name", "required": true },
+  "email": { "type": "email", "required": true },
+  "phone": { "type": "phone" },
+  "postcode": { "type": "postcode" },
+  "joined": { "type": "isoDate", "required": true },
+  "birth_year": { "type": "birthYear" },
+  "reminder_at": { "type": "time24" },
+  "team_color": { "type": "hexColor" },
+  "page": { "type": "slug" },
+  "login": { "type": "username" },
+  "country": { "type": "countryCode" },
+  "fee_paid": { "type": "amount" },
+  "locker": { "type": "lockerCode" },
+  "last_ip": { "type": "ipv4" },
+  "app_version": { "type": "appVersion" },
+  "device": { "type": "deviceId" },
+  "interests": { "type": "tags" },
+  "newsletter": { "type": "yesNo" },
+  "referral": { "type": "referral" }
+}
