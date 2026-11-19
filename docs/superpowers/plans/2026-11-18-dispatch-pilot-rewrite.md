@@ -14,7 +14,7 @@
 
 ## Global Constraints
 
-- Claude Code `>=2.1.327`；分支 `dp/rewrite`，只在 worktree `/Users/alexnear/Documents/claude-mods/.claude/worktrees/dp-rewrite` 里改。
+- Claude Code `>=2.1.327`；分支 `dp/rewrite`，只在 worktree `.claude/worktrees/dp-rewrite` 里改。
 - hooks 模块里不出现 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send`、任何 `classic.*`，不调用 `$.tool.register`。
 - 主 agent 的模型永不改写。
 - 任何会话、任何测试都不打开 OpenTelemetry（不设 `CLAUDE_CODE_ENABLE_TELEMETRY`、`ENABLE_BETA_TRACING_DETAILED`）。

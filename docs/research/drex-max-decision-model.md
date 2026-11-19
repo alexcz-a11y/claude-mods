@@ -401,5 +401,5 @@ Nace 的 data-retention 页（https://console.nace.ai/docs/perception/data-reten
 - https://artificialanalysis.ai/decision-models/drex-max-v1-1 ；https://www.orcarouter.ai/blog/drex-max-1-1-vs-drex-max ；https://modelsystem.one/news/drex-max-1-1/ ；https://www.llmreference.com/model/drex-max-v1.1 ；https://vercel.com/ai-gateway/models/drex-max-v1.1
 
 **本仓库**
-- `/Users/alexnear/Documents/claude-mods/docs/research/decision-model-images.md` （Jev 与 pplx 图像处理，c09a249）
-- `/Users/alexnear/Documents/claude-mods/docs/research/typesafe-question-guide.md` （Jev 问题写法与 confidence 公式）
+- `docs/research/decision-model-images.md` （Jev 与 pplx 图像处理，c09a249）
+- `docs/research/typesafe-question-guide.md` （Jev 问题写法与 confidence 公式）

@@ -7,7 +7,7 @@
 - **推断**：由官方原文推出，原文没有直接写。
 - **未文档化**：查过的来源都没有写，括注查了哪里。
 
-类型声明（下文记作 TYPES）：/private/tmp/claude-501/-Users-alexnear-Documents-claude-mods--claude-worktrees-dp-rewrite/0a10ce6b-598d-4504-9bf2-d09b7c6e3dc9/scratchpad/dp-probe4/.claude-plugin/types/claude-code/index.d.ts 。下文的行号都指这个文件。
+类型声明（下文记作 TYPES）：/private/tmp/claude-501/…/scratchpad/dp-probe4/.claude-plugin/types/claude-code/index.d.ts 。下文的行号都指这个文件。
 
 CHANGELOG 记作 CHANGELOG，行号指 https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md 的原文行。
 

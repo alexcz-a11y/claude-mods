@@ -94,7 +94,7 @@ TypeSafe 文档站现在用 llms.txt 里的新路径，用户给的旧路径（�
 
 ### 1.2 skill 里的原文（本机缓存 0.6.2，与上游 main 相同）
 
-文件：/Users/alexnear/.claude/plugins/cache/typesafe-ai/typesafe/0.6.2/skills/typesafe-ai/SKILL.md ；上游 https://raw.githubusercontent.com/typesafe-ai/skills/main/skills/typesafe-ai/SKILL.md 。
+文件：~/.claude/plugins/cache/typesafe-ai/typesafe/0.6.2/skills/typesafe-ai/SKILL.md ；上游 https://raw.githubusercontent.com/typesafe-ai/skills/main/skills/typesafe-ai/SKILL.md 。
 
 **官方原文**：
 
@@ -124,7 +124,7 @@ TypeSafe 文档站现在用 llms.txt 里的新路径，用户给的旧路径（�
 
 ### 1.4 与旧笔记的差别
 
-旧笔记 /Users/alexnear/Documents/claude-mods/.claude/worktrees/dp-rewrite/docs/research/typesafe-question-guide.md（整理日期 2026-10-04）里没有 "truth table" 或 "wrong layer"（grep 无命中），并且它的 effort 示例问题写成 "Which is the cheapest tier that can complete this coding task well?"（引自笔记第 824 行附近的 jev-pilot 引用）。**推断**：旧笔记早于 skill 0.6.2（2026-10-23）。活文档在以下方面与旧笔记写作时不同或需要重新核对：（a）文档路径已改（见开头）；（b）skill 多了这一节；（c）更新日志现在只列到 Jev 1.14（2026-10-14）。
+旧笔记 .claude/worktrees/dp-rewrite/docs/research/typesafe-question-guide.md（整理日期 2026-10-04）里没有 "truth table" 或 "wrong layer"（grep 无命中），并且它的 effort 示例问题写成 "Which is the cheapest tier that can complete this coding task well?"（引自笔记第 824 行附近的 jev-pilot 引用）。**推断**：旧笔记早于 skill 0.6.2（2026-10-23）。活文档在以下方面与旧笔记写作时不同或需要重新核对：（a）文档路径已改（见开头）；（b）skill 多了这一节；（c）更新日志现在只列到 Jev 1.14（2026-10-14）。
 
 ---
 
@@ -392,7 +392,7 @@ Drex 部分的页面（**官方原文**，llms.txt）：Overview、Quickstart、
 - 模型：models、model-jaggedness、changelog、agent-skill。
 - 跳过：sdk/*、api/*（接口参考，不涉及问题写法）、legal；其余未读 cookbook 见第 3 节末尾。
 - 抓取了但只做了全文关键词搜索（"truth table"、"wrong layer"、"judgment"、"which model"、"reasoning effort"、"difficulty"、"router" 等）：上面所有 .md 页。
-- GitHub：https://github.com/typesafe-ai/skills （标签、提交、`v0.5.7` 与 `main` 的 `SKILL.md`、`plugin.json`、`marketplace.json`）；本机 /Users/alexnear/.claude/plugins/marketplaces/typesafe-ai （git log 与 marketplace.json）。
+- GitHub：https://github.com/typesafe-ai/skills （标签、提交、`v0.5.7` 与 `main` 的 `SKILL.md`、`plugin.json`、`marketplace.json`）；本机 ~/.claude/plugins/marketplaces/typesafe-ai （git log 与 marketplace.json）。
 
 ### Nace（2026-11-18 抓取）
 

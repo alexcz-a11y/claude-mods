@@ -6,7 +6,7 @@ README 写给使用者；这里写代码怎么划分、测试怎么写、实测�
 
 ```
 dispatch-pilot/
-  .claude-plugin/plugin.json   清单和 userConfig（数值选项不声明 min/max，范围在 readConfig 里夹）
+  .claude-plugin/plugin.json   清单和 userConfig（除了两个密钥，都是开关或带 options 的列表；见「选项」）
   hooks/hooks.json             {"modules": ["./dispatch-pilot.ts"]}
   hooks/dispatch-pilot.ts      入口：register 和每个 on(...)，每个 hook 里各功能动手的先后
   hooks/runtime.ts             各 flow 共用的、碰 $ 的部分：trace、failOpen、ioOf、record、amendSent、redraw、verifies、firstDraw
@@ -17,17 +17,17 @@ dispatch-pilot/
   hooks/flows/midrun.ts        session.append 的每一行：检查点、判断、说明行
   hooks/flows/progress.ts      进展记录的在途调用
   hooks/flows/readout.ts       http.fetch 上读实际档位
-  hooks/config.ts              readConfig(options)
+  hooks/config.ts              readConfig(options)；OPTION_BARS（哪些门槛是选项）、optionKey（门槛选项的键）
   hooks/levels.ts              档位、模型层级
-  hooks/questions.ts           所有题的措辞和门槛表（START、START_SKILL_BARS、CALIBRATED）
-  hooks/decide.ts              decide、读是非题、发消息/中途/agent 的读法，thresholdsFor（按后端和模型查门槛表）
+  hooks/questions.ts           所有题的措辞和门槛：起步值（START、START_SKILL_BARS）和选项的默认值（DEFAULT_BARS）
+  hooks/decide.ts              decide、读是非题、发消息/中途/agent 的读法（门槛作为参数传进来）
   hooks/statebuild.ts          三种 state、估 token、截断、fitState
   hooks/backend.ts             ask(io, …)：Drex、Jev、核对回答、时限、fallback
   hooks/journal.ts             从 session.append 的行里读出一轮的依据
   hooks/midrun.ts              检查点、限制、说明行
   hooks/submit.ts              发消息时的读法和 ownLevel（mod 在这一步写的档位）
   hooks/agents.ts              settleSpawn：agent 的模型、effort 和决策记录；记下的 agent 类型（knownType、learnType）
-  hooks/skills.ts              解析 skill 列表、合并候选、两步问法、find-skill 的回答，skillBarsFor（skill 的门槛）
+  hooks/skills.ts              解析 skill 列表、合并候选、两步问法、find-skill 的回答
   hooks/readout.ts             从请求体读实际档位、认主循环的请求
   hooks/progress.ts            进展记录的提示词和解析
   hooks/log.ts                 决策记录、/dp 的文字版
@@ -37,7 +37,7 @@ dispatch-pilot/
   hooks/board/board.tsx        registerBoard(on, cfg)：三个 ui.render hook、面板的 ui.close hook
   skills/find-skill/SKILL.md
   types/index.d.ts             PluginState 契约（自成一体，不能 import；hooks/state.ts 里有一处编译期核对两边一致）
-  eval/validate.ts             静态检查（scripts/check.sh 会跑）
+  eval/validate.ts             静态检查（scripts/check.sh 会跑），清单的选项按 eval/lib/manifest.ts 核对
   eval/                        校准工具、模型写的用例、校准记录和官方要求的清单（见「校准工具」）
   tests/support/world.ts       测试里垫在 mod 下面的引擎
   tests/support/rows.ts        按引擎的样子造 session.append 的行
@@ -54,7 +54,14 @@ dispatch-pilot/
 - **入口** `hooks/dispatch-pilot.ts`：只有 `register` 和每个 `on(...)`，每个 hook 里是各功能动手的先后顺序。它不直接调 `$.`，也不读写状态。
 - flow 只在真的调用时才导入别的 flow（midrun → progress，submit → skills），不能成环。
 
-`eval/validate.ts` 检查：hooks 模块里没有 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send`、`classic.*` 的注册，也没有 `$.tool.register`（不为脚本内部的每次调用发决策请求、做决定）；同一个 state key 的 atom 声明在各文件里逐字相同；`docs/research/board-scenes/hooks/scenes-data.ts` 和 `tests/support/scenes.ts` 一字不差。
+`eval/validate.ts` 检查：hooks 模块里没有 `tool.call`、`tool.check`、`tool.run`、`tool.judge`、`agent.offer`、`session.send`、`classic.*` 的注册，也没有 `$.tool.register`（不为脚本内部的每次调用发决策请求、做决定）；同一个 state key 的 atom 声明在各文件里逐字相同；`docs/research/board-scenes/hooks/scenes-data.ts` 和 `tests/support/scenes.ts` 一字不差；清单的每个选项都合「选项」一节的规矩（`optionProblems`）。
+
+## 选项
+
+- **默认值在哪里。** 门槛的默认值只在 `hooks/questions.ts` 的 `DEFAULT_BARS` 里（校准取定的值，`agent.down` 0.95，其余是起步值），别的选项的默认值在 `hooks/config.ts` 的 `readConfig` 里。清单 `.claude-plugin/plugin.json` 再写一遍，因为配置界面显示的是清单的默认值。`eval/validate.ts` 用 `eval/lib/manifest.ts` 的 `optionProblems` 核对两边（`tests/eval-manifest.test.ts` 测它的每条规矩）：`readConfig` 读清单的每个键，`Config` 里来自选项的每个字段（门槛按 `OPTION_BARS`）在清单里都有键；除了两个密钥，每个选项都是开关或带 `options` 的字符串，默认值在 `options` 里，`readConfig` 读出来和 `readConfig({})` 一样；每个可选值都原样读出（数值选项的字读成那个数，夹范围也不改它）；标题不超过 14 个字，说明不超过 70 个字。
+- **加一个选项。** 在 `Config` 和 `readConfig` 里加字段和默认值（数值用 `clamped`，它读字也读数）；门槛则在 `DEFAULT_BARS` 里有值、在 `OPTION_BARS` 里列出，键由 `optionKey` 拼成（`agent` 加 `modelDown` 是 `agentModelDown`）。清单里按界面的分组放进去：`type`、`title`、`description`，数值和模型写成 `"type": "string"` 加 `options`（每个 1 到 64 个字符）和其中一个 `default`。说明写这个选项做什么，门槛写清调高往哪边推，不写范围（列表就是范围）。`drexModel` 只有 `drex-max-v1.1` 一个可选值，因为门槛是在它上面校准的；换 Drex 版本就把新版本加进这个列表（并重新校准）。最后跑 `scripts/check.sh dispatch-pilot`。
+- **有意不做成选项的**（Ruling C43）：决定请求长什么样的数，state 的预算、`recent` 的条数、各字段的截断、skill 的短名单和每批的大小，因为改它们就改了校准问的请求，门槛要重扫；读作「否」的 `no`（不改任何决定，只用在面板上显示读法）和发消息、中途的 `modelDown`（没人读）；存储和绘制的尺寸；时限在两次请求之间的分配（fallback 的 60%，skill 第二次请求的最少剩余时间）。
+- **测试里的选项。** 测试工具像加载时那样校验 `test(..., { options })`：给带 `options` 的选项一个不在列表里的值（数字也算），会打一句「is not one of …; it reads as the default」，按默认值跑。所以经 `world` 的测试写列表里的字（`midrunEverySteps: '2'`、`agentDown: '0.70'`）；直接调 `readConfig` 的测试可以写数。
 
 ## 引擎规则（2.1.327 实测）
 
@@ -78,6 +85,11 @@ dispatch-pilot/
   - 在一个空目录里跑 `claude -p --setting-sources project`，用户自己的 hook 和设置都不会进来。
   - 保存一个 mod 目录下的文件，可能让正在跑的、用 `--plugin-dir` 加载它的会话热重载这个 mod。所以验收会话跑着的时候，mod 目录下什么也不写。
 - **同一请求里的题会互相影响**（Drex `drex-max-v1.1`，2026-11-19 校准时实测）：只把一道题（`direct`）的选项打乱顺序，按别的题读出来的决定 30 例里变了 6 例；去掉两道对照题之后，对一句光秃秃的「继续」，`open` 落在第 0 档的概率从约 0.5 变到 0.8。所以校准问的就是 mod 实际发的请求，请求里加一道题或去掉一道题，调整集都要重新问（见「校准工具」）。Nace 的 `drex-for-harness` skill 说 “questions in one request cannot read each other's answers.”（`eval/STANDARD.md` 的 S23），TypeSafe 文档也说同一请求里的题互不影响；在 Drex 上实测不是这样（Jev 没有测）。mod 发消息时的请求有两种：有候选 skill 时是档位题加 skill 第一次请求的题，校准问的是这一种；没有候选时（每个会话的第一条消息，skill 列表在它之后才到；`skills` 关着时的每条消息）只有档位题。后一种不在校准的取舍里，事后在调整集上作为观察问过（给法 `first-message`，Ruling C41）：10 例的决定和前一种全部相同，概率并不都相同；留出集没有用它问过（修订 A1）。
+- **选项在配置界面里**（2.1.328，2026-11-19 实测，一次加载了本 mod 的会话和一个探针 mod）：
+  - `/config` 里每个不敏感的选项是一行「<标题> · dispatch-pilot    <值>」，顺序就是清单里的顺序；没设过的选项显示清单的默认值（on / off、apply、8、haiku、4000 这样），哪种类型都一样。所以清单的顺序就是界面的顺序，打开一行之前用户只看得到标题：标题要短，门槛的标题以判断开头（「发消息 · 升档门槛」），一组读起来才是一组。官方的清单说明只说 `title` 是配置对话框里的标签、`description` 是字段下面的帮助文字，没写长度限制，也没有分组。
+  - `/plugin` 里 mod 的 Configure：布尔显示默认值（true）；带 `options` 的字符串显示默认值，用 ←/→ 换；`number`（写不写 min/max 都一样）和普通字符串没设时是空的，不管 `default` 写了什么。所以除了密钥，选项都写成开关或带 `options` 的字符串（Ruling C44）。
+  - 存下的值不在列表选项的 `options` 里（数字也算）时，启动时有一句提示「option X in settings is not one of …; it reads as the default, …」，mod 照常加载，用默认值。
+  - 给 `number` 存了不是数的值、存了超过 `max` 的数，或者给普通字符串存了不是字符串的值，mod 不加载：「hooks module did not load: options do not fit plugin.json userConfig」。所以清单不写 min/max，范围在 `readConfig` 里夹。
 - 挂了 `ui.render`（AbovePrompt、SessionMode）、`http.fetch` 和 `agent.spawn` 的 mod 不挡 Code Mode。加载成功时调试日志里是 `hooks module dispatch-pilot@inline loaded … events: session.start,command.run,prompt.submit,prompt.attachment,skill.prompt,turn.start,turn.step,agent.spawn,session.append,turn.complete,http.fetch`。
 
 ## Code Mode 一轮里的行
@@ -94,7 +106,7 @@ dispatch-pilot/
 - 带着结果的 delivery 行之后，同一条 queue 行会再出现一次。
 - 一轮进行中打的那条消息这一次排队到这一轮结束（它的 `prompt.submit`、prompt 行和 `turn.start` 都在 `turn.complete` 之后），一轮中途没有见到 prompt 行。这是会话的第一轮；另一种走法（送进进行中的这一轮）见「引擎规则」里「一轮进行中打的消息有两种走法」。
 
-mod 怎么归类这些行（`journal.ts` 的 `kindOf`）：主循环的 `REPL` 结果行只写着 `(dispatched #N)` 时是 `receipt`，不算一份结果，但第一次见到它就把会话当作 Code Mode 会话；不是 receipt 的 `REPL` 结果行（被拒或出错）当作普通的工具结果。`Poll` 结果行里有脚本的 `<result>` 或 `<error>` 时是 `script-result-poll`；`delivery` 行里有时是 `script-result-delivery`，别的非空内容是 `delivered-input`；`role` 缺省的 tool-result 行是脚本内部的调用（`inner-call`），只记工具名和报错标记；prompt 行是 `new-input`。普通会话里一次回答并行调了几个工具时，第一条 `tool-result` 结束这一步，下一条回答（`assistant`）之前的其余结果并进同一条 `StepRecord`（`TurnJournal.joins` 记着可以并进的那一步和它之前的连续失败数），不再给 `workSteps`、`failedSteps`、`consecutiveFailures` 计数；这样的结果只有把这一步变成失败时才可能是检查点（`planRow`），也只按失败成簇算。上次换挡之后不足 3 个工作步时（`gapOk`），结果行（`tool-result`、两种 `script-result`）不是检查点：`applyShift` 反正会拒绝这时的换挡，问了只会把行按住最多 `midrunTimeoutMs`；新输入（`new-input`、`delivered-input`）照问，它的评估照样记下、在看板上作上次评估，只是换挡同样被间隔拒绝。看板的「下次评估」按 `gapLeft` 数到间隔过了的那一份结果。说明只加在 `receipt`、`script-result-poll` 和普通工具结果这类行上：`delivery` 行带不了换档（E13），排在那里的说明留给之后第一条能带的行。
+mod 怎么归类这些行（`journal.ts` 的 `kindOf`）：主循环的 `REPL` 结果行只写着 `(dispatched #N)` 时是 `receipt`，不算一份结果，但第一次见到它就把会话当作 Code Mode 会话；不是 receipt 的 `REPL` 结果行（被拒或出错）当作普通的工具结果。`Poll` 结果行里有脚本的 `<result>` 或 `<error>` 时是 `script-result-poll`；`delivery` 行里有时是 `script-result-delivery`，别的非空内容是 `delivered-input`；`role` 缺省的 tool-result 行是脚本内部的调用（`inner-call`），只记工具名和报错标记；prompt 行是 `new-input`。普通会话里一次回答并行调了几个工具时，第一条 `tool-result` 结束这一步，下一条回答（`assistant`）之前的其余结果并进同一条 `StepRecord`（`TurnJournal.joins` 记着可以并进的那一步和它之前的连续失败数），不再给 `workSteps`、`failedSteps`、`consecutiveFailures` 计数；这样的结果只有把这一步变成失败时才可能是检查点（`planRow`），也只按失败成簇算。上次换挡之后不足 `midrunShiftGap` 个工作步（默认 3）时（`gapOk`），结果行（`tool-result`、两种 `script-result`）不是检查点：`applyShift` 反正会拒绝这时的换挡，问了只会把行按住最多 `midrunTimeoutMs`；新输入（`new-input`、`delivered-input`）照问，它的评估照样记下、在看板上作上次评估，只是换挡同样被间隔拒绝。看板的「下次评估」按 `gapLeft` 数到间隔过了的那一份结果。说明只加在 `receipt`、`script-result-poll` 和普通工具结果这类行上：`delivery` 行带不了换档（E13），排在那里的说明留给之后第一条能带的行。
 
 ## 设计 3.2 节的实测（E1 到 E18）
 
@@ -190,14 +202,14 @@ E1 到 E9 是 2.1.326（2026-11-17），E6 和 E10 到 E18 是 2.1.327（2026-11
   - `check-cases`：每个用例、每类 15 例的配额、同一会话的用例在四类里都在同一组。
   - `plan --set tune|fit|check|heldout [--variant <名字>|all]… [--repeat <n>]`：还有哪些请求没问过、要花多少；不发请求。
   - `ask --set tune|fit|check [--variant <名字>|all]… [--repeat <n>] [--concurrency <n>] [--retry-failed]`：只发还没有回答的请求（按请求的 hash 认），每发一个之前先查预算（`eval/lib/budget.ts` 的 `CAP`：2000 次请求、3000 万估算的输入 token）。
-  - `ask --set heldout --final`：留出集只问这一次，登记过的给法一次发完，写下 `heldout-done` 之后不再发；中途停下的可以带 `--final` 接着发没回答的（裁定 C3）。
+  - `ask --set heldout --final`：留出集只问这一次，登记在它之前的给法一次发完（`afterHeldout` 的给法，例如 `first-message`，登记在这一次之后，不发；`score --set heldout` 对它写明在留出集上没有问过），写下 `heldout-done` 之后不再发；中途停下的可以带 `--final` 接着发没回答的（裁定 C3）。
   - `smoke`：用一例模型写的用例发一个请求，逐项核对状态码、回答的 `model`、每道题的编号、类型和选项名，不通过就以 1 退出（修订 A4）。
   - `score --set fit|check|tune|heldout [--bars start|<文件>] [--variant <名字>]`：判分；`heldout` 要等 `heldout-done` 存在才读。
   - `sweep --path <submit.up|…|skill.fits> [--bars start|<文件>]`：在 `fit` 上扫一个门槛，其余不动；打出对得最多的那一段、它保守的一端，以及按记录的规则（修订 A14、A15、A3）从初值取的值。
   - `stability [--set …] [--bars start|<文件>] [--variant <名字>]`：同一请求的三遍里决定不一样的用例。
-  - `score` 和 `stability` 默认按 mod 给 `drex-max-v1.1` 的门槛读（`hooks/questions.ts` 的表，`eval/lib/read.ts` 的 `CHOSEN_BARS`）；`--bars start` 按初值读；`--bars <文件>` 是一个 JSON 文件里的值盖在初值上。`sweep` 从初值起扫。
-- **`eval/notes.ts`**：`node dispatch-pilot/eval/notes.ts [--data <dir>] [--dry-run] [--only <用例>] [--force]`。给中途的用例写两份进展记录（截至上一步的、含最新一步的），写回用例所在的文件。用的是 mod 自己的提示词和解析，由 `claude -p --model haiku --setting-sources project` 回答，每次调用在 `/private/tmp/dp-notes` 下一个新的空目录里跑，环境去掉遥测变量和 `NACE_API_KEY`；调用结束（或被中断）时删掉这个目录，也删掉 Claude Code 在 `~/.claude/projects/` 下给它写的会话记录（名字以 `-private-tmp-dp-notes-call-` 开头的文件夹，里面是清理过的真实会话文字）；这不是 mod 自己的调用路径（`$.model.complete`），记录里写明了。`--dry-run` 只报要写几份和第一份提示词，什么也不调。
-- **`eval/accept/run.ts`**：`node dispatch-pilot/eval/accept/run.ts --task <id> --arm on|off --mode code|ordinary [--model <模型>] [--data <dir>] [--work <dir>] [--max-minutes <n>] [--dry-run]`。一次验收运行：把 `eval/accept/tasks/<id>/project` 复制到工作目录（默认 `/private/tmp/dp-accept`，路径里不能有用户名，因为 mod 会把会话的工作目录发给决策模型），在 tmux（server `dpacc`）里起一个用 `--plugin-dir` 加载本 mod 的交互会话，发出任务的 prompt，等这一轮结束，再跑任务的 `check.sh`，从这个会话自己的记录读用量、每次请求带的档位和换挡，往 `<数据目录>/accept.jsonl` 追加一行。会话、设置文件（Nace 的密钥只写在这里，0600）和工作目录在结束、失败和收到 SIGINT、SIGTERM、SIGHUP 时都删掉；设置文件在会话一结束、跑 `check.sh` 之前就删。跑具留下两样东西，校准做完后要手工删：Claude Code 在 `~/.claude/projects/` 下给每个会话写的记录（以运行目录命名的文件夹，`-private-tmp-dp-accept-…`），这是读出用量和档位的依据，里面只有编出来的任务；mod 的 store（`~/.claude/plugins/store/dispatch-pilot_inline-*.json`）的 log 里这些会话的决策。一行里从 mod 的 `$.store` 数出来的中途决策数在几个会话同时跑时不准，不要用。任务在 `eval/accept/tasks/<id>/`：`project/`、`prompt.txt`、`check.sh`（隐藏的检查）、`meta.json`、`solution.patch`。
+  - `score` 和 `stability` 默认按选项的默认值读（`eval/lib/read.ts` 的 `CHOSEN_BARS`，就是 `readConfig({}).bars`），也就是 mod 不设选项时的读法；`--bars start` 按初值读；`--bars <文件>` 是一个 JSON 文件里的值盖在初值上。`sweep` 从初值起扫。
+- **`eval/notes.ts`**：`node dispatch-pilot/eval/notes.ts [--data <dir>] [--dry-run] [--only <用例>] [--force]`。给中途的用例写两份进展记录（截至上一步的、含最新一步的），写回用例所在的文件。用的是 mod 自己的提示词和解析，由 `claude -p --model haiku --setting-sources project` 回答，每次调用在 `/private/tmp/dp-notes` 下一个新的空目录里跑，环境去掉遥测变量和 `NACE_API_KEY`；调用结束（或被中断）时删掉这个目录，也删掉 Claude Code 在 `~/.claude/projects/` 下给它写的会话记录（名字以 `-private-tmp-dp-notes-call-` 开头的文件夹，里面是清理过的真实会话文字）；这不是 mod 自己的调用路径（`$.model.complete`），记录里写明了。校准 12:33 那次的 63 次调用是在删记录这一步加上之前跑的，它们留下的会话记录文件夹 2026-11-19 手工删掉了。`--dry-run` 只报要写几份和第一份提示词，什么也不调。
+- **`eval/accept/run.ts`**：`node dispatch-pilot/eval/accept/run.ts --task <id> --arm on|off --mode code|ordinary [--note on|off] [--model <模型>] [--data <dir>] [--work <dir>] [--max-minutes <n>] [--dry-run]`。一次验收运行：把 `eval/accept/tasks/<id>/project` 复制到工作目录（默认 `/private/tmp/dp-accept`，路径里不能有用户名，因为 mod 会把会话的工作目录发给决策模型），在 tmux（server `dpacc`）里起一个用 `--plugin-dir` 加载本 mod 的交互会话，发出任务的 prompt，等这一轮结束，再跑任务的 `check.sh`，从这个会话自己的记录读用量、每次请求带的档位和换挡，往 `<数据目录>/accept.jsonl` 追加一行。设置文件按清单的样子写：先是清单的每个默认值（列表选项是字），再盖上这次运行自己的几项；`--note` 定进展记录开不开，不给时取清单的默认值（现在是开），`--dry-run` 打出它，每一行带 `progressNote`。之前记下的 16 行没有这个字段，它们都关着进展记录，读的时候按关着算（`ranWithNote`），文件不改。会话、设置文件（Nace 的密钥只写在这里，0600）和工作目录在结束、失败和收到 SIGINT、SIGTERM、SIGHUP 时都删掉；设置文件在会话一结束、跑 `check.sh` 之前就删。跑具留下两样东西，校准做完后要手工删：Claude Code 在 `~/.claude/projects/` 下给每个会话写的记录（以运行目录命名的文件夹，`-private-tmp-dp-accept-…`），这是读出用量和档位的依据，里面只有编出来的任务；mod 的 store（`~/.claude/plugins/store/dispatch-pilot_inline-*.json`）的 log 里这些会话的决策。一行里从 mod 的 `$.store` 数出来的中途决策数在几个会话同时跑时不准，不要用。任务在 `eval/accept/tasks/<id>/`：`project/`、`prompt.txt`、`check.sh`（隐藏的检查）、`meta.json`、`solution.patch`。
 
 **私有数据目录** `~/.config/dispatch-pilot/calibration/`（目录 0700，不在仓库里，也不能进仓库：仓库是公开的）：
 
