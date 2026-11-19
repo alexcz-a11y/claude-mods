@@ -10,7 +10,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { optionProblems } from './lib/manifest.ts'
+import { CHANGED } from '../tests/support/option-changes.ts'
+import { changeProblems, optionProblems } from './lib/manifest.ts'
 
 const hooksDir = fileURLToPath(new URL('../hooks/', import.meta.url))
 
@@ -70,9 +71,11 @@ if (!existsSync(scenesCopy) || readFileSync(scenesCopy, 'utf8') !== readFileSync
 const manifestPath = fileURLToPath(new URL('../.claude-plugin/plugin.json', import.meta.url))
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { userConfig?: Record<string, unknown> }
 for (const p of optionProblems(manifest.userConfig ?? {})) found.push(`.claude-plugin/plugin.json userConfig: ${p}`)
+// Each option's proof that changing it changes what the mod does (tests/options-effect.test.ts): one per option.
+for (const p of changeProblems(manifest.userConfig ?? {}, CHANGED)) found.push(`.claude-plugin/plugin.json userConfig: ${p}`)
 
 if (found.length > 0) {
   console.error(found.join('\n'))
   process.exit(1)
 }
-console.log(`dispatch-pilot: ${files.length} hook files, none registers tool.call or its kin; ${atoms.size} atom keys, each declared alike; the probe's scenes are the tests' own; ${Object.keys(manifest.userConfig ?? {}).length} options, each a switch or a picker (but the keys) read with the code's default`)
+console.log(`dispatch-pilot: ${files.length} hook files, none registers tool.call or its kin; ${atoms.size} atom keys, each declared alike; the probe's scenes are the tests' own; ${Object.keys(manifest.userConfig ?? {}).length} options, each a switch or a picker (but the keys) read with the code's default and changed in tests/options-effect.test.ts`)

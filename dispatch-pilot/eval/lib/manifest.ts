@@ -68,16 +68,48 @@ function specProblems(key: string, spec: Spec, base: Config, baseText: string): 
   return out
 }
 
+/** The keys of every option readConfig reads: Config's fields but the bars, then each threshold option (OPTION_BARS). */
+export function optionKeys(): string[] {
+  return [
+    ...Object.keys(readConfig({})).filter((k) => k !== 'bars'),
+    ...Object.entries(OPTION_BARS).flatMap(([group, fields]) => fields.map((f) => optionKey(group, f))),
+  ]
+}
+
+/**
+ * What is wrong with the values tests/options-effect.test.ts changes the options to (tests/support/option-changes.ts):
+ * every option has one and nothing else does; a switch flipped, a picker's other choice, a key that is one; null only
+ * for a picker with a single choice.
+ */
+export function changeProblems(userConfig: Record<string, unknown>, changed: Record<string, unknown>): string[] {
+  const out: string[] = []
+  for (const [key, raw] of Object.entries(userConfig)) {
+    if (!(key in changed)) {
+      out.push(`${key}: no changed value in tests/support/option-changes.ts`)
+      continue
+    }
+    const spec: Spec = raw !== null && typeof raw === 'object' ? (raw as Spec) : {}
+    const v = changed[key]
+    const options = Array.isArray(spec.options) ? (spec.options as unknown[]) : null
+    if (v === null) {
+      if (options === null || options.length !== 1) out.push(`${key}: null, but it has other choices`)
+    } else if (v === spec.default) out.push(`${key}: the changed value ${shown(v)} is its default`)
+    else if (spec.sensitive === true) {
+      if (typeof v !== 'string' || v === '') out.push(`${key}: the changed value ${shown(v)} is no key`)
+    } else if (spec.type === 'boolean') {
+      if (typeof v !== 'boolean') out.push(`${key}: the changed value ${shown(v)} is not a switch's`)
+    } else if (options === null || !options.includes(v)) out.push(`${key}: the changed value ${shown(v)} is not one of its options`)
+  }
+  for (const key of Object.keys(changed)) if (!(key in userConfig)) out.push(`${key}: in tests/support/option-changes.ts but not an option`)
+  return out
+}
+
 /** What is wrong with these userConfig entries, one line each; empty when nothing is. */
 export function optionProblems(userConfig: Record<string, unknown>): string[] {
   const base = readConfig({})
   const baseText = JSON.stringify(base)
   const out: string[] = []
   for (const [key, raw] of Object.entries(userConfig)) out.push(...specProblems(key, raw !== null && typeof raw === 'object' ? (raw as Spec) : {}, base, baseText))
-  const keys = [
-    ...Object.keys(base).filter((k) => k !== 'bars'),
-    ...Object.entries(OPTION_BARS).flatMap(([group, fields]) => fields.map((f) => optionKey(group, f))),
-  ]
-  for (const key of keys) if (!(key in userConfig)) out.push(`${key}: a Config field with no option`)
+  for (const key of optionKeys()) if (!(key in userConfig)) out.push(`${key}: a Config field with no option`)
   return out
 }

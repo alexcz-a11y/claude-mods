@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { OPTION_BARS, optionKey, readConfig } from '../hooks/config.ts'
-import { DESCRIPTION_MAX, TITLE_MAX, optionProblems } from '../eval/lib/manifest.ts'
+import { DESCRIPTION_MAX, TITLE_MAX, changeProblems, optionProblems } from '../eval/lib/manifest.ts'
 
 const SECRET = ['drexApiKey', 'jevApiKey']
 
@@ -84,4 +84,24 @@ test(`optionProblems：标题最多 ${TITLE_MAX} 个字，说明最多 ${DESCRIP
     'backend: no title',
     'fallback: no description',
   ])
+})
+
+test('changeProblems：每个选项都要有改过去的值，值是它别的可选值；只有一个可选值的写 null；没有多出的键', () => {
+  const u = {
+    a: { type: 'boolean', default: true },
+    b: { type: 'string', options: ['x', 'y'], default: 'x' },
+    c: { type: 'string', options: ['only'], default: 'only' },
+    k: { type: 'string', default: '', sensitive: true },
+    d: { type: 'string', options: ['x', 'y'], default: 'x' },
+  }
+  expect(changeProblems(u, { a: false, b: 'y', c: null, k: 'key' , d: 'y' })).toEqual([])
+  expect(changeProblems(u, { a: true, b: 'z', c: 'only', k: 5, e: 'y' })).toEqual([
+    'a: the changed value true is its default',
+    'b: the changed value "z" is not one of its options',
+    'c: the changed value "only" is its default',
+    'k: the changed value 5 is no key',
+    'd: no changed value in tests/support/option-changes.ts',
+    'e: in tests/support/option-changes.ts but not an option',
+  ])
+  expect(changeProblems(u, { a: false, b: null, c: null, k: 'key', d: 'y' })).toEqual(['b: null, but it has other choices'])
 })

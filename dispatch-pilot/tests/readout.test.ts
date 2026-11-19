@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import type { Engine, Plugin } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 import type { SessionAppendInput } from 'claude-code'
 
 import { boardModel } from '../hooks/board/model.ts'
@@ -11,6 +11,7 @@ import type { Decision } from '../hooks/log.ts'
 import { classify, modelBase, withSent } from '../hooks/readout.ts'
 import type { OpenStep } from '../hooks/readout.ts'
 import type { SessionState, TurnState } from '../hooks/state.ts'
+import { WATCHER, WIRE, viaWire } from './support/plugins.ts'
 import { scriptByDelivery, scriptByPoll } from './support/rows.ts'
 import { seedOf, standIn } from './support/standin.ts'
 import { KEYS, appendAll, complete, dp, drexOk, noul, score, spawn, start, step, submit, turnStart, turns, world } from './support/world.ts'
@@ -102,41 +103,6 @@ async function begin($: Engine) {
 
 const stepT1 = ($: Engine, index: number) => step($, { turnId: 't1', index, effort: 'medium' })
 
-/**
- * Sits above every mod (prepend) and answers each request with what next.trace says of the links beneath it: the
- * plugins whose hooks ran (x-links), and whether every one of them received the same request (x-same).
- */
-const WATCHER: Plugin = {
-  name: 'fetch-watcher',
-  tier: 'prepend',
-  register(on) {
-    on('http.fetch', async (_$, e, next) => {
-      // A $ call's chain answers { value } or { deny }.
-      const r = await next(e)
-      const v = r.value
-      if (v === undefined) return r
-      const received = next.trace.map((t) => JSON.stringify(t.received))
-      const same = received.every((x) => x === received[0])
-      return { value: { ...v, headers: { ...v.headers, 'x-links': next.trace.map((t) => t.plugin).join(','), 'x-same': String(same) } } }
-    })
-  },
-}
-
-/** Sends the request a test names ({ url, init } in the args) from its own $: the kit's own $ has no http. */
-const WIRE: Plugin = {
-  name: 'wire',
-  register(on) {
-    on('command.run', { command: 'wire' }, async ($, e) => {
-      const r = JSON.parse(e.args)
-      return { text: JSON.stringify(await $.http.fetch(r.url, r.init)) }
-    })
-  },
-}
-
-async function viaWire($: Engine, url: string, i?: unknown): Promise<{ status: number; ok: boolean; headers: Record<string, string>; text: string }> {
-  const r = await $.command.run({ command: 'wire', args: JSON.stringify({ url, init: i }), origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 120 } })
-  return JSON.parse(r.text ?? 'null')
-}
 
 // The readout of an engine request, driven directly, on support/standin.ts's stand-in $ seeded with the state an
 // engine-driven run left (the kit raises no http.fetch as the engine: DEVELOPMENT.md). leaked: where anything of a

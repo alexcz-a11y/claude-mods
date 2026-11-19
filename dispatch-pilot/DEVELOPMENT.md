@@ -61,6 +61,7 @@ dispatch-pilot/
 - **默认值在哪里。** 门槛的默认值只在 `hooks/questions.ts` 的 `DEFAULT_BARS` 里（校准取定的值，`agent.down` 0.95，其余是起步值），别的选项的默认值在 `hooks/config.ts` 的 `readConfig` 里。清单 `.claude-plugin/plugin.json` 再写一遍，因为配置界面显示的是清单的默认值。`eval/validate.ts` 用 `eval/lib/manifest.ts` 的 `optionProblems` 核对两边（`tests/eval-manifest.test.ts` 测它的每条规矩）：`readConfig` 读清单的每个键，`Config` 里来自选项的每个字段（门槛按 `OPTION_BARS`）在清单里都有键；除了两个密钥，每个选项都是开关或带 `options` 的字符串，默认值在 `options` 里，`readConfig` 读出来和 `readConfig({})` 一样；每个可选值都原样读出（数值选项的字读成那个数，夹范围也不改它）；标题不超过 14 个字，说明不超过 70 个字。
 - **加一个选项。** 在 `Config` 和 `readConfig` 里加字段和默认值（数值用 `clamped`，它读字也读数）；门槛则在 `DEFAULT_BARS` 里有值、在 `OPTION_BARS` 里列出，键由 `optionKey` 拼成（`agent` 加 `modelDown` 是 `agentModelDown`）。清单里按界面的分组放进去：`type`、`title`、`description`，数值和模型写成 `"type": "string"` 加 `options`（每个 1 到 64 个字符）和其中一个 `default`。说明写这个选项做什么，门槛写清调高往哪边推，不写范围（列表就是范围）。`drexModel` 只有 `drex-max-v1.1` 一个可选值，因为门槛是在它上面校准的；换 Drex 版本就把新版本加进这个列表（并重新校准）。最后跑 `scripts/check.sh dispatch-pilot`。
 - **有意不做成选项的**（Ruling C43）：决定请求长什么样的数，state 的预算、`recent` 的条数、各字段的截断、skill 的短名单和每批的大小，因为改它们就改了校准问的请求，门槛要重扫；读作「否」的 `no`（不改任何决定，只用在面板上显示读法）和发消息、中途的 `modelDown`（没人读）；存储和绘制的尺寸；时限在两次请求之间的分配（fallback 的 60%，skill 第二次请求的最少剩余时间）。
+- **每个选项都有一项「改了就不一样」的测试。** `tests/options-effect.test.ts` 里每个选项一项：同一个场景跑两遍，一遍用默认值，一遍用 `tests/support/option-changes.ts` 给的另一个可选值，两遍看到的结果（定下的档位或模型、发没发请求、写没写记录、时限、开没开面板）不一样。`eval/validate.ts` 核对那个文件和清单一一对应、每个值都是这个选项另一个可选值（`changeProblems`），测试再核对每个键都有一项。加一个选项，就要在两处各加一项。`drexModel`、`jevModel` 只有一个可选值，没有别的值可换，测试里只核对发出去的就是它。
 - **测试里的选项。** 测试工具像加载时那样校验 `test(..., { options })`：给带 `options` 的选项一个不在列表里的值（数字也算），会打一句「is not one of …; it reads as the default」，按默认值跑。所以经 `world` 的测试写列表里的字（`midrunEverySteps: '2'`、`agentDown: '0.70'`）；直接调 `readConfig` 的测试可以写数。
 
 ## 引擎规则（2.1.327 实测）
@@ -89,6 +90,7 @@ dispatch-pilot/
   - `/config` 里每个不敏感的选项是一行「<标题> · dispatch-pilot    <值>」，顺序就是清单里的顺序；没设过的选项显示清单的默认值（on / off、apply、8、haiku、4000 这样），哪种类型都一样。所以清单的顺序就是界面的顺序，打开一行之前用户只看得到标题：标题要短，门槛的标题以判断开头（「发消息 · 升档门槛」），一组读起来才是一组。官方的清单说明只说 `title` 是配置对话框里的标签、`description` 是字段下面的帮助文字，没写长度限制，也没有分组。
   - `/plugin` 里 mod 的 Configure：布尔显示默认值（true）；带 `options` 的字符串显示默认值，用 ←/→ 换；`number`（写不写 min/max 都一样）和普通字符串没设时是空的，不管 `default` 写了什么。所以除了密钥，选项都写成开关或带 `options` 的字符串（Ruling C44）。
   - 存下的值不在列表选项的 `options` 里（数字也算）时，启动时有一句提示「option X in settings is not one of …; it reads as the default, …」，mod 照常加载，用默认值。
+  - 在 `/plugin` → Configure 里保存，会打出「Saved plugin options」和「dispatch-pilot: options changed — reloaded (12 hooks: …)」，正在跑的会话马上用新值：刚保存完，面板的功能一栏就是「中途换挡 关」「档位核对 关」，进展记录那一行变成「未生效 · 中途换挡关着」。对话框把 40 个键存在 `pluginConfigs["dispatch-pilot@inline"].options` 下，两个密钥不在里面。
   - 给 `number` 存了不是数的值、存了超过 `max` 的数，或者给普通字符串存了不是字符串的值，mod 不加载：「hooks module did not load: options do not fit plugin.json userConfig」。所以清单不写 min/max，范围在 `readConfig` 里夹。
 - 挂了 `ui.render`（AbovePrompt、SessionMode）、`http.fetch` 和 `agent.spawn` 的 mod 不挡 Code Mode。加载成功时调试日志里是 `hooks module dispatch-pilot@inline loaded … events: session.start,command.run,prompt.submit,prompt.attachment,skill.prompt,turn.start,turn.step,agent.spawn,session.append,turn.complete,http.fetch`。
 
