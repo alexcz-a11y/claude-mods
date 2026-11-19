@@ -77,7 +77,7 @@ dispatch-pilot/
   - `--settings` 文件里 `env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` 设成空字符串时，即使用户自己的设置打开了 Code Mode，会话也是普通会话（看板写「普通会话」）。
   - 在一个空目录里跑 `claude -p --setting-sources project`，用户自己的 hook 和设置都不会进来。
   - 保存一个 mod 目录下的文件，可能让正在跑的、用 `--plugin-dir` 加载它的会话热重载这个 mod。所以验收会话跑着的时候，mod 目录下什么也不写。
-- **同一请求里的题会互相影响**（Drex `drex-max-v1.1`，2026-11-19 校准时实测）：只把一道题（`direct`）的选项打乱顺序，按别的题读出来的决定 30 例里变了 6 例；去掉两道对照题之后，对一句光秃秃的「继续」，`open` 落在第 0 档的概率从约 0.5 变到 0.8。所以校准问的就是 mod 实际发的请求，请求里加一道题或去掉一道题，调整集都要重新问（见「校准工具」）。TypeSafe 文档说同一请求里的题互不影响，Drex 上不是这样（Jev 没有测）。
+- **同一请求里的题会互相影响**（Drex `drex-max-v1.1`，2026-11-19 校准时实测）：只把一道题（`direct`）的选项打乱顺序，按别的题读出来的决定 30 例里变了 6 例；去掉两道对照题之后，对一句光秃秃的「继续」，`open` 落在第 0 档的概率从约 0.5 变到 0.8。所以校准问的就是 mod 实际发的请求，请求里加一道题或去掉一道题，调整集都要重新问（见「校准工具」）。Nace 的 `drex-for-harness` skill 说 “questions in one request cannot read each other's answers.”（`eval/STANDARD.md` 的 S23），TypeSafe 文档也说同一请求里的题互不影响；在 Drex 上实测不是这样（Jev 没有测）。
 - 挂了 `ui.render`（AbovePrompt、SessionMode）、`http.fetch` 和 `agent.spawn` 的 mod 不挡 Code Mode。加载成功时调试日志里是 `hooks module dispatch-pilot@inline loaded … events: session.start,command.run,prompt.submit,prompt.attachment,skill.prompt,turn.start,turn.step,agent.spawn,session.append,turn.complete,http.fetch`。
 
 ## Code Mode 一轮里的行
