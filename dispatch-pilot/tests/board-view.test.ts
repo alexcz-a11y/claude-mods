@@ -143,7 +143,7 @@ test('各 part 的字符：五格、轨道、记号、概率条', () => {
 
 test('空闲的一行：会话设定的档位、上一轮结束在哪一档、下次评估在什么时候', () => {
   const [row] = timelineRows(idle, { columns: 120, isPaneOpen: false })
-  expect(rowText(row!)).toBe('▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 发出下一条消息时 · 说「继续」这类话会从上一轮的 high 起算')
+  expect(rowText(row!)).toBe('▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 发出下一条消息时 · 说「继续」这类话会沿用上一轮的 high')
   // The pane being open changes nothing between turns: the row is one already.
   expect(timelineRows(idle, { columns: 120, isPaneOpen: true }).map(rowText)).toEqual([rowText(row!)])
   // Where the reason does not fit, it goes whole and the next evaluation stays.
@@ -283,7 +283,7 @@ test('面板的各分区：现在、换挡记录、上次评估、下次评估�
   const between = sectionsOf(idle)
   expect(between.now).toEqual(['▮▮▯▯▯ medium', '– 空闲', '上一轮结束在 high', 'Code Mode 会话'])
   expect(between.last?.at(-1)).toBe('此前 · 第 13 步后 · Drex · 301 ms')
-  expect(between.next).toEqual(['发出下一条消息时', '说「继续」这类话会从上一轮的 high 起算'])
+  expect(between.next).toEqual(['发出下一条消息时', '说「继续」这类话会沿用上一轮的 high'])
 })
 
 test('时间轴各行在别的场景里：没核对、锁定、失败、后端出错', () => {
@@ -308,7 +308,7 @@ test('第一行最后是会话种类，行太长时最先去掉；空闲的那�
   // At 60 columns the notsent row is too long with it: the session's kind goes, the rest stays.
   expect(displayWidth('▮▮▮▯▯ high  ! 要 xhigh，实际发出 high   第 5 轮 · 第 8 步 · Code Mode 会话')).toBeGreaterThan(60)
   expect(first(notsent, 60)).toBe('▮▮▮▯▯ high  ! 要 xhigh，实际发出 high   第 5 轮 · 第 8 步')
-  expect(first(idle, 200)).toBe('▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 发出下一条消息时 · 说「继续」这类话会从上一轮的 high 起算 · Code Mode 会话')
+  expect(first(idle, 200)).toBe('▮▮▯▯▯ medium  – 空闲   上一轮结束在 high   下次评估 发出下一条消息时 · 说「继续」这类话会沿用上一轮的 high · Code Mode 会话')
   expect(sectionsOf(up).now?.[2]).toBe('第 7 轮 · 第 10 步 · Code Mode 会话')
   expect(sectionsOf(locked).now?.[2]).toBe('第 2 轮 · 第 5 步 · 普通会话')
   expect(sectionsOf(idle).now).toEqual(['▮▮▯▯▯ medium', '– 空闲', '上一轮结束在 high', 'Code Mode 会话'])

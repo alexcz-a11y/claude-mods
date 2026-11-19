@@ -633,12 +633,13 @@ test('skillBarsFor：两个后端都是起步值（扫门槛没有挪动 skill �
 test('readStageOne、readStageTwo 和 pickMany 按交给它们的门槛读', () => {
   const bars = skillBarsFor('drex', 'drex-max-v1.1')
   const ok = (answers: Record<string, Answer>): AskResult => ({ ok: true, answers, model: 'drex-max-v1.1', backend: 'drex', ms: 1 })
-  // The action answers' mean is 0.40: past the start bar 0.30, short of 0.50.
+  // The action answers' mean is 0.40: past the start bar 0.30, short of 0.45. The bar differs from named's 0.50, so
+  // the detail shows which bar it read.
   const gate = { acts_on_user_system: n(0.4), would_follow_documented_procedure: n(0.4), prose_suffices: n(0.6), named: n(0.1) }
   const first = ok({ skill_0: choice({ pdf: 0.7, 'anthropic-skills:xlsx': 0.2, other: 0.1 }), ...gate })
   expect(readStageOne([PDF, XLSX], first, true, bars)).toEqual({ short: [PDF, XLSX] })
-  const strict = readStageOne([PDF, XLSX], first, true, { ...bars, action: 0.5 })
-  expect('detail' in strict && strict.detail).toContain('0.50')
+  const strict = readStageOne([PDF, XLSX], first, true, { ...bars, action: 0.45 })
+  expect(strict).toEqual({ detail: '不需要 skill：动手题平均 0.40，点名题 0.10（分别低于 0.45、0.50）' })
   const second = ok({ which: choice({ pdf: 0.8, 'anthropic-skills:xlsx': 0.1, other: 0.1 }), fits_0: n(0.4), fits_1: n(0.1) })
   expect(readStageTwo([PDF, XLSX], second, bars)).toEqual({ skill: PDF, detail: '' })
   expect(readStageTwo([PDF, XLSX], second, { ...bars, fits: 0.5 })).toEqual({ skill: null, detail: '最合适的 fits 只有 0.40，低于 0.50' })

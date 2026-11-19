@@ -94,7 +94,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 - 它的对照表：路由或选一个有限的下一步动作，用 "`choice` over named destinations or actions"；评估质量、相关度、紧急度或风险，用 "`score` against concrete ordered levels"，代码 "apply reviewed thresholds"；同一 state 的几个方面，用同一请求里互相独立的题，代码 "Combine answers into policy"。
 - `score` 的档位："Describe concrete situations rather than vague labels when possible."
 - "Keep questions and thresholds reviewable in one module."、"Evaluate thresholds on representative data and consequences rather than copying a cookbook cutoff or another model's calibration."
-- 客户端要核对回答的 `model`："Compare the response `model` with the pinned id. A mismatch means a retired or mistyped id: log it as an error and handle the call as failed."（拼错或退役的 `drex-` id 会被别的版本回答，不报错。）还要核对每道题都带着要求的类型回来，失败时记 `request_id`，401、402、422 不重试。
+- 客户端要核对回答的 `model`："Compare the response `model` with the pinned id. A mismatch means a retired or mistyped id: log it as an error and handle the call as failed."（2026-11-19 更正：原先这里写拼错或退役的 `drex-` id 都会被别的版本回答、不报错。照现在的 models 页，拼错的 `drex-` id 返回 `422 invalid_request_error`，只有退役的 id 和别名由现行版本回答。）还要核对每道题都带着要求的类型回来，失败时记 `request_id`，401、402、422 不重试。
 - 等不起 60 秒的请求路径："a shorter total budget wins over the 60-second floor. It abandons slow requests, so treat its expiry like any other Drex failure."
 - 不是护栏的判断在 Drex 不可用时放行并记一行日志；失败不能和真实的「否」用同一个结果表示。
 - 换提供方：Drex 被设为默认提供方时，Drex 失败后新写的决策代码不得改调别家；"Keeping the existing provider path behind an explicit configuration switch is allowed, because a person selects it."
@@ -105,7 +105,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 - Score 的 `criteria` 是 2 到 10 档的有序数组，回答里有 `probabilities`。
 - "Ask one yes/no question per Noul."，高值表示「是」。
 - "Good starting thresholds are 0.7 and 0.3 ... Give the band between 0.3 and 0.7 its own outcome in code rather than rounding it to one side."，门槛随出错代价调整，用自己的数据测。
-- "Include only the context relevant to the current questions."。默认上限每次请求 64k、每题 32k。同一请求里的题互不影响。
+- "Include only the context relevant to the current questions."。默认上限每次请求 64k、每题 32k。同一请求里的题互不影响。（2026-11-19 校准时在 Drex `drex-max-v1.1` 上实测，那里不是这样：只把一道题的选项打乱顺序，按别的题读出来的决定 30 例里变了 6 例；去掉两道对照题之后，对一句光秃秃的「继续」，`open` 落在第 0 档的概率从约 0.5 变到 0.8。所以校准问的就是 mod 实际发的请求，见第 11 节第 39 条。Jev 上没有测。）
 - Choice 偏向排在前面的选项；用陪伴的 Noul 代替 "other" 选项。
 - `jev-latest` 现在指向 `jev-1.14.0`，别名会随新版移动；回答的 `model` 字段给出实际版本；调过门槛就该固定版本。
 - skill cookbook：第一次请求问一道 Choice（选项是各 skill 的说明）、三道「是否要动手」的 Noul 和一道「是否点名了方法」的 Noul；三道的均值不低于 0.30 或点名题不低于 0.50 才算需要 skill。第二次请求对前三名重排，并逐个问「这个 skill 是否正好做用户要的事」，最高分低于 0.30 就不推荐。
@@ -129,12 +129,12 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 - 参考答案可以由人标，也可以用强模型的回答，后者要写明（evals.typesafe.ai、verify_llm_outputs cookbook）。
 - 留出一部分用例不参与调整："pick the probability that best separates the two groups, and check it on pairs you didn't use to pick it."（basic_memory cookbook）；留出的那部分只在最后算一次分（autoresearch cookbook）。
 - "Start with conservative thresholds, test with your own data, and adjust as you observe results."、"Test thresholds by plotting confidence against accuracy on your data."、"Avoid fitting thresholds closely to a handful of test cases."（TypeSafe）。风险高的动作门槛更高，每种动作各有门槛。
-- Score："Choose examples with known expected levels, then test the revised descriptions on separate inputs before keeping them."（TypeSafe）；"try a score question on a few samples before you rely on it."（Nace）。
+- Score："Choose examples with known expected levels, then test the revised descriptions on separate inputs before keeping them."（TypeSafe）；"try a score question on a few samples before you rely on it."（Nace）。（2026-11-19 更正：这句出自 Nace 的 Langfuse 集成页，说的是那个适配器，不是在说 score 题的档位说明。）
 - 比较措辞时把每种写法作为同一请求里的不同题来问；逐条看回答，不只看汇总；保存每个用例的原始请求以便重跑（TypeSafe skill）。
 - 警示信号：criteria 里点名测试用例或每个失败用例加一句、为解释模型怪癖加说明、门槛贴着个别用例调、测试断言精确概率、代码悄悄改写回答（TypeSafe skill）。
 - Choice 的选项顺序会影响 Jev，换顺序复查（model-jaggedness）。
 - "Log the raw `noul` value with each decision, so you can move the threshold later and replay past traffic against the new one."、"don't treat 0.5 as the answer"、调门槛时固定模型（Nace）。
-- Nace 文档对用例数量、类别比例、标注方法没有说法；TypeSafe 文档没有规定用例格式和数量。
+- Nace 文档对用例数量、类别比例、标注方法没有说法；TypeSafe 文档没有规定用例格式和数量。（2026-11-19 更正：Nace 对用例数量有说法，在它官方的 `drexify` skill 里："Keep live evaluation small, tens of labeled examples per site, and say how many billable calls ran."。每类 15 例在 tens 的下沿。）
 - 向真实接口发测试请求前，先征得用户同意，说明预算、会发送哪些数据、用谁的密钥（TypeSafe skill）。
 
 **effort 和模型路由**
@@ -235,7 +235,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
   - 两边都不到，保持当前档。这就是文档说的中间带。
 - **条件类的判断**各用一道 `noul`，一题一个条件，高值表示「是」，`criteria.true` 和 `criteria.false` 都写成具体情形。起步的两道：「这项工作是不是照已知做法重复的机械改动」（是，则上限 `medium`）、「这项工作是不是要先查明一个原因未知的问题」（是，则下限 `high`）。读法用两个门槛，落在中间带时这一条不起作用。每道题都必须在表里有用处，没有用处的不问。
 - 门槛按后端、模型版本和动作各存一张表。初值：升档 0.7，降档 0.7（即文档的 0.7/0.3 起步），升到 `xhigh` 和 `max` 的门槛更高（初值 0.8），`noul` 用 0.7 和 0.3。初值只是起点，发布前校准（第 8 节）。 0.7 和 0.3 是 TypeSafe 文档给 Jev 的起步值；Nace 的 skill 要求门槛在自己的数据上定，不照搬别家模型的校准，所以 Drex 那张表在校准前只是占位，不当作 Nace 认可的值。
-- 一次判断的所有题放进同一次请求。
+- 一次判断的所有题放进同一次请求。同一请求里的题会互相影响（2026-11-19 校准时实测，见 3.4 节），所以门槛是跟着这一份请求校准的：请求里加一道题或去掉一道题，都要重新校准（第 11 节第 39 条）。
 - state 的写法（三处共用，各处的字段见 5.3 到 5.5 节）：
   - 带名字字段的对象，题目用反引号里的路径指向字段。
   - 只放和题有关的字段（TypeSafe："Include only the context relevant to the current questions."；Nace："Send only the fields the questions need."）。上限 4000 token，两家都不触发抽取或长上下文模式。各字段先按自己的预算截断；序列化之后仍超的（JSON 转义会多出字符），由发请求的那一处统一缩短最长的几个字段，直到放得下。
@@ -254,7 +254,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
   - `request`：用户这条消息。
   - `previous_turn`：上一轮用户说了什么、助手最后回了什么（各一小段）、怎么结束的（答完、报错、被打断）、用的档位。没有上一轮时不放。带它的理由：「还是不行」「继续」这类短消息离开上一轮没法判断。
 - 题：5.2 节的 `score` 题和两道条件题，加一道 `noul`「这条消息是否只是让助手继续它已经提出或正在做的工作」。
-- `current` 的取值：续做题为「是」时取上一轮的档位，否则取会话设定的档位。结果写进状态，由这一轮的每个 `turn.step` 发出。
+- 续做题为「是」并且上一轮的档位已知时，这一轮就用上一轮的档位，`open` 和两道条件题都不再挪动它（2026-11-19 校准定的，第 11 节第 36 条）；否则 `current` 取会话设定的档位，由 `open` 和条件题挪动。结果写进状态，由这一轮的每个 `turn.step` 发出。
 - 这条决定绑在它开始的那一轮上：引擎在 `prompt.submit` 的 `next(e)` 里开始这条消息的一轮（实测；`turn.start` 的 hook 在那里开始，可能在 `next(e)` 返回之后才结束，第 0 步等它），所以决定在 `next(e)` 之前写下；`turn.start` 只在它的文字和这条消息相同时留下决定，否则清掉；`next(e)` 回答 `drop` 时也清掉。对不上时宁可丢掉这次决定（等于放行），不会用到别的一轮上。
 - 发消息时没有定档的一轮（`submitShift` 关着，或者由通知、别的会话开始的一轮），第一步时把引擎带来的档位记作这一轮的基准档，所以这些轮照样有中途判断，看板也有档位可显示。
 - 用户用 `/dp lock` 锁了档位时不判断。
@@ -282,9 +282,9 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
   - `note`：按结果判断，不按助手自己的说法。
   - `request`：这一轮用户的请求。
   - `current_level`、`steps_so_far`、`failed_steps`：代码知道和数出来的。
-  - `recent`：最近 3 到 5 次脚本（普通会话里是最近几步），从早到晚，每次三项：做了什么（脚本自带的说明和调用过的工具）、成败、结果文字的头尾。
+  - `recent`：最近 5 次脚本（普通会话里是最近 5 步），从早到晚，每次三项：做了什么（脚本自带的说明和调用过的工具）、成败、结果文字的头尾。校准比过 1、3、5 次，保持 5 次。
   - `latest`：最新这一次，结果给得更长。
-  - `stated_next`：助手最近写的下一步打算，有才放，标明是它的说法。思考内容不放。
+  - 原先还有 `stated_next`（助手最近写的下一步打算）。2026-11-19 校准之后删掉了：调整集上带着它没有多对任何一例（第 11 节第 37 条）。思考内容从来不放。
   - `progress`：进展记录（5.13 节），开着并且已经有一份时才放。
 - 要换挡时，在这条结果行存下之前给它加一个 text 块（E5），下一步起每个 `turn.step` 发新档。说明是一行英文事实，例如 `[dispatch-pilot] effort is now high: the same test failed again after a fix.`，不带命令语气。
 - 限制：一轮最多加 4 条说明（`midrunMaxNotes`）；两次换挡至少隔 3 个工作步，这期间到达的结果行（工具结果、脚本结果）不触发评估（换不了档，问了只会按住那一行），新输入照常评估；一轮中途最高升到 `xhigh`，不升到 `max`；新档和当前档相同时不加说明。说明条数用完之后，脚本结果、步数和 `delivery` 行送进来的输入都不再触发评估（换挡要靠说明行才发得出去，问了也用不上）；作为 prompt 行进来的新输入照常评估，它的换挡不用说明、也不占条数。
@@ -446,7 +446,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 **用例**
 
 - 来源首选真实流量：本机 Claude Code 的会话记录，以及 mod 在 `shadow` 模式下记下的决策记录。手写或模型写的用例只用来补真实流量里缺的难例、边界例和反例，单独标记、单独报数，因为它们比真实请求容易。
-- 四类：发消息定档、中途换挡、agent 定档和模型、skill 推荐。每类都要有代表性的、难的、处在两档之间的，以及答案是「否」「保持不变」「不推荐任何 skill」的。文档没有规定数量；用户 2026-11-18 定每类 15 例，其中边界例和反例合计不少于三分之一。
+- 四类：发消息定档、中途换挡、agent 定档和模型、skill 推荐。每类都要有代表性的、难的、处在两档之间的，以及答案是「否」「保持不变」「不推荐任何 skill」的。文档页没有规定数量（Nace 的 `drexify` skill 说 "tens of labeled examples per site"，见 3.4 节的更正）；用户 2026-11-18 定每类 15 例，其中边界例和反例合计不少于三分之一。
 - 用例由 Fable 5.2 在 xhigh 档设计：从真实流量里挑，缺的类别由它补写并标明。设计时照 3.4 节两家的要求逐条核对。
 - 每类 15 例里 10 例用来调、5 例留出。这个量只够看出明显的差别：留出集上一例就是 20 个百分点。所以门槛只取保守的一端，对照（问法、上下文、进展记录）只在差别明显时才下结论，差别不明显的如实写「看不出」。
 - 一个用例存：mod 实际会发的完整请求（state 和题）、期望结果（期望档位或可接受的范围、是或否、期望的 skill 或「无」）、来源、难度、属于调整集还是留出集。回答原样存下来，重算门槛时不用再发请求。
@@ -458,13 +458,13 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 **调整和验收**
 
 - 用例分调整集和留出集。措辞和门槛只在调整集上改，每次改动都在没用来调的用例上复查；留出集只在最后算一次分，报告里的数字来自它。
-- 比较措辞时，把几种写法作为同一请求里的不同题，对同一个 state 问。逐条看回答，不只看汇总。Score 的各档说明先在几个样例上试，改写后在另一批输入上验证再留下。
-- 问法的对照：两家都没有 effort 路由的官方配方，Nace 的例题和它文档收录的社区实现用的又是直接选档位的写法。所以在调整集上把两种问法放进同一请求比较：默认的「问工作本身，代码查表」，和「一道题直接选档位，各选项的说明写成情形」。留出集上后者在某个后端明显更好时，才在那个后端换用，并把依据写进校准记录；否则保持默认。
-- `score` 题只量问题有多开放。要不要另加一道判断来管「连续很多步、中间没有人看着」的工作，看它在留出集上有没有用；没有用就不加。
-- 上下文的对照：同一批用例比较几种给法，留出集上没有改善的字段删掉。发消息时比带不带 `previous_turn`；中途比 `recent` 取 1、3、5 次，比带不带 `stated_next`。
+- 比较措辞时，每种写法各发一份和 mod 相同的请求，对同一个 state 问，各问 3 遍。逐条看回答，不只看汇总。（2026-11-19 更正：原先写的是把几种写法作为同一请求里的不同题来问；同一请求里的题会互相影响，见 3.4 节。）Score 的各档说明先在几个样例上试，改写后在另一批输入上验证再留下。
+- 问法的对照：两家都没有 effort 路由的官方配方，Nace 的例题和它文档收录的社区实现用的又是直接选档位的写法。所以在调整集上把两种问法放进同一请求比较：默认的「问工作本身，代码查表」，和「一道题直接选档位，各选项的说明写成情形」。后者在调整集上多对至少 2 例、并且 `check` 上不比默认差时，才在那个后端换用，并把依据写进校准记录；否则保持默认。（2026-11-19 更正：原先写的是看留出集；留出集不参与任何取舍，第 11 节第 40 条。）
+- `score` 题只量问题有多开放。要不要另加一道判断来管「连续很多步、中间没有人看着」的工作，照问法对照的同一条规则在调整集上定；没有用就不加（同上更正）。
+- 上下文的对照：同一批用例比较几种给法，调整集上没有改善的字段删掉（同上更正）。发消息时比带不带 `previous_turn`；中途比 `recent` 取 1、3、5 次，比带不带 `stated_next`。
 - 进展记录的对照（4.3 节）：同一批中途用例比三种，不带记录、带截至上一步的记录（做法 B）、带包含最新一步的记录（做法 C 的效果，离线可以算出来）。重点看「看似收尾」「批量机械」「卡住」这几类。结果和门槛一起报给用户，由用户定最终用哪一种、要不要加；选 C 意味着放宽中途的时限。
 - 中途的用例里，答案是「保持不变」的不少于一半。另报一个数：`midrunEveryScripts` 为 1 时，每个检查点上无谓换挡的比例。
-- 门槛从保守的初值起步。在调整集上画出概率和正确率的关系，按每种动作出错的代价定（升档、降档、换模型、推荐 skill 各自一张表），再到留出集上核对。一段很宽的门槛范围结果相同时取保守的一端。
+- 门槛从保守的初值起步。在调整集上画出概率和正确率的关系，按每种动作出错的代价定（升档、降档、换模型、推荐 skill 各自一张表），在 `fit` 上取、到 `check` 上核对（2026-11-19 更正：原先写的是到留出集上核对）。一段很宽的门槛范围结果相同时取保守的一端。
 - 不做的事：criteria 里点名用例或为每个失败用例加一句；为解释某次怪回答加说明；让门槛贴着个别用例；测试里断言精确概率（单元测试只用打桩的回答）；用代码悄悄改写回答。回答看着不对时按这个顺序查：实际发出的请求、state、选项、题的范围、措辞。
 - 稳定性：skill 的 Choice 把选项顺序打乱再问一遍，结果变了的用例单独列出；同一请求重复问，看决定会不会变。
 - 中途换挡的验收分两层。发没发出去：看 mod 记下的每次请求实际带的档位（5.12 节），这是确定的。有没有用：在真实任务上比较换挡和不换挡两种情况下这一轮的结果（做对没有、用了多少步和多少 token），不用单步的输出量或思考量来判断（E14）。看不出效果时如实写进校准记录并告诉用户，这项功能留不留由用户定。
@@ -517,7 +517,7 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 14. 最低版本提到 2.1.327。不注册 `tool.call`，依据只从结果行读。
 15. 运行时读实际发出的档位，`verifyEffort` 默认开（用户 2026-11-18 定）。我定的细节：只记录和显示，不一致时不重试；状态行显示实际的档位；agent 用 `lastRequest` 读一次；读不到时记「未核对」。
 16. 任何会话都不打开 OpenTelemetry，测试和校准也不开（用户 2026-11-18 定）。
-17. 中途的题、读法和上下文（5.4 节）是我 2026-11-18 提给用户的方案，用户已同意：四道中途专有的条件题；升档看分档题或 ①、④，降档要两个条件同时满足；把助手写的下一步打算发给决策模型，思考内容不发。
+17. 中途的题、读法和上下文（5.4 节）是我 2026-11-18 提给用户的方案，用户已同意：四道中途专有的条件题；升档看分档题或 ①、④，降档要两个条件同时满足；把助手写的下一步打算发给决策模型，思考内容不发（下一步打算在 2026-11-19 校准之后删掉了，第 11 节第 37 条）。
 18. 发消息时带上一轮的情况（`previous_turn`），我提的方案，用户已同意。
 19. 进展记录：用户 2026-11-18 选了先做后台写的那种（做法 B），最终用哪一种、要不要加，由找门槛的那轮测试对比后定。校准前开关默认关。
 20. 看板里我定的细节（5.14 节）：面板开着时时间轴只留 3 行；空闲时终端折成一行；「下次评估」按触发条件写而不是倒计时；「生效」的定义；面板的七个分区和顺序；`board` 开关。
@@ -563,3 +563,14 @@ dispatch-pilot 用 Claude 之外的决策模型替主 agent 定 effort、替派�
 33. **换挡间隔之内不问结果行。** 上次换挡之后不足 3 个工作步时换挡反正会被拒绝，工具结果和脚本结果的检查点就不问，免得把行按住；新输入照问，它的评估照样记下（5.4 节）。看板的「下次评估」按这条数（5.14 节）。
 34. **总开关关着就什么也不做。** `enabled` 关着时 hook 不读不写状态，看板不画，`/dp` 只回答 mod 关着；之前关着的 mod 照样在每一行和每一步上写状态、画时间轴（5.10 节）。
 35. **一条消息的 skill 决定由它的轮记下。** 2.1.328 实测 `prompt.submit` 的 `next(e)` 在 `turn.start` 的 hook 开始之后、可能在它结束之前返回，所以 skill 判断一直放着，直到同一段文字的 `turn.start` 带那一轮的 id 记下它；`prompt.submit` 只在消息被丢掉时记成没有轮，没有轮来取的在下一次 `prompt.submit` 开始时记成没有轮、未执行并放掉（那条消息有没有自己的判断都一样），每个判断只记一次（5.6 节）。
+
+### 校准定下的（2026-11-19）
+
+只校准了 Drex `drex-max-v1.1`（第 8 节），Jev 没有参加。用例、每一步的表和重算的命令在 `dispatch-pilot/eval/CALIBRATION.md`。
+
+36. **只说接着做的消息沿用上一轮的档位。** 续做题读作「是」并且上一轮的档位已知时，这一轮就是上一轮的档位，`open`、「机械改动」「原因未知」三道题都不再挪动它；续做题拿不准，或者不知道上一轮的档位时，照旧从会话设定的档位按 `open` 和条件题挪。上一轮的档位是代码知道的事，代码直接用；调整集上，在 mod 实际发的请求里，决策模型把一句光秃秃的「继续」读成「做法已经给定」（第 0 档），于是从 `xhigh` 降到了 `low`。这条是看过 `fit` 的两例之后定的（两例都变对），`check` 上没有变差，记录里写明了。代价：一句「继续」开始的工作比上一轮难时，这一轮停在上一轮的档位，只能靠中途换挡升上去；调整集里有上一轮的用例期望的都是上一轮的档位或旁边一档，看不出这一点（5.3 节）。
+37. **中途的 state 不再有 `stated_next`。** 调整集上带着它没有多对任何一例，照事先定的规则删掉；中途 state 的 `note` 里提到它的那句也删了（5.4 节）。
+38. **门槛只挪了一个。** Drex `drex-max-v1.1` 派出 agent 时降一档的门槛从 0.70 改到 0.95，其余都是初值（升档 0.7、升到 `xhigh` 和 `max` 0.8、降档 0.7、是非题 0.7 和 0.3、换模型 0.8；skill 的 0.3、0.5、0.3）。门槛的表和题一起放在 `hooks/questions.ts`（`thresholdsFor`、`skillBarsFor`），`hooks/decide.ts`、`hooks/skills.ts` 只留读法；别的 Drex 版本和 Jev 读初值。留出集没有证实这次改动：派出 agent 的留出 5 例在 0.70 下对 4 例，在 0.95 下对 2 例。按第 40 条，留出集的结果本身不改配置；改回 0.70 与否由用户定，还没有定。
+39. **校准问的就是 mod 实际发的请求。** 发消息时是档位题加 skill 第一次请求的题，中途和派 agent 时只有各自的题，都不带对照题；skill 的第一次请求也带着档位题。原因是实测同一请求里的题会互相影响（3.4 节）：只打乱一道题的选项顺序，按别的题读出来的决定 30 例里变了 6 例；去掉两道对照题，对一句光秃秃的「继续」，`open` 第 0 档的概率从约 0.5 变到 0.8。所以门槛是跟着这一份请求定的，请求里加一道题或去掉一道题，调整集都要重新问、门槛重新扫。比较措辞时也不再把新旧两种写法放进同一请求，而是各发一份和 mod 相同的请求，各问 3 遍。
+40. **判定的规则。** 跑之前定下的：问法、加题、删字段、`recent` 条数、门槛、稳定性和验收各有一条规则；所有取舍只在调整集上做，`fit` 上选、`check` 上确认；门槛按各自的网格扫，取对得最多的那一段里保守的一端，没有哪一例卡得住的门槛保留初值；留出集只问一次、只报数，它的结果本身不改任何配置。看过调整集上扫门槛的表之后才加的两条，记录里写明了：一个门槛的初值已经落在对得最多的那一段里时，保留初值（这一条只会让门槛留在初值，不会让它挪得更远）；同一类的两个门槛依次扫，不同时挪（派 agent 的降档门槛先挪，换模型的门槛在它之下再扫一遍，结果整个网格都一样，保留初值 0.80）。
+41. **没有改的，和还没定的。** 问法不换（直接选档位的问法、加一道「长时间无人看管」的题，在调整集上都更差）；档位说明的措辞不改（另一种写法试过，撤回）；`previous_turn` 留着；`recent` 保持 5 条；skill 的门槛不动。最终配置下调整集对 9、10、7、9 例（每类 10 例，取舍都在这些用例上做，不是公平的测试），留出集对 3、3、2、4 例（每类 5 例）。进展记录在调整集上三种给法都全对，看不出好处，默认仍关；真实任务上的验收（8 对运行，两边都全过，token 的中位数低约 5%）按事先的规则看不出中途换挡有用，默认不变。这两项和第 38 条的门槛都由用户定。

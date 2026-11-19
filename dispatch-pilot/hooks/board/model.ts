@@ -264,7 +264,8 @@ function nextOf(cfg: Config, s: { session: SessionState; turn: TurnState | null;
     if (!s.ask) return { main: '不评估', sub: '没有可用的后端', ahead: 0 }
     if (cfg.submitShift) {
       const level = session.previous?.level ?? null
-      return { main: '发出下一条消息时', sub: level === null ? '' : `说「继续」这类话会从上一轮的 ${level} 起算`, ahead: 0 }
+      // A message that only says to go on keeps the previous turn's level (Ruling C38): the level question does not move it.
+      return { main: '发出下一条消息时', sub: level === null ? '' : `说「继续」这类话会沿用上一轮的 ${level}`, ahead: 0 }
     }
     if (cfg.midrunShift) return { main: '下一轮中途', sub: '发消息定档关着', ahead: 0 }
     return { main: '不评估', sub: '发消息定档和中途换挡都关着', ahead: 0 }

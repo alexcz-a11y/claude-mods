@@ -67,7 +67,7 @@ test('要换的档还没发出：两个档位都写出来', () => {
 test('空闲：显示会话设定的档位', () => {
   const m = of('idle')
   expect([m.isIdle, m.level, m.status.kind, m.track.length]).toEqual([true, 'medium', 'idle', 0])
-  expect(m.next).toMatchObject({ main: '发出下一条消息时', sub: '说「继续」这类话会从上一轮的 high 起算' })
+  expect(m.next).toMatchObject({ main: '发出下一条消息时', sub: '说「继续」这类话会沿用上一轮的 high' })
 })
 
 test('已锁定', () => {
@@ -335,7 +335,7 @@ test('下次评估：关着和锁定先于空闲；空闲时按下一条消息�
   expect(at({})).toEqual({ main: '不评估', sub: '没有可用的后端', ahead: 0 })
   expect(at({ drexApiKey: 'k', submitShift: false })).toEqual({ main: '下一轮中途', sub: '发消息定档关着', ahead: 0 })
   expect(at({ drexApiKey: 'k', submitShift: false, midrunShift: false })).toEqual({ main: '不评估', sub: '发消息定档和中途换挡都关着', ahead: 0 })
-  expect(at({ drexApiKey: 'k', midrunShift: false })).toEqual({ main: '发出下一条消息时', sub: '说「继续」这类话会从上一轮的 high 起算', ahead: 0 })
+  expect(at({ drexApiKey: 'k', midrunShift: false })).toEqual({ main: '发出下一条消息时', sub: '说「继续」这类话会沿用上一轮的 high', ahead: 0 })
   // Inside a turn the mod off comes first as well, and a lock before a model without effort.
   const u = scenes.up
   const noEffort = { ...u, session: { ...u.session, lock: 'high' as const }, turn: { ...u.turn!, wanted: null, base: null } }

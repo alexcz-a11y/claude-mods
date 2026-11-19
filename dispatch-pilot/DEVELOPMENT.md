@@ -19,8 +19,8 @@ dispatch-pilot/
   hooks/flows/readout.ts       http.fetch 上读实际档位
   hooks/config.ts              readConfig(options)
   hooks/levels.ts              档位、模型层级
-  hooks/questions.ts           所有题的措辞
-  hooks/decide.ts              decide、读是非题、发消息/中途/agent 的读法、门槛表
+  hooks/questions.ts           所有题的措辞和门槛表（thresholdsFor、skillBarsFor）
+  hooks/decide.ts              decide、读是非题、发消息/中途/agent 的读法
   hooks/statebuild.ts          三种 state、估 token、截断、fitState
   hooks/backend.ts             ask(io, …)：Drex、Jev、核对回答、时限、fallback
   hooks/journal.ts             从 session.append 的行里读出一轮的依据
@@ -38,6 +38,7 @@ dispatch-pilot/
   skills/find-skill/SKILL.md
   types/index.d.ts             PluginState 契约（自成一体，不能 import；hooks/state.ts 里有一处编译期核对两边一致）
   eval/validate.ts             静态检查（scripts/check.sh 会跑）
+  eval/                        校准工具、模型写的用例、校准记录和官方要求的清单（见「校准工具」）
   tests/support/world.ts       测试里垫在 mod 下面的引擎
   tests/support/rows.ts        按引擎的样子造 session.append 的行
   tests/support/standin.ts     直接调导出函数时用的替身 $
@@ -70,6 +71,13 @@ dispatch-pilot/
 - **内联插件的选项。** `--plugin-dir` 加载的 mod 拿不到用户存的 plugin 选项（那些只给装好的 plugin）。选项（包括敏感的密钥）可以经 `--settings` 传：`{"pluginConfigs":{"dispatch-pilot@inline":{"options":{...}}}}`。
 - `claude -p` 不生成 `.claude-plugin/types/`；在 tmux 里交互启动一次 `--plugin-dir` 会生成（约 12 秒）。生成的 `tsconfig.json` 不要提交。
 - **调用没写模型的 agent 用它自己定义里的模型。** 2026-11-18 实测（没有密钥，一个定义写了 `model: haiku` 的一次性 agent 类型，主 agent 是 Sonnet）：Agent 调用没写模型时，`agent.spawn` 的 `e.model` 是 undefined，`next(e)` 回答 `{ model: 'claude-haiku-5-5', agentId }`，也就是定义里的模型；hook 在这次派出上写了 `model: 'sonnet'` 时，agent 跑在 sonnet 上。类型文件的原话是 "undefined lets the agent's own model, then the parent's, decide"。所以「调用没写模型」不等于「沿用主 agent 的模型」，按主 agent 的层级去换会把定义写了 `haiku` 的类型往上换。mod 因此在 `session.agentTypes` 里按 `subagentType` 记下它没给模型、调用也没写模型的每次派出：`next` 回答的模型的层级（`tierOfModelId`，认不出时是 null）和当时主 agent 的层级，最多记 32 种类型（`AGENT_TYPES_KEEP`，最早记的先走）。只有调用没写模型、记过这个类型、记下时主 agent 的层级和现在相同、记下的层级又正是主 agent 的层级（这个类型沿用主 agent 的模型）时，mod 才定模型，往下换和 `fableAgents` 的上限都一样；别的派出一律不动模型，mod 没给模型的派出再记一次。代价：每种类型在一个会话里的第一次派出（主 agent 换了模型之后也一样）既不受上限，也不往下换。决策记录的 `from` 写这个类型自己的层级（沿用时就是主 agent 的），还不知道时写 `?`；因为不知道而没动模型的，`detail` 在类型后面写「模型没动：还不知道这个类型是否沿用主 agent 的模型」，看板的 agent 行只取类型（`agentTypeOf`）。world 的 `agent.spawn` 桩照引擎的样子回答解析后的 id，选项 `typeModels` 给出各类型定义里的模型。
+- **交互会话的启动和隔离**（2.1.328，2026-11-19 实测，验收工具 `eval/accept/run.ts` 和 `eval/notes.ts` 照这几条做）：
+  - 在一个没信任过的目录里启动时，信任对话框默认选中的是「No, exit」，直接按 Enter 会退出会话；先按 Down 再按 Enter 才是接受。
+  - 准备好接收输入的会话，屏幕上没有「? for shortcuts」这一行，不能拿它判断会话已经就绪。
+  - `--settings` 文件里 `env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` 设成空字符串时，即使用户自己的设置打开了 Code Mode，会话也是普通会话（看板写「普通会话」）。
+  - 在一个空目录里跑 `claude -p --setting-sources project`，用户自己的 hook 和设置都不会进来。
+  - 保存一个 mod 目录下的文件，可能让正在跑的、用 `--plugin-dir` 加载它的会话热重载这个 mod。所以验收会话跑着的时候，mod 目录下什么也不写。
+- **同一请求里的题会互相影响**（Drex `drex-max-v1.1`，2026-11-19 校准时实测）：只把一道题（`direct`）的选项打乱顺序，按别的题读出来的决定 30 例里变了 6 例；去掉两道对照题之后，对一句光秃秃的「继续」，`open` 落在第 0 档的概率从约 0.5 变到 0.8。所以校准问的就是 mod 实际发的请求，请求里加一道题或去掉一道题，调整集都要重新问（见「校准工具」）。TypeSafe 文档说同一请求里的题互不影响，Drex 上不是这样（Jev 没有测）。
 - 挂了 `ui.render`（AbovePrompt、SessionMode）、`http.fetch` 和 `agent.spawn` 的 mod 不挡 Code Mode。加载成功时调试日志里是 `hooks module dispatch-pilot@inline loaded … events: session.start,command.run,prompt.submit,prompt.attachment,skill.prompt,turn.start,turn.step,agent.spawn,session.append,turn.complete,http.fetch`。
 
 ## Code Mode 一轮里的行
@@ -172,6 +180,37 @@ E1 到 E9 是 2.1.326（2026-11-17），E6 和 E10 到 E18 是 2.1.327（2026-11
 - 实测（2.1.327，tmux 180×50）：没有面板时一轮五行、空闲一行；面板开着时时间轴三行，面板停靠在右边；100 列时面板落到 prompt 上方；`/dp` 关上面板时时间轴马上回到完整的行数；锁定的场景没有记号行。
 - 改了 `tests/support/scenes.ts` 就重新拷一份到 `docs/research/board-scenes/hooks/scenes-data.ts`，`eval/validate.ts` 会比对两份。
 - Desktop 上还不能目测：Claude Desktop 自带的 Claude Code 是 2.1.325，低于 2.1.327。
+
+## 校准工具
+
+校准（设计第 8 节）的工具在 `eval/` 下，用 node 直接跑（v26 直接跑 TypeScript，导入写 `.ts` 后缀），在仓库根目录运行。`hooks/` 不导入 `eval/` 的任何东西；`eval/lib/` 里除了 `drex.ts`、`store.ts` 都是纯函数，测试直接 import。用例、参考答案和每一步的结果写在 `eval/CALIBRATION.md`；两家官方要求的清单在 `eval/STANDARD.md`。
+
+- **`eval/mine.ts`**：`node dispatch-pilot/eval/mine.ts --projects <dir>… --out <数据目录>/mined.jsonl`。直接读每个 projects 目录里的会话记录（`<session id>.jsonl`，不读子 agent 的记录），照 mod 当时会怎么读那个会话挖出发消息、中途、派 agent 三种材料（`eval/lib/transcript.ts`），每段文字都清理过；还带着像密钥的字符串或用户路径的条目丢掉并计数。
+- **`eval/run.ts`**：用例检查、发请求、判分。每个命令一行：
+  - `check-cases`：每个用例、每类 15 例的配额、同一会话的用例在四类里都在同一组。
+  - `plan --set tune|fit|check|heldout [--variant <名字>|all]… [--repeat <n>]`：还有哪些请求没问过、要花多少；不发请求。
+  - `ask --set tune|fit|check [--variant <名字>|all]… [--repeat <n>] [--concurrency <n>] [--retry-failed]`：只发还没有回答的请求（按请求的 hash 认），每发一个之前先查预算（`eval/lib/budget.ts` 的 `CAP`：2000 次请求、3000 万估算的输入 token）。
+  - `ask --set heldout --final`：留出集只问这一次，登记过的给法一次发完，写下 `heldout-done` 之后不再发；中途停下的可以带 `--final` 接着发没回答的（裁定 C3）。
+  - `smoke`：用一例模型写的用例发一个请求，逐项核对状态码、回答的 `model`、每道题的编号、类型和选项名，不通过就以 1 退出（修订 A4）。
+  - `score --set fit|check|tune|heldout [--bars start|<文件>] [--variant <名字>]`：判分；`heldout` 要等 `heldout-done` 存在才读。
+  - `sweep --path <submit.up|…|skill.fits> [--bars start|<文件>]`：在 `fit` 上扫一个门槛，其余不动。
+  - `stability [--set …] [--bars start|<文件>] [--variant <名字>]`：同一请求的三遍里决定不一样的用例。
+  - `score` 和 `stability` 默认按 mod 给 `drex-max-v1.1` 的门槛读（`hooks/questions.ts` 的表，`eval/lib/read.ts` 的 `CHOSEN_BARS`）；`--bars start` 按初值读；`--bars <文件>` 是一个 JSON 文件里的值盖在初值上。`sweep` 从初值起扫。
+- **`eval/notes.ts`**：`node dispatch-pilot/eval/notes.ts [--data <dir>] [--dry-run] [--only <用例>] [--force]`。给中途的用例写两份进展记录（截至上一步的、含最新一步的），写回用例所在的文件。用的是 mod 自己的提示词和解析，由 `claude -p --model haiku --setting-sources project` 回答，每次调用在 `/private/tmp/dp-notes` 下一个新的空目录里跑，去掉遥测变量；这不是 mod 自己的调用路径（`$.model.complete`），记录里写明了。`--dry-run` 只报要写几份和第一份提示词，什么也不调。
+- **`eval/accept/run.ts`**：`node dispatch-pilot/eval/accept/run.ts --task <id> --arm on|off --mode code|ordinary [--model <模型>] [--data <dir>] [--work <dir>] [--max-minutes <n>] [--dry-run]`。一次验收运行：把 `eval/accept/tasks/<id>/project` 复制到工作目录（默认 `/private/tmp/dp-accept`，路径里不能有用户名，因为 mod 会把会话的工作目录发给决策模型），在 tmux（server `dpacc`）里起一个用 `--plugin-dir` 加载本 mod 的交互会话，发出任务的 prompt，等这一轮结束，再跑任务的 `check.sh`，从这个会话自己的记录读用量、每次请求带的档位和换挡，往 `<数据目录>/accept.jsonl` 追加一行。会话、设置文件（Nace 的密钥只写在这里，0600）和工作目录在结束、失败和收到 SIGINT、SIGTERM、SIGHUP 时都删掉。一行里从 mod 的 `$.store` 数出来的中途决策数在几个会话同时跑时不准，不要用。任务在 `eval/accept/tasks/<id>/`：`project/`、`prompt.txt`、`check.sh`（隐藏的检查）、`meta.json`、`solution.patch`。
+
+**私有数据目录** `~/.config/dispatch-pilot/calibration/`（目录 0700，不在仓库里，也不能进仓库：仓库是公开的）：
+
+- `cases/<类别>.json`：取自真实会话的用例（模型写的在仓库的 `eval/cases/`）；`cases/draft/`、`cases/blind/`：出题者的草稿、盲答、分歧和裁定。
+- `mined.jsonl`、`mined/`：`mine.ts` 挖出的材料和分给出题者的部分；`skills.json`：候选 skill 的快照（一个会话实际收到的 skill 列表，用 mod 的 `parseListing` 解析）。
+- `answers.jsonl`：每个请求的原始回答，一行一个：请求的 hash、第几遍、用例、给法、时间、耗时、实际发出去的 state 和题、回答或失败原因（只留服务的 `request_id`，不留错误正文）。
+- `spent.json`：已经花掉的请求数和估算的 token；`heldout-started`、`heldout-done`：留出集那一次的开始和完成。
+- `accept.jsonl`：验收的每次运行；`accept-trial/`：试跑，不算在验收里。
+- `out/`：`score`、`sweep`、`stability` 打出来的表；`bars-*.json`：给 `--bars` 用的门槛文件；`gate.md`、`labels.md`：发请求之前给用户看的用例一览、两遍参考答案的对照。
+
+**不发请求地重算**：`score`、`sweep`、`stability` 只读 `answers.jsonl`，不发请求，也不要密钥，例如 `node dispatch-pilot/eval/run.ts score --set tune`、`node dispatch-pilot/eval/run.ts sweep --path agent.down`、`node dispatch-pilot/eval/run.ts score --set heldout --bars start`。记录里每张表旁边写着重算它的命令。没有这个目录就重算不了。
+
+**改了题就要重问。** 同一请求里的题会互相影响（见「引擎规则」里的「同一请求里的题会互相影响」），所以校准问的就是 mod 实际发的请求（修订 A16）。往请求里加一道题或去掉一道题，请求的 hash 就变了，原来的回答不再适用：调整集要重新问一遍（`ask` 只会发这些变了的请求），门槛也要在新的回答上重扫。
 
 ## 实机验证
 
