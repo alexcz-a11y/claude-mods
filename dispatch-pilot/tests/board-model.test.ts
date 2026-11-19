@@ -37,7 +37,7 @@ test('中途升过一次档', () => {
   expect(m.shifts).toEqual([{ at: '第 6 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', reading: 'sent' }])
   expect(m.last).toMatchObject({ at: '第 9 步后', mark: 'hold', text: '不变', by: 'Drex · 312 ms' })
   expect(m.last?.nouls.map((n) => [n.label, n.reading])).toEqual([['同一失败又出现', 'no'], ['原因已查明', 'no'], ['只剩照做', 'no'], ['与计划矛盾', 'no']])
-  expect(m.last?.rules).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.41', '降一档要下方合计 ≥ 0.70，现在 0.13'])
+  expect(m.last?.rules).toEqual(['比 high 高的各档合计 0.41 < 0.80：不升', '比 high 低的各档合计 0.13 < 0.70：不降'])
   expect(m.next).toMatchObject({ main: '下一份脚本结果到达时', ahead: 1 })
   expect(m.features.map((f) => f.state)).toEqual(['active', 'active', 'active', 'active', 'active', 'active'])
   expect(m.agents).toHaveLength(2)
@@ -130,7 +130,7 @@ test('六个场景：其余各项', () => {
     { label: '只是续做', value: 0.06, reading: 'no' },
   ])
   // A shift made: one more level from the new one, then the bar the hop passed (the prototype's SC texts).
-  expect(start.last?.rules).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.65', '升到这一档：上方合计 0.90，过了 0.70'])
+  expect(start.last?.rules).toEqual(['比 medium 高的各档合计 0.90 ≥ 0.70：medium → high', '比 high 高的各档合计 0.65 < 0.80：不再升', '原因未知 0.81 ≥ 0.70（是）：最低到 high'])
   expect(start.next).toEqual({ main: '下一份脚本结果到达时', sub: '每 1 份脚本结果评估一次 · 本轮还可换挡 4 次', ahead: 1 })
   expect(start.agents).toEqual([])
 
@@ -148,7 +148,7 @@ test('六个场景：其余各项', () => {
     { at: '第 7 步后', from: 'high', to: 'xhigh', why: '最新结果和原计划矛盾', reading: 'queued' },
   ])
   // Mid-run the cap is xhigh, so no level further up; the shift came from a flag, so its reason says why.
-  expect(notsent.last).toMatchObject({ at: '第 7 步后', mark: 'up', text: '升到 xhigh', rules: ['升到这一档：最新结果和原计划矛盾'] })
+  expect(notsent.last).toMatchObject({ at: '第 7 步后', mark: 'up', text: '升到 xhigh', rules: ['比 high 高的各档合计 0.80 ≥ 0.80：high → xhigh', 'xhigh 是这次能到的最高档：不再升', '与计划矛盾 0.88 ≥ 0.70（是）：至少升一档'] })
   // Just shifted (step 7): the next results within the gap are not asked, so the count waits for it (final review G6).
   expect(notsent.next).toMatchObject({ main: '再 3 份脚本结果', sub: '换挡后隔 3 份脚本结果才再评估 · 本轮还可换挡 2 次' })
 
@@ -283,7 +283,7 @@ test('shadow 模式里想升档的决策：记号是不变，不算换挡，写�
   expect(m.shifts).toEqual([])
   // The evaluation itself is shown as any other: its distribution, answers and rules.
   expect(m.last).toMatchObject({ at: '发消息时', mark: 'hold', text: '想升到 high，未执行', probs: [0.02, 0.08, 0.25, 0.55, 0.1], by: 'Drex · 412 ms' })
-  expect(m.last?.rules).toEqual(['再升一档要上方合计 ≥ 0.70，现在 0.90', '降一档要下方合计 ≥ 0.70，现在 0.02'])
+  expect(m.last?.rules).toEqual(['比 medium 高的各档合计 0.90 ≥ 0.70：medium → high', '比 high 高的各档合计 0.65 < 0.80：不再升', '原因未知 0.81 ≥ 0.70（是）：最低到 high'])
   expect(m.last?.nouls.map((n) => n.reading)).toEqual(['no', 'yes', 'no'])
 })
 
@@ -292,7 +292,7 @@ test('写入时被拒的换挡：不算换挡，写「想升到 / 想降到 X，
   const refused = s.recent.map((d) => (d.id === 't5-m7' ? { ...d, applied: false } : d))
   const m = boardModel(readConfig({ drexApiKey: 'k' }), judging(s, refused))
   expect(m.shifts).toEqual([{ at: '第 3 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', reading: 'sent' }])
-  expect(m.last).toMatchObject({ at: '第 7 步后', mark: 'hold', text: '想升到 xhigh，未执行', rules: ['再升一档要上方合计 ≥ 0.80，现在 0.80', '降一档要下方合计 ≥ 0.70，现在 0.05'] })
+  expect(m.last).toMatchObject({ at: '第 7 步后', mark: 'hold', text: '想升到 xhigh，未执行', rules: ['比 high 高的各档合计 0.80 ≥ 0.80：high → xhigh', 'xhigh 是这次能到的最高档：不再升', '与计划矛盾 0.88 ≥ 0.70（是）：至少升一档'] })
   const down = boardModel(readConfig({ drexApiKey: 'k' }), judging(s, [{ ...s.recent.at(-1)!, to: 'medium', applied: false }]))
   expect([down.last?.mark, down.last?.text, down.shifts]).toEqual(['hold', '想降到 medium，未执行', []])
 })
@@ -356,25 +356,38 @@ test('上次评估：这一轮还没有评估时是 null；空闲时是此前的
   expect(boardModel(readConfig({ drexApiKey: 'k' }), judging({ ...s, turn: null }, [earlier[0]!])).last).toMatchObject({ at: '此前 · 发消息时' })
 })
 
-test('换挡之后的规则：从新档再走一档要多少，再写为什么到了这一档', () => {
+test('上次评估的规则：逐条写出这次档位是怎么来的，哪个合计过了或没过哪个门槛，哪道是非题起了作用', () => {
   const s = scenes.up
   const cfg = readConfig({ drexApiKey: 'k' })
   const base = { ...s.recent.at(-1)!, applied: true }
   const rules = (d: Decision) => boardModel(cfg, judging(s, [d])).last?.rules
-  // Down by a flag: one more level down from the new one, then the reason.
-  const found: Decision = { ...base, from: 'high', to: 'medium', reason: 'cause-found', raw: { open: { type: 'score', score: 0.95, probabilities: [0.1, 0.8, 0.05, 0.05, 0] } } }
-  expect(rules(found)).toEqual(['再降一档要下方合计 ≥ 0.70，现在 0.10', '降到这一档：原因已查明，剩下的是常规工作'])
-  // Down by the open question: the bar the hop from high passed.
-  const lessOpen: Decision = { ...base, kind: 'submit', from: 'high', to: 'medium', reason: 'less-open', raw: { open: { type: 'score', score: 1.25, probabilities: [0.1, 0.65, 0.15, 0.1, 0] } } }
-  expect(rules(lessOpen)).toEqual(['再降一档要下方合计 ≥ 0.70，现在 0.10', '降到这一档：下方合计 0.75，过了 0.70'])
-  // Down to low by the open question: no level further down; low alone carries 0.75, past the bar.
-  const toLow: Decision = { ...lessOpen, from: 'medium', to: 'low', raw: { open: { type: 'score', score: 0.35, probabilities: [0.75, 0.15, 0.05, 0.05, 0] } } }
-  expect(rules(toLow)).toEqual(['降到这一档：下方合计 0.75，过了 0.70'])
-  // Up mid-run by the open question, from medium to high.
-  const moreOpen: Decision = { ...base, from: 'medium', to: 'high', reason: 'more-open', raw: { open: { type: 'score', score: 2.4, probabilities: [0.02, 0.08, 0.4, 0.4, 0.1] } } }
-  expect(rules(moreOpen)).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.50', '升到这一档：上方合计 0.90，过了 0.70'])
-  // A hold keeps the margins either way from its level.
-  expect(rules({ ...moreOpen, from: 'high', to: 'high', reason: 'hold' })).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.50', '降一档要下方合计 ≥ 0.70，现在 0.10'])
+  const noul = (v: number) => ({ type: 'noul', noul: v }) as const
+  const open = (probabilities: number[]) => ({ type: 'score', score: 0, probabilities }) as const
+  // Down mid-run: the open question says down, 原因已查明 allows it.
+  const found: Decision = { ...base, from: 'high', to: 'medium', reason: 'cause-found', raw: { open: open([0.1, 0.8, 0.05, 0.05, 0]), cause_found: noul(0.9) } }
+  expect(rules(found)).toEqual(['比 high 高的各档合计 0.05 < 0.80：不升', '比 high 低的各档合计 0.90 ≥ 0.70：high → medium', '比 medium 低的各档合计 0.10 < 0.70：不再降', '原因已查明 0.90 ≥ 0.70（是）：准许降档'])
+  // The person's case (2026-11-19): from xhigh two levels down in one evaluation, allowed by 只剩照做; 原因已查明 拿不准 says nothing.
+  const twoDown: Decision = { ...base, from: 'xhigh', to: 'medium', reason: 'carrying-out', raw: { open: open([0.6, 0.29, 0.03, 0.06, 0.01]), same_failure: noul(0.01), cause_found: noul(0.65), only_carrying_out: noul(0.85), contradicts_plan: noul(0.03) } }
+  expect(rules(twoDown)).toEqual(['比 xhigh 低的各档合计 0.92 ≥ 0.70：xhigh → high', '比 high 低的各档合计 0.89 ≥ 0.70：high → medium', '比 medium 低的各档合计 0.60 < 0.70：不再降', '只剩照做 0.85 ≥ 0.70（是）：准许降档'])
+  // The same answers with 只剩照做 拿不准 too: the open question says down, nothing allows it, the level stays.
+  const blocked: Decision = { ...twoDown, to: 'xhigh', reason: 'hold', raw: { ...twoDown.raw, only_carrying_out: noul(0.5) } }
+  expect(rules(blocked)).toEqual(['比 xhigh 低的各档合计 0.92 ≥ 0.70：xhigh → high', '比 high 低的各档合计 0.89 ≥ 0.70：high → medium', '比 medium 低的各档合计 0.60 < 0.70：不再降', '原因已查明、只剩照做都不是「是」：不准降，留在 xhigh'])
+  // Down on a message by the open question alone (no flag is needed there).
+  const lessOpen: Decision = { ...base, kind: 'submit', from: 'high', to: 'medium', reason: 'less-open', raw: { open: open([0.1, 0.65, 0.15, 0.1, 0]) } }
+  expect(rules(lessOpen)).toEqual(['比 high 高的各档合计 0.10 < 0.80：不升', '比 high 低的各档合计 0.75 ≥ 0.70：high → medium', '比 medium 低的各档合计 0.10 < 0.70：不再降'])
+  // Down to low: no level further down, so no line for it.
+  const toLow: Decision = { ...lessOpen, from: 'medium', to: 'low', raw: { open: open([0.75, 0.15, 0.05, 0.05, 0]) } }
+  expect(rules(toLow)).toEqual(['比 medium 高的各档合计 0.10 < 0.70：不升', '比 medium 低的各档合计 0.75 ≥ 0.70：medium → low'])
+  // Up mid-run by the open question; the bar into xhigh is the stricter one.
+  const moreOpen: Decision = { ...base, from: 'medium', to: 'high', reason: 'more-open', raw: { open: open([0.02, 0.08, 0.4, 0.4, 0.1]) } }
+  expect(rules(moreOpen)).toEqual(['比 medium 高的各档合计 0.90 ≥ 0.70：medium → high', '比 high 高的各档合计 0.50 < 0.80：不再升'])
+  // Up mid-run by a flag alone: the open question holds, 同一失败又出现 moves one level.
+  const again: Decision = { ...base, from: 'medium', to: 'high', reason: 'same-failure', raw: { open: open([0.1, 0.5, 0.3, 0.1, 0]), same_failure: noul(0.9) } }
+  expect(rules(again)).toEqual(['比 medium 高的各档合计 0.40 < 0.70：不升', '比 medium 低的各档合计 0.10 < 0.70：不降', '同一失败又出现 0.90 ≥ 0.70（是）：至少升一档'])
+  // A hold: how far each way is from its level.
+  expect(rules({ ...moreOpen, from: 'high', to: 'high', reason: 'hold' })).toEqual(['比 high 高的各档合计 0.50 < 0.80：不升', '比 high 低的各档合计 0.10 < 0.70：不降'])
+  // A record whose answers do not give its level again (one older than the rules): the reason alone.
+  expect(rules({ ...found, raw: { open: open([0.1, 0.8, 0.05, 0.05, 0]) } })).toEqual(['降到这一档：原因已查明，剩下的是常规工作'])
 })
 
 test('只说接着做（裁定 C38）：换挡记录和上次评估都写出沿用上一轮的档位，不列 open 的余量', () => {
@@ -395,12 +408,14 @@ test('只说接着做（裁定 C38）：换挡记录和上次评估都写出沿�
   expect(bare.last).toMatchObject({ mark: 'up', probs: null, rules: [`升到这一档：${why}`] })
 })
 
-test('会话种类：照 session.codeMode 写 Code Mode 会话或普通会话，空闲时也有；六个场景和原型一致', () => {
+test('会话种类：照 session.codeMode 和 codeModeKnown 写 Code Mode 会话、普通会话或尚未判断，空闲时也有；六个场景和原型一致', () => {
   const kinds = Object.fromEntries((Object.keys(scenes) as (keyof typeof SCENES)[]).map((k) => [k, of(k).sessionKind]))
   // The prototype's session field of each scene (docs/research/board-prototype/timeline-and-pane.html).
   expect(kinds).toEqual({ up: 'Code Mode 会话', start: 'Code Mode 会话', ordinary: '普通会话', notsent: 'Code Mode 会话', idle: 'Code Mode 会话', locked: '普通会话' })
   const plainIdle: BoardState = { ...scenes.idle, session: { ...scenes.idle.session, codeMode: false } }
   expect(boardModel(readConfig({ drexApiKey: 'k' }), plainIdle).sessionKind).toBe('普通会话')
+  const unknown: BoardState = { ...scenes.idle, session: { ...scenes.idle.session, codeMode: false, codeModeKnown: false } }
+  expect(boardModel(readConfig({ drexApiKey: 'k' }), unknown).sessionKind).toBe('尚未判断')
   const codeTurn: BoardState = { ...scenes.ordinary, session: { ...scenes.ordinary.session, codeMode: true } }
   expect(boardModel(readConfig({ drexApiKey: 'k' }), codeTurn).sessionKind).toBe('Code Mode 会话')
 })
