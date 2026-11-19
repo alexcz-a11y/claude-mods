@@ -208,12 +208,13 @@ test('留出集的一次运行：每类每种登记的给法都发，default 3 �
   const got = tally(heldoutWants([submitCase, midrunCase, agentCase, skillCase]))
   expect(got).toEqual([
     'submit-01 default #1', 'submit-01 default #2', 'submit-01 default #3',
-    'submit-01 no-previous #1', 'submit-01 direct-shuffled #1', 'submit-01 with-skills #1',
+    'submit-01 with-controls #1', 'submit-01 no-previous #1', 'submit-01 direct-shuffled #1', 'submit-01 with-skills #1',
     'midrun-01 default #1', 'midrun-01 default #2', 'midrun-01 default #3',
-    'midrun-01 recent-1 #1', 'midrun-01 recent-3 #1', 'midrun-01 no-stated-next #1', 'midrun-01 progress-before #1', 'midrun-01 progress-after #1', 'midrun-01 direct-shuffled #1',
-    'agent-01 default #1', 'agent-01 default #2', 'agent-01 default #3', 'agent-01 direct-shuffled #1',
+    'midrun-01 with-controls #1', 'midrun-01 recent-1 #1', 'midrun-01 recent-3 #1', 'midrun-01 progress-before #1', 'midrun-01 progress-after #1',
+    'midrun-01 recent-1-with-controls #1', 'midrun-01 recent-3-with-controls #1', 'midrun-01 no-stated-next-with-controls #1', 'midrun-01 direct-shuffled #1',
+    'agent-01 default #1', 'agent-01 default #2', 'agent-01 default #3', 'agent-01 with-controls #1', 'agent-01 direct-shuffled #1',
     'skill-01 stage-1 #1', 'skill-01 stage-1 #2', 'skill-01 stage-1 #3', 'skill-01 stage-2 #1', 'skill-01 stage-2 #2', 'skill-01 stage-2 #3',
-    'skill-01 stage-1-shuffled #1', 'skill-01 stage-2-shuffled #1',
+    'skill-01 stage-1-alone #1', 'skill-01 stage-2-alone #1', 'skill-01 stage-1-shuffled #1', 'skill-01 stage-2-shuffled #1',
   ])
 })
 
@@ -223,7 +224,9 @@ test('--variant：不给是每类的 default（skill 是 stage-1 加 stage-2）�
   expect(variantsFor('midrun', ['recent-1', 'recent-3']).map((v) => v.name)).toEqual(['recent-1', 'recent-3'])
   expect(variantsFor('agent', ['recent-1'])).toEqual([])
   expect(variantsFor('skill', ['stage-2-shuffled']).map((v) => v.name)).toEqual(['stage-1-shuffled', 'stage-2-shuffled'])
-  expect(variantsFor('agent', ['all']).map((v) => v.name)).toEqual(['default', 'direct-shuffled'])
+  expect(variantsFor('agent', ['all']).map((v) => v.name)).toEqual(['default', 'with-controls', 'direct-shuffled'])
+  // The second request of the alone pair takes its shortlist from stage-1-alone's answer.
+  expect(variantsFor('skill', ['stage-1-alone']).map((v) => v.name)).toEqual(['stage-1-alone', 'stage-2-alone'])
   expect(tally(wants([agentCase], ['default'], 2))).toEqual(['agent-01 default #1', 'agent-01 default #2'])
 })
 

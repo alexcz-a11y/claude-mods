@@ -295,7 +295,7 @@ async function send(ctx: Ctx, items: readonly { w: Want; built: Built }[], concu
     run: async (it) => {
       const state = sentState(it.built.state, it.w.repeat, uid)
       const at = new Date().toISOString()
-      const { result, ms } = await askDrex(state, it.built.questions)
+      const { result, ms } = await askDrex({ state, questions: it.built.questions, partial: it.built.partial })
       return { w: it.w, built: it.built, result, state, at, ms }
     },
     // A rate-limited answer never gets here: it is neither an answer nor a failure, so it is not stored.
@@ -371,7 +371,7 @@ async function smoke(a: Args, ctx: Ctx, cases: readonly Case[]): Promise<void> {
   ctx.store.setSpent(after)
   let reply: Reply | undefined
   const at = new Date().toISOString()
-  const { result, ms } = await askDrex(built.state, built.questions, (r) => (reply = r))
+  const { result, ms } = await askDrex({ state: built.state, questions: built.questions, partial: built.partial }, (r) => (reply = r))
   ctx.store.add({ hash: built.hash, repeat: 1, caseId: c.id, category: c.category, variant: SMOKE, at, ms, request: { state: fitState(built.state), questions: built.questions }, result })
   const body = (reply?.body ?? {}) as { model?: unknown; answers?: Record<string, { type?: unknown; choice?: unknown; probabilities?: unknown }> }
   const answers = typeof body.answers === 'object' && body.answers !== null ? body.answers : {}

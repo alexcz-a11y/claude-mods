@@ -44,10 +44,13 @@ function nodeIo(onReply?: (r: Reply) => void): Io {
   }
 }
 
-/** Asks Drex (drex-max-v1.1, no fallback: Jev is asked nothing) one request; every failure is a Result, never a throw. */
-export async function askDrex(state: Record<string, unknown>, questions: Record<string, Question>, onReply?: (r: Reply) => void): Promise<{ result: Result; ms: number }> {
+/**
+ * Asks Drex (drex-max-v1.1, no fallback: Jev is asked nothing) one request; every failure is a Result, never a throw.
+ * partial: ask() keeps the answers that came back usable, as the mod asks a request whose skill questions ride along.
+ */
+export async function askDrex(req: { state: Record<string, unknown>; questions: Record<string, Question>; partial: boolean }, onReply?: (r: Reply) => void): Promise<{ result: Result; ms: number }> {
   const cfg = readConfig({ backend: 'drex', fallback: false, drexApiKey: process.env.NACE_API_KEY ?? '' })
-  const r = await ask(nodeIo(onReply), cfg, { state, questions }, TIMEOUT_MS)
+  const r = await ask(nodeIo(onReply), cfg, req, TIMEOUT_MS)
   if (r.ok) return { result: { ok: true, model: r.model, answers: r.answers }, ms: r.ms }
   const result: Result = { ok: false, reason: r.reason }
   if (r.status !== undefined) result.status = r.status

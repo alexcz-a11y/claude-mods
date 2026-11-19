@@ -10,42 +10,67 @@ import { DIRECT_LEVEL, LONG_UNATTENDED } from './controls.ts'
 
 /**
  * One way of asking. A field left out is what the mod does (previous on, recent 5, no progress note, stage 1);
- * statedNext, controls, skills and shuffle are off unless set. skills: the questions the mod's submit flow adds for the
- * session's skills go into the same request. statedNext: the assistant's stated plan, which the mod no longer sends,
- * put back as midrunState used to put it, so the requests asked with it keep their hash.
+ * statedNext, controls, skills, levels and shuffle are off unless set. skills: the questions the mod's submit flow adds
+ * for the session's skills go into the same request. levels: a first skill request carries the level questions too,
+ * as the mod asks both of a message in one request. statedNext: the assistant's stated plan, which the mod no longer
+ * sends, put back as midrunState used to put it, so the requests asked with it keep their hash. partial: when skill
+ * questions ride along, the request is asked as hooks/flows/submit.ts asks it (ask's partial).
  */
-export type Variant = { name: string; previous?: boolean; recent?: 1 | 3 | 5; statedNext?: boolean; progress?: 'none' | 'before' | 'after'; controls?: boolean; skills?: boolean; shuffle?: number; stage?: 1 | 2 }
-export type Built = { caseId: string; variant: string; state: Record<string, unknown>; questions: Record<string, Question>; hash: string }
+export type Variant = {
+  name: string
+  previous?: boolean
+  recent?: 1 | 3 | 5
+  statedNext?: boolean
+  progress?: 'none' | 'before' | 'after'
+  controls?: boolean
+  skills?: boolean
+  levels?: boolean
+  partial?: boolean
+  shuffle?: number
+  stage?: 1 | 2
+}
+/** partial: send it with ask's partial, as the mod sends a request whose skill questions ride along. */
+export type Built = { caseId: string; variant: string; state: Record<string, unknown>; questions: Record<string, Question>; partial: boolean; hash: string }
 
 /**
- * 每一类预先登记的给法；第一项是默认（和 mod 发的一样）。Every variant of submit, midrun and agent carries the control
- * questions, so one differs from its default in the state only (Ruling C18a); with-skills adds questions, nothing else.
+ * 每一类预先登记的给法；第一项是默认，和 mod 发的请求逐题相同（修订 A16）。The requests asked before A16 keep their build
+ * under the names with-controls and stage-1-alone (and the -with-controls ones), so every stored answer is still found:
+ * those carry the control questions, and differ from with-controls in the state only (Ruling C18a).
  */
 export const VARIANTS: Record<Category, readonly Variant[]> = {
   submit: [
-    { name: 'default', previous: true, controls: true },
+    { name: 'default', previous: true, skills: true, partial: true },
+    { name: 'with-controls', previous: true, controls: true },
     { name: 'no-previous', previous: false, controls: true },
     // Amendment A13: the direct question's options in another order, to see whether its pick follows the order.
     { name: 'direct-shuffled', previous: true, controls: true, shuffle: 1 },
-    // Ruling C18b: the request as the mod sends it when the session has skills, the skill questions beside the level's.
+    // Ruling C18b: the skill questions beside the level's and the controls, asked as before A16 (not partial).
     { name: 'with-skills', previous: true, controls: true, skills: true },
   ],
   midrun: [
-    { name: 'default', recent: 5, statedNext: true, progress: 'none', controls: true },
-    { name: 'recent-1', recent: 1, statedNext: true, controls: true },
-    { name: 'recent-3', recent: 3, statedNext: true, controls: true },
-    { name: 'no-stated-next', controls: true },
-    { name: 'progress-before', progress: 'before', statedNext: true, controls: true },
-    { name: 'progress-after', progress: 'after', statedNext: true, controls: true },
+    { name: 'default', recent: 5, progress: 'none' },
+    { name: 'with-controls', recent: 5, statedNext: true, progress: 'none', controls: true },
+    { name: 'recent-1', recent: 1 },
+    { name: 'recent-3', recent: 3 },
+    { name: 'progress-before', progress: 'before' },
+    { name: 'progress-after', progress: 'after' },
+    { name: 'recent-1-with-controls', recent: 1, statedNext: true, controls: true },
+    { name: 'recent-3-with-controls', recent: 3, statedNext: true, controls: true },
+    { name: 'no-stated-next-with-controls', controls: true },
     { name: 'direct-shuffled', recent: 5, statedNext: true, progress: 'none', controls: true, shuffle: 1 },
   ],
   agent: [
-    { name: 'default', controls: true },
+    { name: 'default' },
+    { name: 'with-controls', controls: true },
     { name: 'direct-shuffled', controls: true, shuffle: 1 },
   ],
   skill: [
-    { name: 'stage-1', stage: 1 },
+    { name: 'stage-1', stage: 1, levels: true, partial: true },
     { name: 'stage-2', stage: 2 },
+    // The pair asked before A16: the skill questions alone; stage-2-alone's shortlist comes from stage-1-alone's answer.
+    { name: 'stage-1-alone', stage: 1 },
+    { name: 'stage-2-alone', stage: 2 },
+    // They shuffle the alone form.
     { name: 'stage-1-shuffled', stage: 1, shuffle: 1 },
     { name: 'stage-2-shuffled', stage: 2, shuffle: 1 },
   ],
@@ -58,13 +83,19 @@ const BACKEND = 'drex'
 export function build(c: Case, v: Variant, ctx: { skills: readonly Skill[]; short?: readonly Skill[] }): Built {
   let state: Record<string, unknown>
   let questions: Record<string, Question>
+  // Skill questions ride along: the mod then asks with partial (hooks/flows/submit.ts).
+  let rideAlong = false
   if (c.category === 'submit') {
     const previous = v.previous === false ? null : c.input.previous
     state = submitState({ request: c.input.request, previous })
     questions = submitQuestions(previous !== null)
     if (v.controls) questions = { ...questions, direct: DIRECT_LEVEL, long_unattended: LONG_UNATTENDED }
-    // Merged as hooks/flows/submit.ts merges them: the level's questions first, the skill questions after.
-    if (v.skills) questions = { ...questions, ...stageOne([...ctx.skills], BACKEND, true) }
+    // Merged as hooks/flows/submit.ts merges them: the level's questions first, the skill questions after. With no
+    // candidate the mod asks no skill question.
+    if (v.skills && ctx.skills.length > 0) {
+      questions = { ...questions, ...stageOne([...ctx.skills], BACKEND, true) }
+      rideAlong = true
+    }
   } else if (c.category === 'midrun') {
     const i = c.input
     const progress = v.progress === 'before' ? (i.notes?.before ?? null) : v.progress === 'after' ? (i.notes?.after ?? null) : null
@@ -92,13 +123,16 @@ export function build(c: Case, v: Variant, ctx: { skills: readonly Skill[]; shor
       if (ctx.short === undefined) throw new Error(`${c.id}: the second skill request needs the shortlist from the first`)
       questions = stageTwo([...ctx.short], BACKEND)
     } else {
-      questions = stageOne([...ctx.skills], BACKEND, true)
+      // levels: the request the mod sends for a message when it asks both things.
+      questions = { ...(v.levels ? submitQuestions(c.input.previous !== null) : {}), ...stageOne([...ctx.skills], BACKEND, true) }
+      rideAlong = v.levels === true
     }
   }
   if (v.shuffle !== undefined) questions = shuffled(questions, v.shuffle)
   // ask() fits the state to its budget before sending; the request recorded is the one sent.
   state = fitState(state)
-  return { caseId: c.id, variant: v.name, state, questions, hash: fnv1a64(JSON.stringify({ state, questions })) }
+  // partial changes how the answer is read, not what is sent: it stays out of the hash.
+  return { caseId: c.id, variant: v.name, state, questions, partial: v.partial === true && rideAlong, hash: fnv1a64(JSON.stringify({ state, questions })) }
 }
 
 /** As midrunState put stated_next until calibration dropped it: only when there is text, after latest, before progress. */
