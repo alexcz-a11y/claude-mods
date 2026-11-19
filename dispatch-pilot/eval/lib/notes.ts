@@ -2,25 +2,42 @@
 // a note merged into its case, and the environment a note's call runs in. Pure: notes.ts imports it, as do the tests.
 //
 // The note is the mod's own (progressPrompt, parseProgress): after a checkpoint the mod writes one note from the turn's
-// request, the note it held (previous_note) and the step that checkpoint judged (latest_step). Here a case is one
-// checkpoint, so "before" is the note the mod would hold at it, written at the step before the latest with no older
-// note (none is known), and "after" the next note, written at the latest step with "before" as previous_note.
+// request, the note it held (previous_note) and the step that checkpoint judged (latest_step), so its note is built up
+// step by step. Here a case is one checkpoint: "before" is the note the mod would hold there, folded over input.recent in
+// order from no note at all, and "after" the next one, written at the latest step on top of "before".
 import { progressPrompt } from '../../hooks/progress.ts'
-import type { ProgressNote } from '../../hooks/statebuild.ts'
+import type { ProgressNote, StepRecord } from '../../hooks/statebuild.ts'
 import type { MidrunCase } from './case.ts'
 
 export type Notes = { before: ProgressNote | null; after: ProgressNote | null }
 type Prompt = { system: string; prompt: string }
 
-/** The prompt of "before": the step before the latest, no previous note; null when the latest step is the first. */
-export function beforePrompt(input: MidrunCase['input']): Prompt | null {
-  const latest = input.recent.at(-1)
-  return latest === undefined ? null : progressPrompt({ request: input.request, previous: null, latest })
+type Ask = (p: Prompt) => Promise<ProgressNote | null>
+
+/** The prompt of one step, on top of the note held before it. */
+function stepPrompt(input: MidrunCase['input'], previous: ProgressNote | null, latest: StepRecord): Prompt {
+  return progressPrompt({ request: input.request, previous, latest })
 }
 
-/** The prompt of "after": the latest step, on top of "before" (null when there is none or it could not be read). */
-export function afterPrompt(input: MidrunCase['input'], before: ProgressNote | null): Prompt {
-  return progressPrompt({ request: input.request, previous: before, latest: input.latest })
+/**
+ * Both notes, by one call per step: "before" folded over input.recent (null when it is empty), "after" on the latest
+ * step. A reply that cannot be read (ask gives null) leaves the note held before it standing for the next step.
+ */
+export async function foldNotes(input: MidrunCase['input'], ask: Ask): Promise<Notes> {
+  let before: ProgressNote | null = null
+  for (const step of input.recent) before = (await ask(stepPrompt(input, before, step))) ?? before
+  const after = await ask(stepPrompt(input, before, input.latest))
+  return { before, after }
+}
+
+/** How many calls foldNotes makes for a case: one per recent step and one for "after". */
+export function callsFor(input: MidrunCase['input']): number {
+  return input.recent.length + 1
+}
+
+/** The first call's prompt: the oldest recent step with no note yet, or "after" when there is no recent step. */
+export function firstPrompt(input: MidrunCase['input']): Prompt {
+  return stepPrompt(input, null, input.recent[0] ?? input.latest)
 }
 
 /** Whether a case's notes are to be written: it has none yet, or force rewrites them. */

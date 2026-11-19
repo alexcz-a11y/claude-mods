@@ -1,9 +1,10 @@
 // Run with `node dispatch-pilot/eval/notes.ts [--data <dir>] [--dry-run] [--only <case id>] [--force]` (calibration plan,
 // Task 12 Step 1). Writes each mid-run case's input.notes = { before, after } back into the file the case came from:
 // eval/cases/midrun.json (model-written) or <data>/cases/midrun.json (from real sessions; --data, default
-// ~/.config/dispatch-pilot/calibration). A note is the mod's own prompt (progressPrompt) answered by
+// ~/.config/dispatch-pilot/calibration). "before" is built up over input.recent as the mod builds it (one call per
+// step, each on the note before it), "after" on the latest step. A note is the mod's own prompt (progressPrompt) answered by
 // `claude -p --model haiku` and read with parseProgress; a reply it cannot read, a failed call or one over 120 s gives
-// null. This is not the mod's own path ($.model.complete at low effort with a 200-token cap): the record says so.
+// no note (the note before it stands). This is not the mod's own path ($.model.complete at low effort with a 200-token cap): the record says so.
 //
 //   --dry-run   how many notes would be written, and the first prompt; calls nothing, changes no file
 //   --only <id> this case alone
@@ -19,7 +20,7 @@ import type { ProgressNote } from '../hooks/statebuild.ts'
 import { pool } from './lib/budget.ts'
 import { checkCase } from './lib/case.ts'
 import type { MidrunCase } from './lib/case.ts'
-import { afterPrompt, beforePrompt, notesWanted, withNotes, withoutTelemetry } from './lib/notes.ts'
+import { callsFor, firstPrompt, foldNotes, notesWanted, withNotes, withoutTelemetry } from './lib/notes.ts'
 import type { Notes } from './lib/notes.ts'
 
 const USAGE = 'usage: node dispatch-pilot/eval/notes.ts [--data <dir>] [--dry-run] [--only <case id>] [--force]'
@@ -118,10 +119,13 @@ function call(p: Prompt): Promise<Called> {
 }
 
 async function notesFor(c: MidrunCase): Promise<{ notes: Notes; whys: string[] }> {
-  const bp = beforePrompt(c.input)
-  const before = bp === null ? { note: null, why: 'no step before the latest' } : await call(bp)
-  const after = await call(afterPrompt(c.input, before.note))
-  return { notes: { before: before.note, after: after.note }, whys: [before.why, after.why] }
+  const whys: string[] = []
+  const notes = await foldNotes(c.input, async (p) => {
+    const r = await call(p)
+    whys.push(r.why)
+    return r.note
+  })
+  return { notes, whys }
 }
 
 function cleanRoot(): void {
@@ -138,13 +142,13 @@ async function main(): Promise<void> {
   const all = sources.flatMap((s) => s.cases.map((c) => ({ c, s })))
   if (a.only !== null && !all.some((x) => x.c.id === a.only)) fail(`no midrun case ${a.only}`)
   const todo = all.filter((x) => (a.only === null || x.c.id === a.only) && notesWanted(x.c, a.force))
-  const noBefore = todo.filter((x) => beforePrompt(x.c.input) === null).map((x) => x.c.id)
-  const calls = todo.length * 2 - noBefore.length
-  console.log(`${todo.length * 2} notes for ${todo.length} cases (of ${all.length}): ${calls} calls${noBefore.length > 0 ? `; "before" is null with no call for ${noBefore.join(', ')} (no step before the latest)` : ''}`)
+  const calls = todo.reduce((n, x) => n + callsFor(x.c.input), 0)
+  const noBefore = todo.filter((x) => x.c.input.recent.length === 0).map((x) => x.c.id)
+  console.log(`${todo.length * 2} notes for ${todo.length} cases (of ${all.length}): ${calls} calls (one per recent step and one for "after")${noBefore.length > 0 ? `; "before" is null for ${noBefore.join(', ')} (no recent step)` : ''}`)
   if (a.dryRun) {
     const first = todo[0]
     if (first !== undefined) {
-      const p = beforePrompt(first.c.input) ?? afterPrompt(first.c.input, null)
+      const p = firstPrompt(first.c.input)
       console.log(`first prompt (${first.c.id}):\n--- system\n${p.system}\n--- prompt\n${p.prompt}`)
     }
     return
@@ -158,7 +162,7 @@ async function main(): Promise<void> {
         // Written as each case finishes, into its own file, so an interrupted run keeps what it had.
         x.s.cases = withNotes(x.s.cases, x.c.id, r.notes)
         writeSource(x.s)
-        console.log(`${x.c.id}: before ${r.whys[0]}, after ${r.whys[1]}`)
+        console.log(`${x.c.id}: ${r.whys.join(', ')} (the last is "after")`)
         return r
       },
     })

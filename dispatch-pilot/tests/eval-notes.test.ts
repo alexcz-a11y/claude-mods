@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { afterPrompt, beforePrompt, notesWanted, withNotes, withoutTelemetry } from '../eval/lib/notes.ts'
+import { callsFor, firstPrompt, foldNotes, notesWanted, withNotes, withoutTelemetry } from '../eval/lib/notes.ts'
 import type { MidrunCase } from '../eval/lib/case.ts'
 import type { ProgressNote, StepRecord } from '../hooks/statebuild.ts'
 
@@ -20,31 +20,52 @@ function midrun(id: string, recent: StepRecord[], notes: MidrunCase['input']['no
   }
 }
 
-test('before：截至上一步，最新一步之前的那一步是 latest_step，没有 previous_note', () => {
-  const p = beforePrompt(midrun('m', [step('a'), step('b'), step('c')]).input)!
-  const sent = JSON.parse(p.prompt)
-  expect(sent.latest_step.did).toBe('c')
-  expect(sent.previous_note).toBe(null)
-  expect(sent.request).toBe('fix the parser')
+// A fake writer: answers each prompt with a note naming its latest step, or nothing for a step named in `unreadable`.
+function writer(unreadable: string[] = []) {
+  const asked: { previous: unknown; latest: string; system: string }[] = []
+  const ask = async (p: { system: string; prompt: string }): Promise<ProgressNote | null> => {
+    const sent = JSON.parse(p.prompt)
+    asked.push({ previous: sent.previous_note, latest: sent.latest_step.did, system: p.system })
+    return unreadable.includes(sent.latest_step.did) ? null : { done: 'did ' + sent.latest_step.did, remaining: 'more', cause_known: false }
+  }
+  return { asked, ask }
+}
+const noteOf = (did: string): ProgressNote => ({ done: 'did ' + did, remaining: 'more', cause_known: false })
+
+test('before 按 recent 的顺序一步步写成，每一步带上一份记录；after 在 before 上加最新一步', async () => {
+  const w = writer()
+  const notes = await foldNotes(midrun('m', [step('a'), step('b'), step('c')]).input, w.ask)
+  expect(w.asked.map((x) => [x.previous, x.latest])).toEqual([
+    [null, 'a'],
+    [noteOf('a'), 'b'],
+    [noteOf('b'), 'c'],
+    [noteOf('c'), 'latest'],
+  ])
+  expect(notes).toEqual({ before: noteOf('c'), after: noteOf('latest') })
+  expect(w.asked[0]!.system.includes('cause_known')).toBe(true)
 })
 
-test('before：最新一步之前没有步，就没有 before（不调用）', () => {
-  expect(beforePrompt(midrun('m', []).input)).toBe(null)
+test('某一步的回答读不了：上一份记录留给下一步', async () => {
+  const w = writer(['b'])
+  const notes = await foldNotes(midrun('m', [step('a'), step('b'), step('c')]).input, w.ask)
+  expect(w.asked.map((x) => x.previous)).toEqual([null, noteOf('a'), noteOf('a'), noteOf('c')])
+  expect(notes.before).toEqual(noteOf('c'))
+  const last = writer(['c'])
+  expect((await foldNotes(midrun('m', [step('a'), step('c')]).input, last.ask)).before).toEqual(noteOf('a'))
 })
 
-test('after：before 作为 previous_note，再加最新一步', () => {
-  const p = afterPrompt(midrun('m', [step('a')]).input, NOTE)
-  const sent = JSON.parse(p.prompt)
-  expect(sent.latest_step).toEqual({ did: 'latest', tools: ['Bash'], outcome: 'error', result: 'latest result' })
-  expect(sent.previous_note).toEqual(NOTE)
+test('recent 为空：before 是 null，不调用；after 不带上一份记录', async () => {
+  const w = writer()
+  const notes = await foldNotes(midrun('m', []).input, w.ask)
+  expect(w.asked.map((x) => [x.previous, x.latest])).toEqual([[null, 'latest']])
+  expect(notes).toEqual({ before: null, after: noteOf('latest') })
 })
 
-test('after：before 是 null 时 previous_note 也是 null；system 是 mod 自己的', () => {
-  const c = midrun('m', [step('a')]).input
-  const p = afterPrompt(c, null)
-  expect(JSON.parse(p.prompt).previous_note).toBe(null)
-  expect(p.system).toBe(beforePrompt(c)!.system)
-  expect(p.system.includes('cause_known')).toBe(true)
+test('callsFor 和 firstPrompt：每个 recent 一次加 after 一次；第一次调用的提示', () => {
+  expect(callsFor(midrun('m', [step('a'), step('b')]).input)).toBe(3)
+  expect(callsFor(midrun('m', []).input)).toBe(1)
+  expect(JSON.parse(firstPrompt(midrun('m', [step('a'), step('b')]).input).prompt).latest_step.did).toBe('a')
+  expect(JSON.parse(firstPrompt(midrun('m', []).input).prompt).latest_step.did).toBe('latest')
 })
 
 test('notesWanted：没有 notes 的要写；已有的只在 force 时重写', () => {
