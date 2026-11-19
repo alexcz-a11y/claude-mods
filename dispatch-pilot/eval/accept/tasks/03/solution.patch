@@ -1,0 +1,384 @@
+diff -ruN a/nightly/reports/away_sales.py b/nightly/reports/away_sales.py
+--- a/nightly/reports/away_sales.py
++++ b/nightly/reports/away_sales.py
+@@ -2,15 +2,18 @@
+ 
+ 
+ def build(backend, day):
+-    rows = []
+-    for order in backend.scan("orders", day):
+-        seller = backend.get("staff", order["staff_id"])
+-        if seller["store_id"] == order["store_id"]:
+-            continue
+-        rows.append({
++    orders = backend.scan("orders", day)
++    staff = backend.get_many("staff", {order["staff_id"] for order in orders})
++    away = [order for order in orders if staff[order["staff_id"]]["store_id"] != order["store_id"]]
++    store_ids = {order["store_id"] for order in away} | {staff[order["staff_id"]]["store_id"] for order in away}
++    stores = backend.get_many("stores", store_ids)
++    rows = [
++        {
+             "order": order["id"],
+-            "staff": seller["name"],
+-            "home_store": backend.get("stores", seller["store_id"])["name"],
+-            "sold_at": backend.get("stores", order["store_id"])["name"],
+-        })
++            "staff": staff[order["staff_id"]]["name"],
++            "home_store": stores[staff[order["staff_id"]]["store_id"]]["name"],
++            "sold_at": stores[order["store_id"]]["name"],
++        }
++        for order in away
++    ]
+     return sorted(rows, key=lambda row: row["order"])
+diff -ruN a/nightly/reports/carrier_regions.py b/nightly/reports/carrier_regions.py
+--- a/nightly/reports/carrier_regions.py
++++ b/nightly/reports/carrier_regions.py
+@@ -2,11 +2,14 @@
+ 
+ 
+ def build(backend, day):
++    shipments = backend.scan("shipments", day)
++    carriers = backend.get_many("carriers", {shipment["carrier_id"] for shipment in shipments})
++    stores = backend.get_many("stores", {shipment["store_id"] for shipment in shipments})
++    regions = backend.get_many("regions", {store["region_id"] for store in stores.values()})
+     parcels = {}
+-    for shipment in backend.scan("shipments", day):
+-        carrier = backend.get("carriers", shipment["carrier_id"])["name"]
+-        store = backend.get("stores", shipment["store_id"])
+-        region = backend.get("regions", store["region_id"])["name"]
++    for shipment in shipments:
++        carrier = carriers[shipment["carrier_id"]]["name"]
++        region = regions[stores[shipment["store_id"]]["region_id"]]["name"]
+         parcels[(carrier, region)] = parcels.get((carrier, region), 0) + shipment["parcels"]
+     return [
+         {"carrier": carrier, "region": region, "parcels": count}
+diff -ruN a/nightly/reports/category_revenue.py b/nightly/reports/category_revenue.py
+--- a/nightly/reports/category_revenue.py
++++ b/nightly/reports/category_revenue.py
+@@ -1,17 +1,12 @@
+ """Revenue per product category."""
+ 
+ 
+-def _category(backend, product_id):
+-    product = backend.get("products", product_id)
+-    return backend.get("categories", product["category_id"])["name"]
+-
+-
+ def build(backend, day):
+-    lines = [
+-        (_category(backend, item["product_id"]), item["qty"] * item["price_cents"])
+-        for item in backend.scan("order_items", day)
+-    ]
++    items = backend.scan("order_items", day)
++    products = backend.get_many("products", {item["product_id"] for item in items})
++    categories = backend.get_many("categories", {product["category_id"] for product in products.values()})
+     revenue = {}
+-    for category, cents in lines:
+-        revenue[category] = revenue.get(category, 0) + cents
++    for item in items:
++        category = categories[products[item["product_id"]]["category_id"]]["name"]
++        revenue[category] = revenue.get(category, 0) + item["qty"] * item["price_cents"]
+     return [{"category": name, "revenue_cents": revenue[name]} for name in sorted(revenue)]
+diff -ruN a/nightly/reports/channel_by_region.py b/nightly/reports/channel_by_region.py
+--- a/nightly/reports/channel_by_region.py
++++ b/nightly/reports/channel_by_region.py
+@@ -2,10 +2,12 @@
+ 
+ 
+ def build(backend, day):
++    orders = backend.scan("orders", day)
++    stores = backend.get_many("stores", {order["store_id"] for order in orders})
++    regions = backend.get_many("regions", {store["region_id"] for store in stores.values()})
+     counts = {}
+-    for order in backend.scan("orders", day):
+-        store = backend.get("stores", order["store_id"])
+-        region = backend.get("regions", store["region_id"])
++    for order in orders:
++        region = regions[stores[order["store_id"]]["region_id"]]
+         channels = counts.setdefault(region["name"], {})
+         channels[order["channel"]] = channels.get(order["channel"], 0) + 1
+     return [
+diff -ruN a/nightly/reports/customer_regions.py b/nightly/reports/customer_regions.py
+--- a/nightly/reports/customer_regions.py
++++ b/nightly/reports/customer_regions.py
+@@ -2,14 +2,17 @@
+ 
+ 
+ def build(backend, day):
++    orders = backend.scan("orders", day)
++    customers = backend.get_many("customers", {order["customer_id"] for order in orders})
++    regions = backend.get_many("regions", {customer["region_id"] for customer in customers.values()})
+     seen = {}
+-    orders = {}
+-    for order in backend.scan("orders", day):
+-        customer = backend.get("customers", order["customer_id"])
+-        region = backend.get("regions", customer["region_id"])["name"]
++    counts = {}
++    for order in orders:
++        customer = customers[order["customer_id"]]
++        region = regions[customer["region_id"]]["name"]
+         seen.setdefault(region, set()).add(customer["id"])
+-        orders[region] = orders.get(region, 0) + 1
++        counts[region] = counts.get(region, 0) + 1
+     return [
+-        {"region": region, "orders": orders[region], "customers": len(seen[region])}
+-        for region in sorted(orders)
++        {"region": region, "orders": counts[region], "customers": len(seen[region])}
++        for region in sorted(counts)
+     ]
+diff -ruN a/nightly/reports/gold_orders.py b/nightly/reports/gold_orders.py
+--- a/nightly/reports/gold_orders.py
++++ b/nightly/reports/gold_orders.py
+@@ -2,16 +2,17 @@
+ 
+ 
+ def build(backend, day):
+-    rows = []
+-    for order in backend.scan("orders", day):
+-        customer = backend.get("customers", order["customer_id"])
+-        if customer["tier"] != "gold":
+-            continue
+-        store = backend.get("stores", order["store_id"])
+-        rows.append({
++    orders = backend.scan("orders", day)
++    customers = backend.get_many("customers", {order["customer_id"] for order in orders})
++    gold = [order for order in orders if customers[order["customer_id"]]["tier"] == "gold"]
++    stores = backend.get_many("stores", {order["store_id"] for order in gold})
++    rows = [
++        {
+             "order": order["id"],
+-            "customer": customer["name"],
+-            "store": store["name"],
++            "customer": customers[order["customer_id"]]["name"],
++            "store": stores[order["store_id"]]["name"],
+             "total_cents": order["total_cents"],
+-        })
++        }
++        for order in gold
++    ]
+     return sorted(rows, key=lambda row: (-row["total_cents"], row["order"]))
+diff -ruN a/nightly/reports/low_margin_lines.py b/nightly/reports/low_margin_lines.py
+--- a/nightly/reports/low_margin_lines.py
++++ b/nightly/reports/low_margin_lines.py
+@@ -6,16 +6,17 @@
+ 
+ 
+ def build(backend, day):
++    items = backend.scan("order_items", day)
++    products = backend.get_many("products", {item["product_id"] for item in items})
++    thin = [item for item in items if _thin(item, products[item["product_id"]])]
++    suppliers = backend.get_many("suppliers", {products[item["product_id"]]["supplier_id"] for item in thin})
+     rows = []
+-    for item in backend.scan("order_items", day):
+-        product = backend.get("products", item["product_id"])
+-        if not _thin(item, product):
+-            continue
+-        supplier = backend.get("suppliers", product["supplier_id"])
++    for item in thin:
++        product = products[item["product_id"]]
+         rows.append({
+             "line": item["id"],
+             "product": product["name"],
+-            "supplier": supplier["name"],
++            "supplier": suppliers[product["supplier_id"]]["name"],
+             "price_cents": item["price_cents"],
+             "cost_cents": product["cost_cents"],
+         })
+diff -ruN a/nightly/reports/product_margin.py b/nightly/reports/product_margin.py
+--- a/nightly/reports/product_margin.py
++++ b/nightly/reports/product_margin.py
+@@ -3,9 +3,11 @@
+ 
+ 
+ def build(backend, day):
++    items = backend.scan("order_items", day)
++    products = backend.get_many("products", {item["product_id"] for item in items})
+     margin = defaultdict(int)
+-    for item in backend.scan("order_items", day):
+-        product = backend.get("products", item["product_id"])
++    for item in items:
++        product = products[item["product_id"]]
+         margin[product["name"]] += item["qty"] * (item["price_cents"] - product["cost_cents"])
+     return [
+         {"product": name, "margin_cents": cents}
+diff -ruN a/nightly/reports/refunds_by_store.py b/nightly/reports/refunds_by_store.py
+--- a/nightly/reports/refunds_by_store.py
++++ b/nightly/reports/refunds_by_store.py
+@@ -5,8 +5,9 @@
+     by_store = {}
+     for returned in backend.scan("returns", day):
+         by_store.setdefault(returned["store_id"], []).append(returned["amount_cents"])
++    stores = backend.get_many("stores", list(by_store))
+     rows = [
+-        {"store": backend.get("stores", store_id)["name"], "returns": len(amounts), "refund_cents": sum(amounts)}
++        {"store": stores[store_id]["name"], "returns": len(amounts), "refund_cents": sum(amounts)}
+         for store_id, amounts in by_store.items()
+     ]
+     return sorted(rows, key=lambda row: (-row["refund_cents"], row["store"]))
+diff -ruN a/nightly/reports/returns_by_category.py b/nightly/reports/returns_by_category.py
+--- a/nightly/reports/returns_by_category.py
++++ b/nightly/reports/returns_by_category.py
+@@ -2,10 +2,12 @@
+ 
+ 
+ def build(backend, day):
++    returns = backend.scan("returns", day)
++    products = backend.get_many("products", {returned["product_id"] for returned in returns})
++    categories = backend.get_many("categories", {product["category_id"] for product in products.values()})
+     summary = {}
+-    for returned in backend.scan("returns", day):
+-        product = backend.get("products", returned["product_id"])
+-        category = backend.get("categories", product["category_id"])
++    for returned in returns:
++        category = categories[products[returned["product_id"]]["category_id"]]
+         row = summary.setdefault(category["id"], {"category": category["name"], "returns": 0, "refund_cents": 0})
+         row["returns"] += 1
+         row["refund_cents"] += returned["amount_cents"]
+diff -ruN a/nightly/reports/sales_by_region.py b/nightly/reports/sales_by_region.py
+--- a/nightly/reports/sales_by_region.py
++++ b/nightly/reports/sales_by_region.py
+@@ -2,13 +2,12 @@
+ from collections import Counter
+ 
+ 
+-def _region_of(backend, store_id):
+-    store = backend.get("stores", store_id)
+-    return backend.get("regions", store["region_id"])["name"]
+-
+-
+ def build(backend, day):
++    orders = backend.scan("orders", day)
++    stores = backend.get_many("stores", {order["store_id"] for order in orders})
++    regions = backend.get_many("regions", {store["region_id"] for store in stores.values()})
+     revenue = Counter()
+-    for order in backend.scan("orders", day):
+-        revenue[_region_of(backend, order["store_id"])] += order["total_cents"]
++    for order in orders:
++        region = regions[stores[order["store_id"]]["region_id"]]["name"]
++        revenue[region] += order["total_cents"]
+     return [{"region": region, "total_cents": cents} for region, cents in sorted(revenue.items())]
+diff -ruN a/nightly/reports/sales_by_tier.py b/nightly/reports/sales_by_tier.py
+--- a/nightly/reports/sales_by_tier.py
++++ b/nightly/reports/sales_by_tier.py
+@@ -2,9 +2,11 @@
+ 
+ 
+ def build(backend, day):
++    orders = backend.scan("orders", day)
++    customers = backend.get_many("customers", {order["customer_id"] for order in orders})
+     totals = {}
+-    for order in backend.scan("orders", day):
+-        customer = backend.get("customers", order["customer_id"])
++    for order in orders:
++        customer = customers[order["customer_id"]]
+         row = totals.setdefault(customer["tier"], {"tier": customer["tier"], "orders": 0, "total_cents": 0})
+         row["orders"] += 1
+         row["total_cents"] += order["total_cents"]
+diff -ruN a/nightly/reports/staff_leaderboard.py b/nightly/reports/staff_leaderboard.py
+--- a/nightly/reports/staff_leaderboard.py
++++ b/nightly/reports/staff_leaderboard.py
+@@ -2,9 +2,11 @@
+ 
+ 
+ def build(backend, day):
++    orders = backend.scan("orders", day)
++    staff = backend.get_many("staff", {order["staff_id"] for order in orders})
+     board = {}
+-    for order in backend.scan("orders", day):
+-        name = backend.get("staff", order["staff_id"])["name"]
++    for order in orders:
++        name = staff[order["staff_id"]]["name"]
+         row = board.setdefault(name, {"staff": name, "orders": 0, "total_cents": 0})
+         row["orders"] += 1
+         row["total_cents"] += order["total_cents"]
+diff -ruN a/nightly/reports/store_shipping.py b/nightly/reports/store_shipping.py
+--- a/nightly/reports/store_shipping.py
++++ b/nightly/reports/store_shipping.py
+@@ -4,11 +4,12 @@
+ def build(backend, day):
+     shipments = backend.scan("shipments", day)
+     store_ids = sorted({shipment["store_id"] for shipment in shipments})
++    stores = backend.get_many("stores", store_ids)
+     rows = []
+     for store_id in store_ids:
+         mine = [shipment for shipment in shipments if shipment["store_id"] == store_id]
+         rows.append({
+-            "store": backend.get("stores", store_id)["name"],
++            "store": stores[store_id]["name"],
+             "parcels": sum(shipment["parcels"] for shipment in mine),
+             "cost_cents": sum(shipment["cost_cents"] for shipment in mine),
+         })
+diff -ruN a/nightly/reports/supplier_volume.py b/nightly/reports/supplier_volume.py
+--- a/nightly/reports/supplier_volume.py
++++ b/nightly/reports/supplier_volume.py
+@@ -7,10 +7,11 @@
+     for item in backend.scan("order_items", day):
+         units_by_product[item["product_id"]] += item["qty"]
+ 
++    products = backend.get_many("products", list(units_by_product))
++    suppliers = backend.get_many("suppliers", {product["supplier_id"] for product in products.values()})
+     rows = {}
+     for product_id, units in units_by_product.items():
+-        product = backend.get("products", product_id)
+-        supplier = backend.get("suppliers", product["supplier_id"])
++        supplier = suppliers[products[product_id]["supplier_id"]]
+         row = rows.setdefault(
+             supplier["id"], {"supplier": supplier["name"], "country": supplier["country"], "units": 0}
+         )
+diff -ruN a/nightly/reports/ticket_minutes.py b/nightly/reports/ticket_minutes.py
+--- a/nightly/reports/ticket_minutes.py
++++ b/nightly/reports/ticket_minutes.py
+@@ -1,14 +1,11 @@
+ """Support minutes per member of staff."""
+-import functools
+ 
+ 
+ def build(backend, day):
+-    @functools.lru_cache(maxsize=None)
+-    def staff_name(staff_id):
+-        return backend.get("staff", staff_id)["name"]
+-
++    tickets = backend.scan("tickets", day)
++    staff = backend.get_many("staff", {ticket["staff_id"] for ticket in tickets})
+     minutes = {}
+-    for ticket in backend.scan("tickets", day):
+-        name = staff_name(ticket["staff_id"])
++    for ticket in tickets:
++        name = staff[ticket["staff_id"]]["name"]
+         minutes[name] = minutes.get(name, 0) + ticket["minutes"]
+     return [{"staff": name, "minutes": minutes[name]} for name in sorted(minutes)]
+diff -ruN a/nightly/reports/ticket_products.py b/nightly/reports/ticket_products.py
+--- a/nightly/reports/ticket_products.py
++++ b/nightly/reports/ticket_products.py
+@@ -4,11 +4,12 @@
+ 
+ def build(backend, day):
+     tickets = sorted(backend.scan("tickets", day), key=lambda ticket: ticket["product_id"])
++    products = backend.get_many("products", {ticket["product_id"] for ticket in tickets})
+     rows = []
+     for product_id, group in itertools.groupby(tickets, key=lambda ticket: ticket["product_id"]):
+         group = list(group)
+         rows.append({
+-            "product": backend.get("products", product_id)["name"],
++            "product": products[product_id]["name"],
+             "tickets": len(group),
+             "minutes": sum(ticket["minutes"] for ticket in group),
+         })
+diff -ruN a/nightly/reports/top_products.py b/nightly/reports/top_products.py
+--- a/nightly/reports/top_products.py
++++ b/nightly/reports/top_products.py
+@@ -6,11 +6,9 @@
+ 
+ def build(backend, day):
+     units = Counter()
+-    names = {}
+     for item in backend.scan("order_items", day):
+-        product_id = item["product_id"]
+-        if product_id not in names:
+-            names[product_id] = backend.get("products", product_id)["name"]
+-        units[product_id] += item["qty"]
++        units[item["product_id"]] += item["qty"]
++    products = backend.get_many("products", list(units))
++    names = {product_id: product["name"] for product_id, product in products.items()}
+     ranked = sorted(units.items(), key=lambda pair: (-pair[1], names[pair[0]]))
+     return [{"product": names[product_id], "units": count} for product_id, count in ranked[:LIMIT]]

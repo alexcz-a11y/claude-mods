@@ -1,0 +1,9 @@
+{
+  "id": "ORD-1175",
+  "customer": "Brightwater Ceramics",
+  "lines": [
+    { "sku": "C-310", "qty": 40, "shipTo": "Studio" },
+    { "sku": "T-220", "qty": 6, "shipTo": "Studio" },
+    { "sku": "F-402", "qty": 3, "shipTo": "Studio" }
+  ]
+}

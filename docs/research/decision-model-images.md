@@ -347,5 +347,5 @@ body = {
 - https://jev101.org/guides/pplx-decider-guide
 
 **本地**
-- `/Users/alexnear/Documents/claude-mods/dispatch-pilot/.claude-plugin/types/claude-code/index.d.ts` （Claude Code 2.1.300 生成的声明，第 4 节的依据）
-- `/Users/alexnear/Documents/claude-mods/docs/research/decision-models-and-caching.md` （体例参照；Jev 文本延迟中位数）
+- `dispatch-pilot/.claude-plugin/types/claude-code/index.d.ts` （Claude Code 2.1.300 生成的声明，第 4 节的依据）
+- `docs/research/decision-models-and-caching.md` （体例参照；Jev 文本延迟中位数）

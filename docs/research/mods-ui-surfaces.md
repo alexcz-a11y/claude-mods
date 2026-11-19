@@ -369,10 +369,10 @@ Desktop 页面在节点数不满足时丢弃整个 `ui_render` 答案，然后�
 
 本地类型与引擎：
 
-- `T` = `/Users/alexnear/Documents/claude-mods/dispatch-pilot/.claude-plugin/types/claude-code/index.d.ts`（15,197 行，2.1.289）
+- `T` = `dispatch-pilot/.claude-plugin/types/claude-code/index.d.ts`（15,197 行，2.1.289）
 - `/private/tmp/claude-501/bundled-skills/2.1.289/fff685445fa4bacbb134ef5a97843ace/plugin-authoring/`（`reference.md`、类型）
 - `strings289.txt`（2.1.289 二进制：`RENDER_SURFACES_OF` 表、`ui_render` 处理器、`ui_toast`/`ui_status` 事件，行 585930-585931）、`cli-2.1.286.strings`（Desktop 内置引擎：`tengu_plugin_hooks_modules` 默认 true，行 326855）
-- `/Users/alexnear/Documents/claude-mods/dispatch-pilot/DEVELOPMENT.md:997-1013`、`dispatch-pilot/hooks/core/status.ts:4-6`
+- `dispatch-pilot/DEVELOPMENT.md:997-1013`、`dispatch-pilot/hooks/core/status.ts:4-6`
 
 Desktop 应用：
 
@@ -380,7 +380,7 @@ Desktop 应用：
 - live 渲染器：`https://assets-proxy.anthropic.com/claude-ai/v2/assets/v1/c95e4d2cf-Cxhyt6KW.js`（200，196074 字节；通过 `~/Library/Application Support/Claude/Code Cache/js/431db68034996dd5_0` 找到入口 `cde6354a0-CgkKrJ53.js`）；本地副本 `scratchpad/verify/live/c95-live.pretty.js`
 - `~/Library/Logs/Claude/main.log`（2026-10-04 05:24:47：`Using Claude Code binary at: …/claude-code/2.1.286/…`）
 
-探针（scratchpad：`/private/tmp/claude-501/-Users-alexnear-Documents-claude-mods/0536ecd7-ea1e-4e50-bd79-7f304c0a52cd/scratchpad`）：
+探针（scratchpad：`/private/tmp/claude-501/…/scratchpad`）：
 
 - `probe-ui/`（17 测试、9 个测试文件）：`command claude plugin test` 在 2.1.289 上 17 pass / 0 fail；2.1.286 与 2.1.284 对照 `results/v289.sorted` vs `results/v286.sorted`
 - `verify/dp-desktop-load.mjs`（按 Desktop 方式启动 2.1.286，加载 dispatch-pilot）、`probe-driver*.mjs`（Desktop 内置引擎 ui_render/ui_status/ui_toast/ui_panes 驱动）

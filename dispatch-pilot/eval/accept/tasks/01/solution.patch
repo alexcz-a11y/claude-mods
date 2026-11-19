@@ -1,0 +1,24 @@
+diff -ruN a/roombook/rules.py b/roombook/rules.py
+--- a/roombook/rules.py
++++ b/roombook/rules.py
+@@ -5,7 +5,7 @@
+ def inside_opening_hours(room, start, end):
+     opens = parse_clock(room["opens"])
+     closes = parse_clock(room["closes"])
+-    return opens <= start and end < closes
++    return opens <= start and end <= closes
+ 
+ 
+ def within_max_length(room, start, end):
+diff -ruN a/roombook/series.py b/roombook/series.py
+--- a/roombook/series.py
++++ b/roombook/series.py
+@@ -7,7 +7,7 @@
+         return False
+     if day.isoformat() in series.get("skip", ()):
+         return False
+-    return day.weekday() in series["weekdays"]
++    return day.isoweekday() in series["weekdays"]
+ 
+ 
+ def occurrences(all_series, room_id, day):

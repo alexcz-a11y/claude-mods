@@ -1,0 +1,174 @@
+[
+ {
+  "id": "submit-03",
+  "category": "submit",
+  "source": "written",
+  "difficulty": "typical",
+  "set": "fit",
+  "tags": [
+   "first-message",
+   "unknown-cause",
+   "intermittent",
+   "frontend"
+  ],
+  "input": {
+   "request": "订单列表页往下滚加载更多的时候 同一页数据有时候会出现两遍 列表里就多出重复的行 不是每次都有 网络慢的时候好像更容易出现 控制台没有报错 帮我查出原因并修掉",
+   "previous": null,
+   "base": "medium"
+  },
+  "expect": {
+   "accept": [
+    "xhigh"
+   ]
+  },
+  "label": {
+   "by": "model",
+   "rationale": "request 报告了一个故障（列表出现重复的行），没有给出原因（控制台没有报错），而且「有时候」「不是每次都有」「网络慢的时候更容易出现」说明它是偶发的、和请求的先后有关。这正是 OPEN_LEVELS 第 3 档 \"The cause is unknown and the behavior is intermittent, concurrent or state-dependent\" → xhigh；unknown_cause 应读成「是」，mechanical 为「否」。不是 high：high 说的是在几种可能的原因之间取舍，这里多了偶发和时序这一层，定义把它单列为上一档。不是 max：现象能复现（网络慢时更容易出现），没有不可撤销的操作，也不需要在运行中切换。证据都在 state.request（首条消息，没有 previous_turn）。服务 S1 representative、S10；模型写的，按 S4 单独标记。真实素材里没有报故障的消息，这一例补 unknown_cause 读成「是」的情形。"
+  }
+ },
+ {
+  "id": "submit-04",
+  "category": "submit",
+  "source": "written",
+  "difficulty": "typical",
+  "set": "check",
+  "tags": [
+   "new-task",
+   "after-lower-turn",
+   "data-analysis"
+  ],
+  "input": {
+   "request": "That drop in March lines up with when we shipped the new tracking SDK, so I can't tell if we actually lost users or just stopped counting some of them. Work out how to tell the two apart with what's in this file, then tell me which it is and how sure you are.",
+   "previous": {
+    "request": "Load events_2026q1.parquet and plot weekly active users for the quarter.",
+    "lastReply": "Done. The chart is in out/wau_q1.png. Weekly active users stay between 41k and 43k through February, then fall to about 36k in the week of March 2 and stay near that level for the rest of the quarter. I counted distinct user_id per ISO week and filtered nothing else.",
+    "ended": "answered",
+    "level": "low"
+   },
+   "base": "medium"
+  },
+  "expect": {
+   "accept": [
+    "high"
+   ]
+  },
+  "label": {
+   "by": "model",
+   "rationale": "previous_turn 是一件已经做完的小事（按周画活跃用户图，level 是 low）；request 是新任务，不是让助手接着做，continues 应读成「否」。新任务：三月的下跌有两种解释（真的流失了用户，或者新的埋点 SDK 漏记了一部分），用户没有给出区分的办法，要助手自己设计怎么区分并下结论。符合 OPEN_LEVELS 第 2 档 \"Several workable designs or several possible causes; a choice has to be made between them.\" → high。不是 medium：不是小范围内的少数几种可能，区分的方法本身要设计，按 SDK 版本、平台、事件类型、新老用户等几种切法里要选。不是 xhigh：现象不是偶发、并发或依赖状态的，也没有容易出细微错误的改动要做。证据：state.request 里的两种解释和 \"Work out how to tell the two apart\"；previous_turn.last_reply 里下跌的幅度和时间。上一轮是 low 而这一轮该到 high，也用来看 previous_turn 不把新任务往下拉。服务 S1 representative、S10；模型写的，按 S4 单独标记。"
+  }
+ },
+ {
+  "id": "submit-05",
+  "category": "submit",
+  "source": "written",
+  "difficulty": "negative",
+  "set": "check",
+  "tags": [
+   "continues",
+   "long-unattended",
+   "level-from-previous",
+   "go-ahead",
+   "short",
+   "mechanical",
+   "frontend"
+  ],
+  "input": {
+   "request": "可以 照这个全部改完 我去开会了 回来看结果",
+   "previous": {
+    "request": "src/pages 下面的页面里颜色都是直接写的色值 我想换成 tokens.css 里的变量 你先拿 3 个页面改一下 我看看效果",
+    "lastReply": "改了 3 个页面：Login、Settings、Billing，一共 41 处。\n\n- **做法**：把写死的色值换成 tokens.css 里同值的变量，例如 `#1a73e8` 换成 `var(--color-primary)`，`#5f6368` 换成 `var(--color-text-secondary)`。\n- **验证**：三个页面改之前和改之后的截图逐像素一致，`npm run lint` 和 `npm run build` 都通过。\n- **剩下的**：src/pages 下还有 38 个页面没改。我把它们用到的色值列了一遍，一共 12 种，在 tokens.css 里都有同值的变量。\n\n要不要照同样的办法接着改完？",
+    "ended": "answered",
+    "level": "low"
+   },
+   "base": "medium"
+  },
+  "expect": {
+   "accept": [
+    "low"
+   ]
+  },
+  "label": {
+   "by": "model",
+   "rationale": "request「可以 照这个全部改完 我去开会了 回来看结果」离开上一轮没法判断：previous_turn.last_reply 报告已经照一种办法改了 3 个页面，以「要不要照同样的办法接着改完？」结尾，这条消息只是同意并让它做完，没有新任务，continues 应读成「是」。档位要从接着做的工作来：剩下 38 个页面用的是上一轮已经用过并验证过的办法（色值换成 tokens.css 里同值的变量；last_reply 写明剩下的页面用到的 12 种色值在 tokens.css 里都有同值的变量，验证方式也用过了），符合 OPEN_LEVELS 第 0 档 \"The way to do it is already given; the work is carrying it out.\" → low；mechanical 应读成「是」，unknown_cause 为「否」。上一轮就是 low（previous_turn.level），续做时沿用它，这一轮不该换档，所以标 negative。不是 medium：state 里没有哪一处有几种可能，也没有要留意的坑。不是 high：页面多（38 个）和没有人看着（「我去开会了 回来看结果」）都不让问题更开放，按设计 5.2 节工作量不算进这道题；对照题 long_unattended 在这里会读成「是」，它的候选规则「不低于 high」在这一例上会判高。base 仍是 medium（会话设定的档位），上一轮的 low 是 mod 定的；continues 没有读成「是」时，要从 medium 降到 low 才算对。只看 request 的字面答不出来，证据在 state 的 previous_turn 里。服务 S1「保持不变」、S6、S7、S14 和 S15（check 里有一例 continues 为「是」而且该留在低档的，门槛可以在没用来调的用例上核对）；模型写的，按 S4 单独标记。"
+  }
+ },
+ {
+  "id": "submit-11",
+  "category": "submit",
+  "source": "written",
+  "difficulty": "negative",
+  "set": "fit",
+  "tags": [
+   "alarming-surface",
+   "cause-stated",
+   "first-message"
+  ],
+  "input": {
+   "request": "昨晚 23:40 那次支付回调大面积失败，原因已经查清了：网关上那张中间证书过期，凌晨换掉以后就恢复了，复盘也写完了，这块不用你再查。现在只剩一件事：给证书到期加一条告警，别再等到过期才知道。monitoring/rules/ 下面已经有二十多条规则，照它们的写法加就行。提前多少天报、发到哪个通知组，你先看现有规则是怎么分级的再定，定了在回复里告诉我。",
+   "previous": null,
+   "base": "medium"
+  },
+  "expect": {
+   "accept": [
+    "medium"
+   ]
+  },
+  "label": {
+   "by": "model",
+   "rationale": "按 `open` 的档位说明是第 1 档（medium）：“A few possibilities within a small area, or one small trap to watch for.” 依据都在 `request` 里：要做的只是加一条证书到期告警，写法照 monitoring/rules/ 里已有的规则；但提前多少天报、发到哪个通知组要先看现有规则的分级再定，是小范围里的少数几个选择。不是 low：做法没有全部给定，`mechanical` 的 false 条件“At least one part needs a decision about how to do it”成立。不是 high：选择只落在一条规则的两个参数上，没有几套设计要取舍；事故的原因已经写明（中间证书过期），用户还说不用再查，`unknown_cause` 的 false 条件“its cause is stated”成立，不触发下限 high。基准档是 medium，正确结果是保持不动。迷惑之处在两头：前半段的事故描述（支付回调大面积失败）容易被读成要排查，“照它们的写法加就行”又容易被读成纯机械。服务 S1（答案是“保持不变”的例）、S6、S4（补写）、S7。"
+  }
+ },
+ {
+  "id": "submit-12",
+  "category": "submit",
+  "source": "written",
+  "difficulty": "typical",
+  "set": "check",
+  "tags": [
+   "top-level",
+   "online-migration",
+   "first-message"
+  ],
+  "input": {
+   "request": "线上 ledger 库的 entries 表（Postgres 15，一主两从，十一亿行出头）主键 id 还是 int4，按最近的增速大概三周后用完。要把 id 和另外六张表里引用它的外键列都换成 bigint。这张表全天都有写入，高峰每秒一千八百次左右，支付链路直接写它，没有可以停写的窗口；从库延迟超过五秒风控就开始拒单。先把完整的切换方案写给我看，我确认以后再一步一步做，每一步执行前说清楚要跑什么。",
+   "previous": null,
+   "base": "medium"
+  },
+  "expect": {
+   "accept": [
+    "max"
+   ]
+  },
+  "label": {
+   "by": "model",
+   "rationale": "按 `open` 的档位说明是第 4 档（max）：“The cause is unknown or the change is easy to get subtly wrong, and in addition it cannot be reproduced, the operation cannot be undone, or it must be switched over while running.” 依据都在 `request` 里：在线把十一亿行的主键和六张表的外键列换类型，还受从库延迟不超过五秒的约束，是容易改出细微错误的改动；“全天都有写入……没有可以停写的窗口”是必须在运行中切换，占了第 4 档列出的三种情形里的一种。不是 xhigh：第 3 档只到“容易改出细微错误”为止，这里多了运行中切换这一条。没有报告故障（id 用完的原因是已知的），`unknown_cause` 为否；没有现成的模式可照，`mechanical` 为否。从基准档 medium 起算应一路升到 max。服务 S1（代表性的例：最高一档的典型情形）、S4（补写）、S7。"
+  }
+ },
+ {
+  "id": "submit-13",
+  "category": "submit",
+  "source": "written",
+  "difficulty": "hard",
+  "set": "check",
+  "tags": [
+   "long-unattended",
+   "mechanical-batch",
+   "long-message",
+   "first-message"
+  ],
+  "input": {
+   "request": "I'm offline until tomorrow morning, so run this straight through and don't stop to ask me anything.\n\nThere are 46 service charts under deploy/charts. For each one: in values.yaml rename `resources.limits.memoryMb` to `resources.limits.memory` and turn the number into a string with the Mi suffix (512 becomes \"512Mi\"). It is the same edit that is already merged for deploy/charts/billing-api, so copy how it was done there. After the edit run `helm lint` and `helm template` on that chart.\n\nIf either command fails for a chart, don't try to fix it: put the chart's name and the error text into deploy/MIGRATION_REPORT.md and go on to the next one. A chart with no memoryMb key is listed there as skipped.\n\nWhen all 46 are done, finish the report: which passed, which failed, which were skipped.",
+   "previous": null,
+   "base": "medium"
+  },
+  "expect": {
+   "accept": [
+    "low"
+   ]
+  },
+  "label": {
+   "by": "model",
+   "rationale": "state 只有 `request`，没有上一轮。每个 chart 改哪个键、数值怎么换（512 变成 \"512Mi\"）、照 deploy/charts/billing-api 已合并的同一处改动做、改完跑哪两条命令，都写明了；两种例外也给了处理办法（命令失败不修，记进报告接着做下一个；没有 memoryMb 键的记为跳过）。这是第 0 档原文「The way to do it is already given; the work is carrying it out.」，`mechanical` 为是，`unknown_cause` 为否（失败明说不用查），所以是 low。medium 不收。A 的第一条理由是有的 chart 没有这个键、每个要先分清属于哪一种，可读成第 1 档的「one small trap to watch for」：这一处 `request` 自己已经写了怎么办，是给定做法的一部分，不是留给执行者留意的坑，state 里也没有别的没交代的地方。第二条理由是机械改动的上限本来就是 medium、停在基准档不算错：上限是 submitLevel 里的封顶，不是档位的定义；从 medium 起算而停在 medium，正说明 `open` 没认出第 0 档。46 个 chart、过夜、不许停下来问，说的是工作量和无人值守；`open` 只量问题有多开放（设计 5.2 节和第 8 节），这一例又是用来看机械批处理会不会被「无人看着的长任务」错抬的对照，所以只收一档。"
+  }
+ }
+]

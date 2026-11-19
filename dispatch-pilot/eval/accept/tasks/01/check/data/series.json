@@ -1,0 +1,12 @@
+[
+  {"id": "s-a", "room": "R1", "title": "monday", "weekdays": [1], "start": "17:00", "end": "18:00",
+   "from": "2031-01-06", "until": "2031-06-30", "skip": ["2031-03-17"]},
+  {"id": "s-b", "room": "R2", "title": "sunday", "weekdays": [7], "start": "10:00", "end": "12:00",
+   "from": "2031-01-01", "until": "2031-12-31"},
+  {"id": "s-c", "room": "R2", "title": "weekend", "weekdays": [6, 7], "start": "15:00", "end": "16:00",
+   "from": "2031-01-01", "until": "2031-12-31"},
+  {"id": "s-d", "room": "R2", "title": "wednesday", "weekdays": [3], "start": "08:00", "end": "09:00",
+   "from": "2031-03-12", "until": "2031-03-26"},
+  {"id": "s-e", "room": "B", "title": "周一例会", "weekdays": [1], "start": "17:00", "end": "18:00",
+   "from": "2031-01-06", "until": "2031-06-30"}
+]

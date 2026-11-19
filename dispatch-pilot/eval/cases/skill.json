@@ -1,0 +1,177 @@
+[
+ {
+  "id": "skill-03",
+  "category": "skill",
+  "source": "written",
+  "difficulty": "hard",
+  "set": "fit",
+  "tags": [
+   "no-description",
+   "name-trap"
+  ],
+  "input": {
+   "request": "首页的开场动画现在是三段各写各的 gsap.to 靠 delay 硬凑时间 一改某一段的时长后面就全乱了 帮我改成能整体控制的写法：logo 淡入完标题再上来 标题走到一半的时候按钮跟着出 用户点跳过要能直接到结尾 离开页面时再把整段倒着放一遍当退场 页面是纯 HTML 没用任何框架",
+   "previous": null
+  },
+  "expect": {
+   "skill": "gsap-timeline",
+   "alsoOk": []
+  },
+  "label": {
+   "by": "model",
+   "rationale": "请求是把三段靠 delay 凑时间的 gsap.to 改成能整体控制的一组动画：按先后和重叠排好，能直接跳到结尾，能整段倒放。多段动画的编排和整体控制是 GSAP 的 timeline 管的事，候选里对得上的是 `gsap-timeline`（没有说明，mod 只知道名字）。依据全在 `request`：「各写各的 gsap.to 靠 delay 硬凑时间」「能整体控制」「淡入完…再上来」「走到一半的时候…跟着出」「直接到结尾」「整段倒着放一遍」。gate：要改用户的代码（acts_on_user_system 是），要照 GSAP 的写法做（would_follow_documented_procedure 是），prose_suffices 否；现有代码就是 GSAP，named 偏是。看着对的错误答案：`gsap-core`，请求里字面出现了 gsap.to，名字又是「核心」，但要解决的不是单个补间怎么写，而是多段怎么编排；`gsap-frameworks`，请求明说没用任何框架；`gsap-react`，说明写明是 React/Next.js 用的；`gsap-scrolltrigger`，说明是滚动驱动，这里不涉及滚动；`impeccable:impeccable`、`ui-ux-pro-max` 的说明里有 animate/animation，但它们管的是整体设计，不做这件具体的事。不推荐也不对：有一个候选的名字正是这件事。标 hard：表面的词指向 gsap-core，正确候选没有说明，要在八个 gsap-* 里分辨。written，比真实请求容易（S4）。服务 S1（难例）、S6、S7（只看 state 和候选名就能答）。"
+  }
+ },
+ {
+  "id": "skill-04",
+  "category": "skill",
+  "source": "written",
+  "difficulty": "hard",
+  "set": "check",
+  "tags": [
+   "no-description",
+   "name-trap",
+   "description-trap"
+  ],
+  "input": {
+   "request": "上周四架构评审会的录音在 recordings/arch-review.m4a 一个半小时左右 只有音频 帮我转成带时间戳的文字稿 我自己拿它整理会议纪要",
+   "previous": null
+  },
+  "expect": {
+   "skill": "speech-to-text",
+   "alsoOk": []
+  },
+  "label": {
+   "by": "model",
+   "rationale": "请求是把一段一个半小时左右的会议录音转成带时间戳的文字稿，供用户自己整理会议纪要。语音转文字正是 `speech-to-text` 这个名字说的事（没有说明，mod 只知道名字）。依据全在 `request`：「录音…只有音频」「转成带时间戳的文字稿」「我自己拿它整理会议纪要」。gate：要处理用户的文件（acts_on_user_system 是），转写要照具体的工具或接口来做（would_follow_documented_procedure 是），prose_suffices 否。看着对的错误答案：`remotion:remotion-captions`，说明以 \"Transcribing\" 开头，「带时间戳」也像字幕，但它是 Remotion 这一组做视频的 skill 里管字幕的（转写、显示、做字幕动画；同组的 `remotion:remotion-render` 的说明是导出 Remotion 视频），而请求里只有音频，要的是一份文字稿，没有视频，也没有字幕要显示；skillFits 问的是「这个 skill 是否做请求要的那件具体的事」，答案是否。`text-to-speech`，名字只差一个方向，说明写明是把文字变成语音，正好反过来。`voice-isolator`、`speech-engine`、`dubbing`（都没有说明）名字和语音有关，但说的不是转写。纪要由用户自己写，没有让助手总结，所以也不是 `claude-api` 说的那类工作。不推荐也不对：有一个候选的名字正是这件事。标 hard：正确候选没有说明，一个错误候选的说明字面上对得上，另一个错误候选的名字几乎相同。written，比真实请求容易（S4）。服务 S1（难例）、S6、S7（只看 state 和候选就能答）。"
+  }
+ },
+ {
+  "id": "skill-05",
+  "category": "skill",
+  "source": "written",
+  "difficulty": "negative",
+  "set": "check",
+  "tags": [
+   "uncovered",
+   "name-trap"
+  ],
+  "input": {
+   "request": "Write a script that joins the two CSV exports in data/raw on user_id, drops the duplicate rows, and saves the result as one parquet file. Then run it once and tell me the row counts before and after.",
+   "previous": null
+  },
+  "expect": {
+   "skill": null,
+   "alsoOk": []
+  },
+  "label": {
+   "by": "model",
+   "rationale": "答案是不推荐。请求是写一个脚本：两份 CSV 按 user_id 合并，去掉重复行，存成一个 parquet 文件，再跑一次报出前后的行数。这是要动手的技术工作（acts_on_user_system 是，prose_suffices 否），gate 多半会放行；但候选里没有一个是做表格数据合并或清洗的，按 SKILL_CHOICE 的 \"if any\" 应落在 other，逐个问 skillFits 也都是否。依据全在 `request`。看着对的错误答案：`run`，请求里有 \"run it once\"，但它的说明是「启动并驱动这个项目的 app，确认一处改动生效」，这里跑的是一个一次性的数据脚本，不是项目的 app；`jev-batch`，说明是把成批的文字交给决策模型分类、排序，不是合并表格；`dataviz`，这里不画图；`loop`、`schedule`，不是重复或定时的任务。标 uncovered：有技术内容、要动手，但没有候选管这件事。用英文写，对应素材里那一小部分英文消息。written（S4）。服务 S1（答案是「都不合适」）、S5（没有 skill 管的技术请求，惩罚乱猜）、S7。"
+  }
+ },
+ {
+  "id": "skill-08",
+  "category": "skill",
+  "source": "written",
+  "difficulty": "typical",
+  "set": "heldout",
+  "tags": [
+   "description-trap"
+  ],
+  "input": {
+   "request": "“批次”“货位”“在途”这三个词 代码里和文档里各说各的 按今天讨论定下来的意思统一写进术语表 另外“库存为什么在出库确认时才扣 而不是下单时就扣”这个决定也单独记一条 把当时比过的两种做法和取舍写清楚",
+   "previous": null
+  },
+  "expect": {
+   "skill": "domain-modeling",
+   "alsoOk": []
+  },
+  "label": {
+   "by": "model",
+   "rationale": "请求有两件事：把三个用法不一致的词按讨论定下的意思统一写进术语表；把一项设计决定连同比较过的做法和取舍单独记成一条。`domain-modeling` 的说明是「讨论代码库术语、写或改 GLOSSARY.md、记录或修改 ADR 时用」，两件事都在里面。依据全在 `request`：「统一写进术语表」「这个决定也单独记一条」「比过的两种做法和取舍」。gate：要改仓库里的文档（acts_on_user_system 是），术语表和决策记录有固定的写法（would_follow_documented_procedure 是），prose_suffices 否。看着对的错误答案：`codebase-design`，说明开头是 \"Shared vocabulary\"，但那是设计模块时用的一套通用词汇，不是这个项目自己的术语表；`writing-for-agents`，写的是给 agent 看的文档（skill、AGENTS.md、CLAUDE.md）；`superpowers:writing-plans`，是动手之前的实施计划；`research`，是查资料后把结论存成 Markdown，这里没有要查的东西；`superpowers:brainstorming`，决定已经做了，只是记下来。不推荐也不对：有一个候选的说明逐项对上。标 typical：清楚、常见；请求是中文，说明是英文，没有可以直接对上的词，要读说明才选得出。written，比真实请求容易（S4）。服务 S1（代表性的用例）、S7、S10（期望答案明确）。"
+  }
+ },
+ {
+  "id": "skill-11",
+  "category": "skill",
+  "source": "written",
+  "difficulty": "hard",
+  "set": "fit",
+  "tags": [
+   "named-present",
+   "no-description",
+   "name-trap"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "用户点名了一个候选里有的 skill，说法是口头的、不完整的：「superpower 的 receiving review」，指的是 `superpowers:receiving-code-review`（插件名少了 s，skill 名少了 code，不是照抄的 id）。期望就是被点名的这一个。消息的其余部分只是对 `previous_turn.last_reply` 那个方案的一句反对意见（退避该放调用方还是网关），是一场用文字就能进行的讨论，单看它不会想到推荐哪个 skill。按 SKILL_GATES：没有要助手去动用户的文件或账号（acts_on_user_system 否），懂行的人用文字就能回应（prose_suffices 是），would_follow_documented_procedure 也只是因为点了名才沾得上，所以动手题的平均值低；这一例要靠 named 那道门（\"ask for a specific named tool, format, template, or method to be used\"，是）才过得去，它就是给 `skill.named` 的门槛准备的正例。相邻的错误答案：`superpowers:requesting-code-review` 名字只差一个词，同样没有说明，但方向相反（是请人审查，不是回应别人的意见）；`code-review`、`code-review:code-review` 名字里也有 code review，说明写的是去审查一批改动或一个 PR，用户没有要审查什么；`grilling`、`superpowers:brainstorming` 从内容上沾得上（在讨论一个方案），但用户点的不是它们。对的候选没有说明，skillFits 里是 (no description)，只能凭名字认。按 controller 的裁定，这一类用例不受「不泄题」的约束：点名本身就是要测的情形。服务 S1（难例）、S6、S46 和 S51（named 的门槛要有自己的依据）、S4（补写的，单独标）。"
+  },
+  "input": {
+   "request": "退避放在调用方我不同意 应该收到网关里统一做 每个服务各写一遍迟早写歪 按 superpower 的 receiving review 来回",
+   "previous": {
+    "request": "下单接口调库存服务超时的时候该怎么重试 给个方案",
+    "lastReply": "建议放在调用方，也就是订单服务里：\n\n- **退避**：指数退避加抖动，起步 200 ms，最多 3 次，总时长不超过 2 秒。\n- **幂等**：每次下单带一个幂等键，库存服务按它去重，重试不会多扣。\n- **熔断**：连续失败 5 次后断开 30 秒，期间直接返回「稍后再试」。\n\n放在调用方的理由：只有它知道这次调用能不能重试，网关不知道哪些接口是幂等的。要我按这个写吗？",
+    "ended": "answered",
+    "level": "medium"
+   }
+  },
+  "expect": {
+   "skill": "superpowers:receiving-code-review",
+   "alsoOk": []
+  }
+ },
+ {
+  "id": "skill-12",
+  "category": "skill",
+  "source": "written",
+  "difficulty": "boundary",
+  "set": "check",
+  "tags": [
+   "two-candidates",
+   "description-trap"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "`request` 报的是一个原因不明的性能退化：数据量没变，耗时从两分钟变成四十分钟，那次部署的改动里看不出相关的地方，用户要先查明原因再动手。`diagnosing-bugs` 的说明是 \"Diagnosis loop for hard bugs and performance regressions\"，按 skillFits 正是这件事。`superpowers:systematic-debugging` 的说明是遇到 bug 或 unexpected behavior 时、提出修法之前用，管的是同一件事（先找原因再修）。两个 skill 覆盖同一块地方，推荐哪一个都对，所以是边界例：前者的说明点了性能退化，作为 expect.skill，后者放进 alsoOk。门：acts_on_user_system 是，would_follow_documented_procedure 是，prose_suffices 否。相邻的错误答案：`schedule`、`loop` 因为 cron、nightly 这些字眼看着像，但它们是给 Claude Code 排定时任务，不是查一个已有的任务为什么变慢；`code-review` 因为 diff 看着像，但用户不是要审查改动；`cloudflare:workers-profiling`、`cloudflare:web-perf` 名字里带性能，但请求没有提到那个平台。`superpowers:diagnosing-superpowers` 没有说明，单看名字（diagnosing）也像，但名字说的是排查 superpowers 这个插件自己。消息里没有 debug、diagnose、slow 这些词，要读出它说的是什么才答得对。服务 S1、S6（处在两个答案之间）、S4（补写的）。"
+  },
+  "input": {
+   "request": "The nightly export cron used to finish in about two minutes. Since Tuesday's deploy it runs for forty and sometimes gets killed by the job timeout. Row counts are flat and nothing in that deploy's diff touches the export code. Work out what changed before we touch anything.",
+   "previous": null
+  },
+  "expect": {
+   "skill": "diagnosing-bugs",
+   "alsoOk": [
+    "superpowers:systematic-debugging"
+   ]
+  }
+ },
+ {
+  "id": "skill-13",
+  "category": "skill",
+  "source": "written",
+  "difficulty": "negative",
+  "set": "check",
+  "tags": [
+   "named-missing",
+   "name-trap",
+   "description-trap"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "用户点名要用 `/terraform`，候选里没有这个 skill，也没有哪个候选的名字或说明提到 Terraform。named 门为是，动手的三道题也偏是，所以会进到选 skill 的那一步；正确的结果是 other、不推荐：按 skillFits，没有哪个候选做的是「跑 terraform plan 并读出会不会销毁重建」这件具体的事。相邻的错误答案：`superpowers:writing-plans`、`superpowers:executing-plans` 只看名字像（plan），但那是实施计划，不是 terraform plan；`wizard` 的说明提到 provisioning infrastructure，但它是给只有人能做的步骤生成向导，并明说助手自己能做的不要用它，这里跑 plan 助手自己就能做；`cloudflare:*` 管的是另一个平台。服务 S5（named-missing：点名了候选里没有的东西，修订 A7）、S1（答案是 nothing fits）、S4（补写的）。"
+  },
+  "input": {
+   "request": "规格那一项先留着 你用 /terraform 跑一下 staging 的 plan 看这次会不会把数据库实例销毁重建",
+   "previous": {
+    "request": "staging 数据库连接数上限调到 400 的那个改动合进去了吗",
+    "lastReply": "合进去了，但还没有 apply。\n\n- **改动**：`infra/staging/db.tf` 里 `max_connections` 从 200 改成 400，提交 `a41c9e2`，在 `infra/raise-conn-limit` 分支上。\n- **多出来的一项**：同一个提交把实例规格从 `db.m6g.large` 改成了 `db.m6g.xlarge`，这一项你之前没有提过。\n\n规格那一项要保留还是撤掉？",
+    "ended": "answered",
+    "level": "low"
+   }
+  },
+  "expect": {
+   "skill": null,
+   "alsoOk": []
+  }
+ }
+]

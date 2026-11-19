@@ -1,430 +1,571 @@
-// Runs an eval suite against a real decision backend and saves the results.
+// Run with `node dispatch-pilot/eval/run.ts <command> [flags]` (calibration plan, Task 6). The calibration runner: checks
+// the cases, plans and sends their requests to Drex within the budget, keeps every raw answer in the private data
+// directory (--data, default ~/.config/dispatch-pilot/calibration), and scores, sweeps and checks the stability of
+// what came back. It writes nothing outside --data. The held-out set is asked once, with --final (Ruling C3).
 //
-//   node dispatch-pilot/eval/run.ts effort-submit --estimate            what a run would send and cost; nothing is sent
-//   node dispatch-pilot/eval/run.ts effort-submit --label preliminary   every variant, both languages, against Jev
+//   check-cases                                   every case, every category of 15, and sessions across categories
+//   plan  --set tune|fit|check|heldout [--variant <name>|all]... [--repeat <n>]     what is still unasked; sends nothing
+//   ask   --set tune|fit|check [--variant <name>|all]... [--repeat <n>] [--concurrency <n>] [--retry-failed]
+//   ask   --set heldout --final [--concurrency <n>] [--retry-failed]               the held-out pass, resumable
+//   smoke                                         one request, checked field by field (amendment A4)
+//   score --set fit|check|tune|heldout [--bars start|<file>] [--form direct] [--long-unattended] [--variant <name>]
+//   sweep --path <submit.up|...|skill.fits> [--bars start|<file>]                   on fit
+//   stability [--set ...] [--bars start|<file>] [--variant <name>] [--form direct] [--long-unattended]
 //
-//   node dispatch-pilot/eval/run.ts visual-check --estimate             the visual_check suite (#65): pictures, so counted by their pixels
-//   node dispatch-pilot/eval/run.ts visual-check --max-usd 0.10         a run estimated over --max-usd sends nothing
-//
-//   node dispatch-pilot/eval/run.ts visual-check --ids anim-linear,anim-spring --variants mod --repeat 3
-//                                                                          only those items, each asked three times (--repeat)
-//
-// Options: --backend jev|pplx|d1.1|d1|drex (jev), --model <id> (Jev's: the mod's by default, the jev-latest alias, ADR 0021;
-// the result records the version that answered (backend.answeredBy); give a version such as jev-1.14.0 to hold a run to it;
-// Perplexity's: pplx-decider-v1.1-27b by default, or pplx-decider-v1-27b; a run on it reads the mod's settings from
-// pplx's own row of the defaults table, core/setup.ts BACKEND_DEFAULTS: its questions, state budgets and timeout; d1.1, Liquid's,
-// reads its own row the same way and is estimated as Liquid bills, the state once and each question's own tokens),
-// --variants en-score,zh-score (all), --languages zh,en (both), --ids a,b or
-// --limit N (all items), --concurrency 1 (Jev 1.13 answered one key's short
-// requests one after another: on 2026-10-04 the p50 was 271 ms at 1 in flight,
-// 543 ms at 2 and 684-1134 ms at 4, so latency was only the mod's at 1; 1.14
-// answered four long ones at once in the time of one, 2026-10-15; more is
-// faster for accuracy alone), --timeout <ms> (per attempt: by default four times the
-// mod's timeoutMs for the backend, at least 10000, so a slow answer is still
-// measured; the summary counts the answers later than the mod would wait),
-// --retries 2, --option contextTokens=4000 (one of the mod's options, as
-// /config sets it, read by the type the manifest gives it: a number, true or
-// false, or text; the manifest's defaults otherwise, and for the options whose
-// default depends on the decision model, the backend's: core/setup.ts
-// BACKEND_DEFAULTS), --max-usd 1 (refuse a run estimated to cost more),
-// --label <word>, --no-save, --state-tokens N (the state's budget for every kind of request, past what --option
-// contextTokens can reach, which only lowers it), --state-messages N (how many recent messages the state may hold:
-// the mod's contextMessages is at most the decision model's (2000 for both, core/setup.ts BACKEND_DEFAULTS contextMessagesMax), so
-// this only matters for a conversation longer than that), --long-context (Jev only: every request carries the
-// TypeSafe-Danger-Zone-Long-Context header, so the request and the state with any one question may hold 262k tokens instead of
-// 64k and 32k; with --state-tokens and --state-messages it measures what a longer state gains; the result records it).
-//
-// eval-v2 (#45): the dataset is eval-v2.jsonl (built first when it is not there, and checked against
-// eval-v2/generated.json), each item scored against eval-v2/gold/; the conversations are Chinese only, so the run asks
-// --languages zh unless told otherwise; the variants are zh-score, en-score (the question's language) and zh-flow, en-flow,
-// which carry the count and the summary the flow file given with --flow <file> holds at the last message
-// (eval/eval-v2-flow.ts writes one per backend and budget); the mod asks as en-flow (ADR 0014):
-//
-//   node dispatch-pilot/eval/run.ts eval-v2 --backend pplx --state-tokens 135000 --state-messages 2000 --timeout 240000 --variants zh-score,en-score --label A
-//   node dispatch-pilot/eval/run.ts eval-v2 --backend jev --variants zh-flow,en-flow --flow dispatch-pilot/eval/results/eval-v2-flow/jev-24000.json --label J
-//                                                                          (jev-24000.json is the flow saved with Jev's 24000-token state of that day, not the mod's budget now)
-//
-// --backend d1 (DEVELOPMENT.md 「d1-ultra 核验」): Liquid's d1-ultra (lib/d1.ts), asked with Jev's row of the defaults (its
-// questions, thresholds and budgets), so the requests are those Jev is asked; it reads at most 32768 tokens for the state
-// with any one question and counted the state once for each question when those runs were made, so a run on it gives
-// --state-tokens 28000 and is estimated question by question (high now: lib/estimate.ts). --merge: the questions of every
-// request with the same state go in one request (lib/merge.ts: an item's variants that differ only in their question, a
-// Workflow's agents); the result records it.
-//
-// --backend d1.1 (ADR 0021): Liquid's d1.1 as the mod asks it, with its own row of the defaults (Liquid's guide); the effort
-// suites read every backend's answers at TypeSafe's bars (lib/effort-submit.ts), the skill and subagent suites at its guide's.
-//
-// --backend drex (ADR 0026): Nace's Drex Max v1.1, the mod's default, with its own row of the defaults (Jev's questions, bars
-// and budgets); one attempt may take 60 s (Nace's advice). The mod sends it no images; the eval does (lib/drex.ts), so the
-// visual-check suite can be asked of it with --variants criteria or tiles (it has no Box question, and takes 8 images a request).
-//
-// Credentials: TYPESAFE_API_KEY for Jev; PERPLEXITY_API_KEY for Perplexity; LIQUID_API_KEY for d1 and d1.1; NACE_API_KEY for drex: the environment
-// first, then ~/.config/dispatch-pilot/eval.env. Never printed or saved.
-//
-// Saves eval/results/<suite>/<date>-<backend>[-<label>].json: the settings,
-// the backend and the model that answered, hashes of the dataset and of the
-// code the requests and grades come from (the mod's hooks, the eval's
-// suites), the questions each variant asked, the summary, and every answer
-// (one line per item and language).
-
-import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+// score and stability read with the mod's own bars for drex-max-v1.1 (CHOSEN_BARS) unless --bars says otherwise; sweep
+// sweeps from the start bars. --bars start: the start bars; --bars <file>: a JSON file's values over the start bars.
+import { randomBytes } from 'node:crypto'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { parseArgs } from 'node:util'
-import type { PluginOptions } from 'claude-code'
-import type { BackendName } from '../hooks/core/setup.ts'
-import type { Backend } from '../hooks/decision/backend.ts'
-import { JEV_MODEL } from '../hooks/decision/jev.ts'
-import { D1_1_MODEL } from '../hooks/decision/liquid.ts'
-import { PPLX_MODEL } from '../hooks/decision/pplx.ts'
-import type { DecisionRequest } from '../hooks/decision/system-one.ts'
-import { LANGUAGES, validateDataset, type Language } from './lib/datasets.ts'
-import { D1_MODEL, D1_PRICE } from './lib/d1.ts'
-import { DREX_ATTEMPT_MS, DREX_MODEL } from './lib/drex.ts'
-import { D1_ESTIMATE_FACTOR, ESTIMATE_FACTOR, estimateRun, estimateRunPerQuestion } from './lib/estimate.ts'
-import { runSuiteMerged } from './lib/merge.ts'
-import type { FlowFile } from './lib/eval-v2-flow.ts'
-import { percentText, summarize, type Summary } from './lib/metrics.ts'
-import { attemptMs as defaultAttemptMs, byRepeat, runSuite, stateDigest, type Row } from './lib/runner.ts'
-import { optionsFor, settingsFrom, withStateMessages, withStateTokens } from './lib/suite.ts'
-import { READS_FLOW, SUITES } from './lib/suites.ts'
-import { EVAL_V2_JSONL, PRICES, RESULTS_DIR, REVIEW_DIR, backendFor, catalogFor, datasetFile, formatResult, modCode, nodeHost, nodeIo, numberFlag, readDataset, readEvalV2Dataset, readManifest, shown } from './node.ts'
+import { fileURLToPath } from 'node:url'
 
-const { values, positionals } = parseArgs({
-  allowPositionals: true,
-  options: {
-    backend: { type: 'string', default: 'jev' },
-    model: { type: 'string' },
-    variants: { type: 'string' },
-    languages: { type: 'string' },
-    flow: { type: 'string' },
-    ids: { type: 'string' },
-    limit: { type: 'string' },
-    concurrency: { type: 'string', default: '1' },
-    timeout: { type: 'string' },
-    retries: { type: 'string', default: '2' },
-    option: { type: 'string', multiple: true, default: [] },
-    estimate: { type: 'boolean', default: false },
-    'max-usd': { type: 'string', default: '1' },
-    repeat: { type: 'string', default: '1' },
-    'state-tokens': { type: 'string' },
-    'state-messages': { type: 'string' },
-    'long-context': { type: 'boolean', default: false },
-    merge: { type: 'boolean', default: false },
-    label: { type: 'string' },
-    'no-save': { type: 'boolean', default: false },
-  },
-})
+import { readConfig } from '../hooks/config.ts'
+import { SHORTLIST } from '../hooks/skills.ts'
+import type { Skill } from '../hooks/skills.ts'
+import { estimateTokens, fitState } from '../hooks/statebuild.ts'
+import { CAP, mayAskHeldout, pool, spend } from './lib/budget.ts'
+import type { Spent } from './lib/budget.ts'
+import { checkCase, checkSessions, checkSet } from './lib/case.ts'
+import type { Case, CaseSet, Category } from './lib/case.ts'
+import { askDrex, hasKey } from './lib/drex.ts'
+import type { Reply } from './lib/drex.ts'
+import { heldoutWants, inOrder, neverAskedOn, sentState, stageOneOf, unknownVariants, variantsFor, wants } from './lib/plan.ts'
+import type { Want } from './lib/plan.ts'
+import { CHOSEN_BARS, START_BARS, mark, outcomeOf, shortlistOf } from './lib/read.ts'
+import type { Bars, Outcome, Stored } from './lib/read.ts'
+import { VARIANTS, build } from './lib/request.ts'
+import type { Built, Variant } from './lib/request.ts'
+import { RATE_LIMITED, SMOKE, Store } from './lib/store.ts'
+import type { Result } from './lib/store.ts'
+import { conservativeFor, plateau, ruledValue, sweep, valueAt } from './lib/sweep.ts'
 
-function fail(message: string): never {
+const USAGE = 'usage: node dispatch-pilot/eval/run.ts <check-cases|plan|ask|smoke|score|sweep|stability> [--data <dir>] [flags]; see the head of run.ts'
+const CATEGORIES: readonly Category[] = ['submit', 'midrun', 'agent', 'skill']
+const SETS: Record<string, readonly CaseSet[]> = { fit: ['fit'], check: ['check'], tune: ['fit', 'check'], heldout: ['heldout'] }
+const MODEL = readConfig({}).drexModel
+const REPO_CASES = fileURLToPath(new URL('./cases/', import.meta.url))
+const HELDOUT_STARTED = 'heldout-started'
+const HELDOUT_DONE = 'heldout-done'
+
+function fail(message: string, code = 1): never {
   console.error(message)
-  process.exit(2)
+  process.exit(code)
 }
 
-const name = positionals[0] ?? fail('usage: node dispatch-pilot/eval/run.ts <suite> [--estimate] [--backend jev|pplx|d1.1|d1|drex] [--merge] [--label <word>] ...')
-const entry = SUITES[name] ?? fail(`no suite for "${name}" yet (suites: ${Object.keys(SUITES).join(', ')})`)
-const sha = (text: string) => createHash('sha256').update(text).digest('hex')
-/** The dataset: a kind's JSONL, checked against its format; or eval-v2.jsonl, checked against generated.json, with its final gold. */
-const { kind, path, dataset, gold } = ((): { kind: string; path: string; dataset: { text: string; items: Record<string, unknown>[] }; gold: { files: number; sha256: string } | null } => {
-  if (name === 'eval-v2') {
-    const read = readEvalV2Dataset()
-    for (const note of read.notes) console.log(note)
-    if (read.errors.length > 0) fail(`eval-v2 cannot be run:\n  ${read.errors.slice(0, 20).join('\n  ')}`)
-    return { kind: name, path: EVAL_V2_JSONL, dataset: { text: read.text, items: read.items as unknown as Record<string, unknown>[] }, gold: read.gold }
+type Args = {
+  cmd: string
+  data: string
+  set: string | null
+  variants: string[]
+  repeat: number
+  concurrency: number
+  retryFailed: boolean
+  final: boolean
+  bars: string | null
+  form: 'default' | 'direct'
+  longUnattended: boolean
+  path: string | null
+}
+
+function count(v: string | undefined, flag: string, min: number): number {
+  const n = Number(v)
+  if (!Number.isInteger(n) || n < min) fail(`${flag} takes a whole number, ${min} or more\n${USAGE}`, 2)
+  return n
+}
+
+function parseArgs(argv: readonly string[]): Args {
+  const a: Args = { cmd: argv[0] ?? '', data: join(homedir(), '.config', 'dispatch-pilot', 'calibration'), set: null, variants: [], repeat: 1, concurrency: 4, retryFailed: false, final: false, bars: null, form: 'default', longUnattended: false, path: null }
+  for (let i = 1; i < argv.length; i++) {
+    const flag = argv[i]!
+    const value = (): string => argv[++i] ?? fail(`${flag} needs a value\n${USAGE}`, 2)
+    if (flag === '--data') a.data = value()
+    else if (flag === '--set') a.set = value()
+    else if (flag === '--variant') a.variants.push(value())
+    else if (flag === '--repeat') a.repeat = count(value(), flag, 1)
+    else if (flag === '--concurrency') a.concurrency = count(value(), flag, 1)
+    else if (flag === '--bars') a.bars = value()
+    else if (flag === '--path') a.path = value()
+    else if (flag === '--form') {
+      const form = value()
+      if (form !== 'direct' && form !== 'default') fail(`--form takes direct or default\n${USAGE}`, 2)
+      a.form = form
+    } else if (flag === '--retry-failed') a.retryFailed = true
+    else if (flag === '--final') a.final = true
+    else if (flag === '--long-unattended') a.longUnattended = true
+    else fail(`unknown argument: ${flag}\n${USAGE}`, 2)
   }
-  const { kind, path } = datasetFile(name)
-  const read = readDataset(path)
-  const checked = validateDataset(kind, read.items, { catalog: catalogFor(kind, path) })
-  if (read.errors.length + checked.errors.length > 0) fail(`${shown(path)} is not valid; run eval/validate.ts ${name}`)
-  return { kind, path, dataset: read, gold: null }
-})()
-// --flow <file>: what eval/eval-v2-flow.ts wrote for one backend and budget, which the flow variants carry.
-let flow: { path: string; sha256: string; file: FlowFile } | null = null
-if (values.flow !== undefined) {
-  if (!READS_FLOW.includes(name)) fail(`--flow is for the suites that read a flow file (${READS_FLOW.join(', ')}), not ${name}`)
-  const text = existsSync(values.flow) ? readFileSync(values.flow, 'utf8') : fail(`no flow file ${values.flow}`)
-  const file = JSON.parse(text) as FlowFile
-  if (file.suite !== 'eval-v2-flow') fail(`${values.flow} is not a flow file (eval/eval-v2-flow.ts writes them)`)
-  flow = { path: values.flow, sha256: sha(text), file }
-}
-// A suite built when the run starts gets what lies beside its dataset (the skill suite; the results hash those files
-// too) and every item of the dataset (the `subagent` suite asks about a Workflow's agents together).
-const beside: Record<string, string> = {}
-const suite = typeof entry === 'function' ? await entry(nodeHost(path, (file, text) => (beside[file] = sha(text))), dataset.items, { ...(flow === null ? {} : { flow: flow.file }) }) : entry
-for (const warning of suite.about?.warnings ?? []) console.log(`warning: ${warning}`)
-
-const variants = values.variants?.split(',') ?? suite.variants.filter((variant) => flow !== null || !READS_FLOW.includes(name) || !variant.endsWith('-flow'))
-for (const variant of variants) if (!suite.variants.includes(variant)) fail(`no variant "${variant}" (${suite.variants.join(', ')})`)
-// A flow variant carries a flow file's count and summary: without one it would ask nothing.
-const flowless = READS_FLOW.includes(name) && flow === null ? variants.filter((variant) => variant.endsWith('-flow')) : []
-if (flowless.length > 0) fail(`${flowless.join(', ')} carry a flow file's count and summary: give one with --flow <file> (eval/eval-v2-flow.ts writes them)`)
-const languages = (values.languages?.split(',') ?? suite.languages ?? LANGUAGES) as Language[]
-for (const language of languages) if (!LANGUAGES.includes(language)) fail(`no language "${language}" (zh, en)`)
-let items = dataset.items as { id: string; tags: string[] }[]
-if (values.ids !== undefined) {
-  const ids = values.ids.split(',')
-  items = items.filter((item) => ids.includes(item.id))
-}
-if (values.limit !== undefined) items = items.slice(0, numberFlag('--limit', values.limit, { min: 1, integer: true }))
-if (items.length === 0) fail('no item to run: --ids names none of the dataset\'s items')
-
-// The mod's settings as the engine hands them over: the manifest's defaults, then --option; what the manifest leaves
-// unset, the backend's defaults (readConfig).
-const manifest = readManifest()
-const asked = values.backend as BackendName | 'd1'
-if (asked !== 'jev' && asked !== 'pplx' && asked !== 'd1.1' && asked !== 'd1' && asked !== 'drex') fail(`no backend "${asked}" (jev, pplx, d1.1, d1, drex)`)
-/** The row of the defaults the run reads (d1 has none of its own: Jev's, lib/d1.ts). */
-const backendName: BackendName = asked === 'd1' ? 'jev' : asked
-const longContext = values['long-context'] === true
-if (longContext && asked !== 'jev') fail(`--long-context is Jev's header, not ${asked}'s`)
-const merged = values.merge === true
-let options: Record<string, unknown>
-try {
-  // The decision model is the backend under evaluation (--backend), whatever the manifest's default says, and the settings
-  // are that model's own, as the mod reads them (Perplexity's: pplx's row of core/setup.ts BACKEND_DEFAULTS).
-  options = optionsFor(backendName, manifest.userConfig ?? {}, values.option)
-} catch (error) {
-  fail(error instanceof Error ? error.message : String(error))
-}
-// --state-tokens N widens (or narrows) the state's budget for every kind of request to N: past what the mod's own options
-// can reach (they only lower it), to see what a model with a bigger window gains (#43). The result records it.
-const stateTokens = values['state-tokens'] === undefined ? null : numberFlag('--state-tokens', values['state-tokens'], { min: 100, integer: true })
-// --state-messages N lifts the number of recent messages the state may hold (the mod's is at most 2000, whatever the token budget),
-// so that a long conversation can fill a large --state-tokens (#44). The result records it.
-const stateMessages = values['state-messages'] === undefined ? null : numberFlag('--state-messages', values['state-messages'], { min: 1, integer: true })
-// The other numbers, read before anything is sent: a typo is no spend cap, no end to the retries, a timer that fires at once, no worker.
-const timeoutFlag = values.timeout === undefined ? null : numberFlag('--timeout', values.timeout, { min: 1, integer: true })
-const retries = numberFlag('--retries', values.retries, { min: 0, integer: true })
-const concurrency = numberFlag('--concurrency', values.concurrency, { min: 1, integer: true })
-const maxUsd = numberFlag('--max-usd', values['max-usd'], { min: 0 })
-// --repeat N asks every item N times (under each variant and language), to see whether an answer is stable; each time is summarized on its own.
-const repeats = numberFlag('--repeat', values.repeat, { min: 1, integer: true })
-const widened = stateTokens === null ? settingsFrom(options as PluginOptions) : withStateTokens(settingsFrom(options as PluginOptions), stateTokens)
-const settings = stateMessages === null ? widened : withStateMessages(widened, stateMessages)
-/** How long one attempt may take: --timeout, else four times the mod's timeoutMs for this backend, at least 10 s (lib/runner.ts); Drex's 60 s. */
-const attemptMs = timeoutFlag !== null ? timeoutFlag : asked === 'drex' ? DREX_ATTEMPT_MS : defaultAttemptMs(settings.timeoutMs)
-const model = values.model ?? (asked === 'drex' ? DREX_MODEL : asked === 'd1' ? D1_MODEL : asked === 'd1.1' ? D1_1_MODEL : asked === 'pplx' ? PPLX_MODEL : JEV_MODEL)
-const price = asked === 'd1' ? D1_PRICE : PRICES[backendName]
-if (merged && repeats !== 1) fail('--merge asks each item once: no --repeat')
-// A flow file run with another backend or state than this run's is allowed (say, the 48000 flow under a 135000 state), and said.
-if (flow !== null) {
-  const ran = flow.file.settings
-  const differs = [
-    flow.file.backend.name !== backendName ? `backend ${flow.file.backend.name} (this run: ${backendName})` : '',
-    ran.stateTokens !== settings.contextByKind.messagePlain ? `state budget ${ran.stateTokens} (this run: ${settings.contextByKind.messagePlain})` : '',
-    ran.stateMessages !== settings.context.messages ? `message limit ${ran.stateMessages} (this run: ${settings.context.messages})` : '',
-    ran.maxAfter !== settings.unresolved.maxAfter ? `unresolvedMaxAfter ${ran.maxAfter} (this run: ${settings.unresolved.maxAfter})` : '',
-  ].filter((text) => text !== '')
-  // The bars as the file recorded them: `yes`/`no` since 0.9.0, `add`/`reset` (the three-way question's) before it.
-  console.log(`flow: ${shown(flow.path)}, questions in ${ran.language}, bars ${Object.values(ran.thresholds).join('/')}${differs.length === 0 ? '' : `; warning: it was run with ${differs.join(', ')}`}`)
+  if (a.set !== null && SETS[a.set] === undefined) fail(`--set takes fit, check, tune or heldout\n${USAGE}`, 2)
+  const unknown = unknownVariants(a.variants)
+  if (unknown.length > 0) fail(`no category registers the variant ${unknown.join(', ')}`, 2)
+  return a
 }
 
-// The estimate: the requests a run sends (a suite that asks again after
-// reading an answer says what it may send at most: Suite.estimate; another
-// counts what it sends first), at the mod's token estimate times what the decision model counted over it (ESTIMATE_FACTOR).
-const planned: DecisionRequest[] = []
-for (const item of items) {
-  for (const variant of variants) {
-    for (const language of languages) {
-      if (suite.estimate !== undefined) {
-        planned.push(...(await suite.estimate(item, language, variant, settings)))
-        continue
-      }
-      await suite.decide(item, language, variant, async (request) => {
-        planned.push(request)
-        return { request, asked: { ok: false, failure: { kind: 'config', detail: 'estimate only' } }, ms: 0, attempts: 0 }
-      }, settings)
+// ---- the data: cases from the repository and the data directory, the skills snapshot
+
+function readArray(path: string): unknown[] {
+  if (!existsSync(path)) return []
+  let v: unknown
+  try {
+    v = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    fail(`${path}: not JSON`)
+  }
+  if (!Array.isArray(v)) fail(`${path}: not a JSON array of cases`)
+  return v
+}
+
+type Found = { where: string; value: unknown }
+
+/** A category's cases: the model-written ones in the repository and the real ones in the data directory. */
+function rawCases(data: string, category: Category): Found[] {
+  return [join(REPO_CASES, category + '.json'), join(data, 'cases', category + '.json')].flatMap((path) => readArray(path).map((value) => ({ where: path, value })))
+}
+
+function readSkills(data: string): Skill[] | null {
+  const path = join(data, 'skills.json')
+  if (!existsSync(path)) return null
+  const v = readArray(path)
+  const ok = v.every((s) => typeof s === 'object' && s !== null && typeof (s as Skill).name === 'string' && typeof (s as Skill).description === 'string')
+  if (!ok) fail(`${path}: not an array of { name, description }`)
+  return v as Skill[]
+}
+
+const idOf = (v: unknown): string => (typeof v === 'object' && v !== null && typeof (v as { id?: unknown }).id === 'string' ? (v as { id: string }).id : '?')
+
+/** Every case, each passed through checkCase; one that does not pass stops the command. */
+function loadCases(data: string, skills: readonly Skill[]): Case[] {
+  const names = skills.map((s) => s.name)
+  const out: Case[] = []
+  const problems: string[] = []
+  for (const category of CATEGORIES) {
+    for (const f of rawCases(data, category)) {
+      const found = checkCase(f.value, names)
+      if (found.length === 0) out.push(f.value as Case)
+      else problems.push(...found.map((p) => `${idOf(f.value)} (${f.where}): ${p}`))
     }
   }
+  if (problems.length > 0) fail(problems.join('\n') + '\nsome cases do not pass checkCase: run check-cases')
+  return out
 }
-// --repeat N: the same requests again, N times in all.
-const sending = Array.from({ length: repeats }, () => planned).flat()
-// A request with images counts their pixels' tokens as the decision model does, not the length of their base64 (lib/estimate.ts); one without is estimated as it always was.
-// d1 counts the state once for each question, merged or not (lib/estimate.ts); the others as they always were (a merged run on Jev costs at most this).
-const { tokens: estimatedTokens, usd: estimatedUsd } =
-  asked === 'd1'
-    ? estimateRunPerQuestion(sending, { model, factor: D1_ESTIMATE_FACTOR, usdPerMillionTokens: price })
-    : estimateRun(sending, { model, backend: backendName, factor: ESTIMATE_FACTOR[backendName], usdPerMillionTokens: price })
-console.log(`${name}: ${items.length} items x ${variants.length} variants x ${languages.length} languages${repeats === 1 ? '' : ` x ${repeats} times`} = ${sending.length} requests${suite.estimate === undefined ? '' : ' at most'}${merged ? ' (fewer merged)' : ''}, about ${estimatedTokens} input tokens, about $${estimatedUsd.toFixed(4)} on ${asked} (${model}${longContext ? ', long context' : ''})`)
-if (values.estimate) process.exit(0)
-if (estimatedUsd > maxUsd) fail(`the estimate is over --max-usd ${maxUsd}: nothing sent`)
 
-let chosen: { backend: Backend; secrets: string[] }
-try {
-  chosen = backendFor(asked, model, { longContext })
-} catch (error) {
-  fail(error instanceof Error ? error.message : String(error))
-}
-const { backend, secrets } = chosen
+const inSet = (cases: readonly Case[], set: string): Case[] => cases.filter((c) => SETS[set]!.includes(c.set))
 
-const started = new Date()
-const runOptions = {
-  backend,
-  io: nodeIo,
-  now: () => performance.now(),
-  pause: (ms) => new Promise((done) => setTimeout(done, ms)),
-  settings,
-  variants,
-  languages,
-  timeoutMs: attemptMs,
-  retries,
-  concurrency,
-  repeats,
-  onRow: (_row: unknown, done: number, total: number) => {
-    if (done % 50 === 0 || done === total) process.stderr.write(`  ${done}/${total}\n`)
-  },
-}
-const mergedRun = merged ? await runSuiteMerged(suite, items, runOptions) : null
-const rows: Row<unknown>[] = mergedRun === null ? await runSuite(suite, items, runOptions) : mergedRun.rows
-for (const row of rows) row.ms = row.ms === null ? null : Math.round(row.ms)
+// ---- requests: built, looked up, and their state
 
-// Each time the run asked is summarized on its own (an item is answered once in a summary); the file's `summary` is the first time's,
-// and with --repeat the others are in `repeatSummaries`.
-const [summary, ...repeatSummaries] = byRepeat(rows).map((own) => summarize(suite, items, own, { slowMs: settings.timeoutMs, settings, prices: { usdPerMillionTokens: price } })) as [Summary, ...Summary[]]
-const answeredBy = [...new Set(rows.flatMap((row) => (row.model === null ? [] : [row.model])))]
-const inputTokens = rows.reduce((sum, row) => sum + (row.inputTokens ?? 0), 0)
-const usd = (inputTokens * price) / 1e6
-report(summary)
-repeatSummaries.forEach((again, i) => {
-  console.log(`--- time ${i + 2} of ${repeats} ---`)
-  report(again)
-})
-// Requests sent: one per answer, more where a suite asks again (the skill suite's second stage); a merged run's, as it sent them.
-const requests = mergedRun?.requests ?? rows.reduce((sum, row) => sum + (row.requests ?? 1), 0)
-const attempts = mergedRun?.attempts ?? rows.reduce((sum, row) => sum + row.attempts, 0)
-console.log(`answers ${rows.length}, requests ${requests} (attempts ${attempts}), input tokens ${inputTokens}, about $${usd.toFixed(4)}; answered by ${answeredBy.join(', ') || 'none'}`)
+type Ctx = { store: Store; skills: readonly Skill[] }
 
-if (!values['no-save']) {
-  const reviewPath = join(REVIEW_DIR, `${kind}.review.jsonl`)
-  const decided = existsSync(reviewPath) ? new Set(readFileSync(reviewPath, 'utf8').split('\n').flatMap((line) => (line.trim() ? [JSON.parse(line).id] : []))).size : 0
-  const result = {
-    suite: suite.name,
-    label: values.label ?? null,
-    date: started.toISOString(),
-    backend: { name: backend.name, model, answeredBy },
-    dataset: {
-      path: shown(path),
-      items: dataset.items.length,
-      sha256: sha(dataset.text),
-      ...(Object.keys(beside).length === 0 ? {} : { beside }),
-      // eval-v2: the final gold the answers were scored against (how many files, one hash of them all).
-      ...(gold === null ? {} : { gold: { dir: 'eval/datasets/eval-v2/gold', ...gold } }),
-      review: { file: existsSync(reviewPath) ? shown(reviewPath) : null, decided },
-    },
-    // The flow file the flow variants carried (--flow): where, its hash, and how it was run.
-    ...(flow === null ? {} : { flow: { file: shown(flow.path), sha256: flow.sha256, backend: flow.file.backend, settings: flow.file.settings, summarizer: { model: flow.file.summarizer.model, says: flow.file.summarizer.says, answeredBy: flow.file.summarizer.answeredBy } } }),
-    // Every file of the mod and of the eval's suites a request or a grade may come from.
-    code: modCode(),
-    settings: {
-      context: settings.context,
-      // The budget of a message's state as the run asked it (contextByKind.messagePlain: the effort question's request of its
-      // own, ADR 0005), and --state-tokens when the run set one for every kind of request.
-      messageStateTokens: settings.contextByKind.messagePlain,
-      ...(stateTokens === null ? {} : { stateTokens }),
-      // The most recent messages the state may hold (the mod's, at most the decision model's), and --state-messages when the run lifted it.
-      stateMessagesLimit: settings.context.messages,
-      ...(stateMessages === null ? {} : { stateMessages }),
-      // --long-context: every request carried Jev's long-context header (262k tokens for the request and for the state with one question).
-      ...(longContext ? { longContext: true } : {}),
-      // --merge: the questions of the requests with one state went in one request (lib/merge.ts).
-      ...(merged ? { merged: true } : {}),
-      // The row of the defaults the settings came from, where it is not the backend's own (d1 reads Jev's).
-      ...(asked === backendName ? {} : { defaultsOf: backendName }),
-      // The rules that turn the answers into an effort have no parameters since 0.9.0 (ADR 0014): the result records the count R5 reads.
-      unresolvedMaxAfter: settings.unresolved.maxAfter,
-      timeoutMs: settings.timeoutMs,
-      // Every option as the run read it (a feature's own, such as agentFable), less the sensitive ones.
-      options: Object.fromEntries(Object.entries(options).filter(([key]) => manifest.userConfig?.[key]?.sensitive !== true)),
-      // The options the run left unset, with the value the backend's defaults gave each (core/setup.ts BACKEND_DEFAULTS).
-      backendDefaults: Object.fromEntries(settings.defaults.used),
-    },
-    run: { items: items.length, variants, languages, ...(repeats === 1 ? {} : { repeats }), timeoutMs: attemptMs, retries, concurrency, requests, attempts, inputTokens, usd: Number(usd.toFixed(4)) },
-    questions: Object.fromEntries(variants.map((variant) => [variant, suite.questions(variant)])),
-    ...(suite.scoring === undefined ? {} : { scoring: suite.scoring }),
-    ...(suite.about === undefined ? {} : { about: suite.about }),
-    summary,
-    ...(repeatSummaries.length === 0 ? {} : { repeatSummaries }),
-    answers: answersByItem(rows, suite.digestState === true),
-  }
-  const text = formatResult(result)
-  if (secrets.some((secret) => secret !== '' && text.includes(secret))) fail('the results would hold a credential: not saved')
-  const dir = join(RESULTS_DIR, suite.name)
-  mkdirSync(dir, { recursive: true })
-  const stem = `${started.toISOString().slice(0, 10)}-${backend.name}${values.label ? `-${values.label.replace(/[^A-Za-z0-9-]+/g, '-')}` : ''}`
-  let file = join(dir, `${stem}.json`)
-  for (let n = 2; existsSync(file); n++) file = join(dir, `${stem}-${n}.json`)
-  writeFileSync(file, text)
-  console.log(`saved ${shown(file)}`)
-}
+const variantNamed = (category: Category, name: string): Variant | undefined => VARIANTS[category].find((v) => v.name === name)
 
 /**
- * One line per item and language: the state the model read, then each variant's answer. A variant that read another state than the
- * line's (the unresolved suite's `-wide` variants) keeps its own beside its answer. A suite that digests its
- * states (`digestState`: its variants read different states, each tens of thousands of tokens) has a digest of each variant's state beside its answer.
+ * The request of a case in a variant. A second skill request takes its shortlist from the first request's answer
+ * (the same pair, repeat 1) with shortlistOf, as read.ts reads it; null when that answer is not there.
  */
-function answersByItem(rows: readonly Row<unknown>[], digest: boolean): Record<string, unknown>[] {
-  const groups = new Map<string, Record<string, unknown>>()
-  for (const row of rows) {
-    // A run that asked more than once has a line for each time (`repeat`).
-    const key = `${row.id} ${row.language} ${row.repeat ?? ''}`
-    const group = groups.get(key) ?? { id: row.id, language: row.language, ...(row.repeat === undefined ? {} : { repeat: row.repeat }), ...(digest ? {} : { state: row.state }) }
-    // `gold` is the answer's `exact` flag, as the files have always named it.
-    const own = digest ? stateDigest(row.state) : JSON.stringify(row.state) === JSON.stringify(group.state) ? null : row.state
-    group[row.variant] = Object.fromEntries(
-      Object.entries({ answer: row.shown, correct: row.correct, gold: row.exact, miss: row.miss, parts: row.parts ?? null, ...row.detail, ms: row.ms, attempts: row.attempts, tokens: row.inputTokens, model: row.model, failure: row.failure, state: own }).filter(
-        ([, value]) => value !== null,
-      ),
-    )
-    groups.set(key, group)
-  }
-  return [...groups.values()]
+function builtFor(ctx: Ctx, c: Case, v: Variant): Built | null {
+  if (v.stage !== 2) return build(c, v, { skills: ctx.skills })
+  const first = storedFor(ctx, c, variantNamed(c.category, stageOneOf(v.name))!, 1)
+  if (first === undefined || !first.ok) return null
+  const short = shortlistOf(first.answers).map((s) => ctx.skills.find((k) => k.name === s.name) ?? fail(`${c.id}: the skill ${s.name} in its stored answer is not in skills.json`))
+  return build(c, v, { skills: ctx.skills, short })
 }
 
-function report(summary: Summary): void {
-  const pct = percentText
-  // A language the run did not ask has no figures to show (its summary holds zeros).
-  const ran = (language: Language, figure: number | null) => (languages.includes(language) ? figure : null)
-  const pad = (cells: readonly string[]) => cells.map((cell, i) => (i === 0 ? cell.padEnd(10) : cell.padStart(8))).join(' ')
-  console.log(pad(['variant', 'zh acc', 'en acc', 'gap', 'pass', 'agree', 'zh gold', 'en gold', 'p50 ms', 'p90 ms', `>${settings.timeoutMs}ms`, 'failed']))
-  for (const v of summary.variants) {
-    console.log(
-      pad([
-        v.variant,
-        pct(ran('zh', v.zh.accuracy)),
-        pct(ran('en', v.en.accuracy)),
-        v.gap === null ? '-' : (v.gap * 100).toFixed(1),
-        v.pass === null ? '-' : v.pass ? 'yes' : 'no',
-        pct(v.agreement.rate),
-        pct(ran('zh', v.zh.exact)),
-        pct(ran('en', v.en.exact)),
-        String(v.latency.p50 ?? '-'),
-        String(v.latency.p90 ?? '-'),
-        String(v.latency.slow),
-        String(v.zh.failed + v.en.failed),
-      ]),
-    )
+function storedFor(ctx: Ctx, c: Case, v: Variant, repeat: number): Stored | undefined {
+  const b = builtFor(ctx, c, v)
+  return b === null ? undefined : ctx.store.get(b.hash, repeat)
+}
+
+type Status = 'answered' | 'failed' | 'pending' | 'after-first' | 'blocked'
+
+/**
+ * Where a wanted request stands. pending: never sent, or (with retry) failed once. after-first: a second skill request
+ * whose first is still to be asked. blocked: its first request failed for good, so it cannot be built.
+ */
+function statusOf(ctx: Ctx, w: Want, retryFailed: boolean): { status: Status; built: Built | null } {
+  const built = builtFor(ctx, w.c, w.variant)
+  if (built === null) {
+    const first = variantNamed(w.c.category, stageOneOf(w.variant.name))!
+    const firstStatus = statusOf(ctx, { ...w, variant: first, repeat: 1 }, retryFailed).status
+    return { status: firstStatus === 'pending' ? 'after-first' : 'blocked', built }
   }
-  for (const v of summary.variants) {
-    console.log(
-      `${v.variant}: as the mod would have had it (within ${settings.timeoutMs} ms, at the first attempt; a later or retried answer counted as none) right zh/en: ${pct(ran('zh', v.zh.inTime))}/${pct(ran('en', v.en.inTime))}; late answers zh/en: ${v.zh.late}/${v.en.late}; retried zh/en: ${v.zh.retried}/${v.en.retried}`,
-    )
+  const stored = ctx.store.get(built.hash, w.repeat)
+  if (stored?.ok === true) return { status: 'answered', built }
+  const failures = ctx.store.failures(built.hash, w.repeat)
+  return { status: failures === 0 || (retryFailed && failures === 1) ? 'pending' : 'failed', built }
+}
+
+// A request's input tokens as estimated: the body ask() sends.
+function costOf(state: Record<string, unknown>, questions: unknown): Spent {
+  return { requests: 1, tokens: estimateTokens(JSON.stringify({ model: MODEL, state: fitState(state), questions })) }
+}
+
+const uid = (): string => randomBytes(8).toString('hex')
+const keyOf = (b: Built, repeat: number): string => `${b.hash}:${repeat}`
+const budgetLine = (s: Spent): string => `spent ${s.requests} requests / ${s.tokens} tokens of ${CAP.requests} / ${CAP.tokens}`
+
+// ---- check-cases
+
+function checkCases(a: Args): void {
+  const skills = readSkills(a.data)
+  const problems: string[] = []
+  if (skills === null) problems.push(`no skills.json in ${a.data}: skill cases cannot name a candidate`)
+  const names = (skills ?? []).map((s) => s.name)
+  const passed: Case[] = []
+  for (const category of CATEGORIES) {
+    const ok: Case[] = []
+    let bad = 0
+    for (const f of rawCases(a.data, category)) {
+      const found = checkCase(f.value, names)
+      if (found.length === 0) ok.push(f.value as Case)
+      else (bad += 1), problems.push(...found.map((p) => `${idOf(f.value)} (${f.where}): ${p}`))
+    }
+    // checkSet takes only cases that passed checkCase.
+    if (bad === 0) problems.push(...checkSet(category, ok))
+    else problems.push(`${category}: ${bad} case(s) fail checkCase, so the category of 15 is not checked`)
+    passed.push(...ok)
   }
-  for (const v of summary.variants) {
-    const parts = Object.keys(v.zh.parts ?? {})
-    if (parts.length > 0) console.log(`${v.variant}: right by part (zh/en): ${parts.map((part) => `${part} ${pct(v.zh.parts?.[part] ?? 0)}/${pct(v.en.parts?.[part] ?? 0)}`).join(', ')}; whole answer ${pct(v.zh.accuracy)}/${pct(v.en.accuracy)}`)
+  problems.push(...checkSessions(passed))
+  if (problems.length > 0) fail(problems.join('\n'))
+  console.log(`all four categories pass (${passed.length} cases)`)
+}
+
+// ---- plan and ask
+
+function wanted(a: Args, cases: readonly Case[]): Want[] {
+  if (a.set === null) fail(`--set is needed\n${USAGE}`, 2)
+  const set = inSet(cases, a.set)
+  if (a.set === 'heldout') return heldoutWants(set)
+  return wants(set, a.variants, a.repeat)
+}
+
+function plan(a: Args, ctx: Ctx, cases: readonly Case[]): void {
+  const rows = new Map<string, { pending: number; waiting: number; answered: number; failed: number; blocked: number; tokens: number }>()
+  const seen = new Set<string>()
+  let pending = 0
+  let tokens = 0
+  // A second skill request not yet buildable is estimated over a stand-in shortlist.
+  const standIn = ctx.skills.slice(0, SHORTLIST)
+  for (const w of wanted(a, cases)) {
+    const label = `${w.c.category} ${w.variant.name}`
+    const row = rows.get(label) ?? { pending: 0, waiting: 0, answered: 0, failed: 0, blocked: 0, tokens: 0 }
+    rows.set(label, row)
+    const { status, built } = statusOf(ctx, w, a.retryFailed)
+    if (status === 'answered') row.answered += 1
+    else if (status === 'failed') row.failed += 1
+    else if (status === 'blocked') row.blocked += 1
+    else {
+      const b = built ?? build(w.c, w.variant, { skills: ctx.skills, short: standIn })
+      // The same request wanted twice (two variants that come out alike) is sent once.
+      if (built !== null && seen.has(keyOf(built, w.repeat))) continue
+      if (built !== null) seen.add(keyOf(built, w.repeat))
+      const cost = costOf(sentState(b.state, w.repeat, () => '0'.repeat(16)), b.questions).tokens
+      if (status === 'after-first') row.waiting += 1
+      else row.pending += 1
+      row.tokens += cost
+      pending += 1
+      tokens += cost
+    }
   }
-  for (const v of summary.variants) {
-    const misses = (language: 'zh' | 'en') => Object.entries(v[language].misses).map(([way, n]) => `${way} ${n}`).join(', ') || 'none'
-    const missed = v.tags.filter((t) => t.wrong.zh + t.wrong.en > 0).slice(0, 6)
-    const tags = missed.map((t) => `${t.tag} ${t.wrong.zh}/${t.wrong.en} of ${t.items}`).join(', ') || 'none'
-    console.log(`${v.variant}: misses zh ${misses('zh')}; en ${misses('en')}. most missed tags (zh/en wrong of n): ${tags}`)
-    for (const line of suite.report?.(v) ?? []) console.log(line)
+  for (const [label, r] of rows) {
+    const waiting = r.waiting > 0 ? ` (${r.waiting} after their first skill request)` : ''
+    const blocked = r.blocked > 0 ? `, ${r.blocked} blocked by a failed first request` : ''
+    console.log(`${label}: ${r.pending + r.waiting} to ask${waiting}, about ${r.tokens} tokens; ${r.answered} answered, ${r.failed} failed${blocked}`)
   }
-  const best = Math.max(...summary.constants.map((c) => c.accuracy))
-  console.log(`constant answers: ${summary.constants.map((c) => `${c.answer} ${pct(c.accuracy)}${c.accuracy === best ? ' (best)' : ''} (gold ${pct(c.exact)})`).join(', ')}`)
-  // For a suite that grades parts: the best constant for each part alone.
-  for (const part of Object.keys(summary.constants[0]?.parts ?? {})) {
-    const top = summary.constants.reduce((a, b) => ((b.parts?.[part] ?? 0) > (a.parts?.[part] ?? 0) ? b : a))
-    console.log(`best constant for the ${part} alone: ${top.answer} ${pct(top.parts?.[part] ?? 0)}`)
+  console.log(`total: ${pending} requests to ask, about ${tokens} tokens; ${budgetLine(ctx.store.spent())}`)
+}
+
+type Sent = { w: Want; built: Built; result: Result; state: Record<string, unknown>; at: string; ms: number }
+
+const isRateLimit = (r: Result): boolean => !r.ok && r.status === RATE_LIMITED
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * serial: a rate limit was met, so whatever this run sends next goes one at a time. rateLimited: a request was still
+ * rate-limited after its retries; it is not stored, and the run must stop.
+ */
+async function send(ctx: Ctx, items: readonly { w: Want; built: Built }[], concurrency: number): Promise<{ sent: Sent[]; stopped: boolean; serial: boolean; rateLimited: boolean }> {
+  const out = await pool(items, {
+    concurrency,
+    reserve: (it) => {
+      const cost = costOf(sentState(it.built.state, it.w.repeat, () => '0'.repeat(16)), it.built.questions)
+      const after = spend(ctx.store.spent(), cost)
+      if (after === null) {
+        console.log(`budget reached, stopping: ${budgetLine(ctx.store.spent())}`)
+        return false
+      }
+      ctx.store.setSpent(after)
+      return true
+    },
+    run: async (it) => {
+      const state = sentState(it.built.state, it.w.repeat, uid)
+      const at = new Date().toISOString()
+      const { result, ms } = await askDrex({ state, questions: it.built.questions, partial: it.built.partial })
+      return { w: it.w, built: it.built, result, state, at, ms }
+    },
+    // A rate-limited answer never gets here: it is neither an answer nor a failure, so it is not stored.
+    keep: (_, s) => {
+      ctx.store.add({ hash: s.built.hash, repeat: s.w.repeat, caseId: s.w.c.id, category: s.w.c.category, variant: s.w.variant.name, at: s.at, ms: s.ms, request: { state: fitState(s.state), questions: s.built.questions }, result: s.result })
+      const how = s.result.ok ? 'ok' : `failed: ${s.result.reason}${s.result.status !== undefined ? ' ' + s.result.status : ''}`
+      console.log(`${s.w.c.id} ${s.w.variant.name} #${s.w.repeat}: ${how} (${s.ms} ms)`)
+    },
+    rateLimit: {
+      limited: (s) => isRateLimit(s.result),
+      sleep: wait,
+      onWait: (it, ms) => console.log(`${it.w.c.id} ${it.w.variant.name} #${it.w.repeat}: rate limited; asking again in ${ms / 1000} s, and one at a time from now on`),
+    },
+  })
+  return { sent: out.results, stopped: out.stopped, serial: out.serial, rateLimited: out.rateLimited }
+}
+
+function pendingOf(a: Args, ctx: Ctx, ws: readonly Want[]): { w: Want; built: Built }[] {
+  const seen = new Set<string>()
+  const out: { w: Want; built: Built }[] = []
+  for (const w of ws) {
+    const { status, built } = statusOf(ctx, w, a.retryFailed)
+    if (status !== 'pending' || built === null || seen.has(keyOf(built, w.repeat))) continue
+    seen.add(keyOf(built, w.repeat))
+    out.push({ w, built })
+  }
+  return out
+}
+
+async function askCommand(a: Args, ctx: Ctx, cases: readonly Case[]): Promise<void> {
+  if (a.set === 'heldout') {
+    const done = existsSync(join(a.data, HELDOUT_DONE))
+    if (!mayAskHeldout({ final: a.final, alreadyDone: done })) fail(done ? 'the held-out set has been asked: heldout-done exists' : 'the held-out set is asked only with --final')
+    if (a.variants.length > 0 || a.repeat !== 1) fail('the held-out pass asks every variant registered before it: it takes no --variant or --repeat', 2)
+  }
+  if (!hasKey()) fail('没有密钥: NACE_API_KEY is not set')
+  if (a.set === 'heldout') {
+    if (!existsSync(join(a.data, HELDOUT_STARTED))) writeFileSync(join(a.data, HELDOUT_STARTED), new Date().toISOString() + '\n', { mode: 0o600 })
+  }
+  const all = wanted(a, cases)
+  const { first, second } = inOrder(all)
+  const one = await send(ctx, pendingOf(a, ctx, first), a.concurrency)
+  // Second skill requests are built from the first answers just stored; after a rate limit they too go one at a time.
+  const two = one.stopped || one.rateLimited ? { sent: [], rateLimited: false } : await send(ctx, pendingOf(a, ctx, second), one.serial ? 1 : a.concurrency)
+  const sent = [...one.sent, ...two.sent]
+  const ok = sent.filter((s) => s.result.ok).length
+  console.log(`stored ${sent.length}: ${ok} answered, ${sent.length - ok} failed; ${budgetLine(ctx.store.spent())}`)
+  // Still rate-limited after the retries: nothing more is sent, and the held-out pass stays open to be resumed.
+  if (one.rateLimited || two.rateLimited) fail('still rate limited after 3 retries: stopped; that request is not stored, so the same command asks it again later', 3)
+  if (a.set !== 'heldout') return
+  // Every planned request answered, failed, or blocked by its failed first request: the pass is over.
+  const left = all.filter((w) => {
+    const s = statusOf(ctx, w, false).status
+    return s === 'pending' || s === 'after-first'
+  }).length
+  if (left === 0) {
+    writeFileSync(join(a.data, HELDOUT_DONE), new Date().toISOString() + '\n', { mode: 0o600 })
+    console.log('the held-out pass is complete: heldout-done written')
+  } else console.log(`the held-out pass stopped with ${left} requests unasked: run the same command again to go on`)
+}
+
+// ---- smoke (amendment A4)
+
+async function smoke(a: Args, ctx: Ctx, cases: readonly Case[]): Promise<void> {
+  if (!hasKey()) fail('没有密钥: NACE_API_KEY is not set')
+  // A model-written case outside the held-out set: nothing held out is sent before its one pass.
+  const c = cases.filter((x) => x.category === 'submit' && x.source === 'written' && x.set !== 'heldout').sort((x, y) => (x.id < y.id ? -1 : 1))[0]
+  if (c === undefined) fail('no model-written submit case outside the held-out set to build the smoke request from')
+  const v = VARIANTS.submit[0]!
+  const built = build(c, v, { skills: ctx.skills })
+  const after = spend(ctx.store.spent(), costOf(built.state, built.questions))
+  if (after === null) fail(`budget reached: ${budgetLine(ctx.store.spent())}`)
+  ctx.store.setSpent(after)
+  let reply: Reply | undefined
+  const at = new Date().toISOString()
+  const { result, ms } = await askDrex({ state: built.state, questions: built.questions, partial: built.partial }, (r) => (reply = r))
+  ctx.store.add({ hash: built.hash, repeat: 1, caseId: c.id, category: c.category, variant: SMOKE, at, ms, request: { state: fitState(built.state), questions: built.questions }, result })
+  const body = (reply?.body ?? {}) as { model?: unknown; answers?: Record<string, { type?: unknown; choice?: unknown; probabilities?: unknown }> }
+  const answers = typeof body.answers === 'object' && body.answers !== null ? body.answers : {}
+  const ids = Object.keys(built.questions)
+  const missing = ids.filter((id) => answers[id]?.type !== built.questions[id]!.type)
+  const badOptions = ids.filter((id) => {
+    const q = built.questions[id]!
+    if (q.type !== 'choice') return false
+    const p = answers[id]?.probabilities
+    const names = typeof p === 'object' && p !== null ? Object.keys(p) : []
+    const want = Object.keys(q.criteria)
+    return names.length !== want.length || !want.every((n) => names.includes(n)) || !want.includes(answers[id]?.choice as string)
+  })
+  const status = reply?.status
+  const checks: [boolean, string][] = [
+    [status !== undefined && status >= 200 && status < 300, status !== undefined ? `HTTP ${status}` : `no HTTP reply (${result.ok ? 'ok' : result.reason})`],
+    [body.model === MODEL, `model ${typeof body.model === 'string' ? body.model : '(none)'}, wanted ${MODEL}`],
+    [missing.length === 0, missing.length === 0 ? `all ${ids.length} questions answered with their type` : `not answered with their type: ${missing.join(', ')}`],
+    [badOptions.length === 0, badOptions.length === 0 ? "every choice answer's options are the question's" : `options differ from the question's: ${badOptions.join(', ')}`],
+    [result.ok, result.ok ? 'ask() reads the answer' : `ask() reads no answer: ${result.reason}`],
+  ]
+  for (const [ok, text] of checks) console.log(`${ok ? 'ok  ' : 'FAIL'}  ${text}`)
+  console.log(`smoke request (${c.id}, ${ms} ms) stored as variant ${SMOKE}; ${budgetLine(ctx.store.spent())}`)
+  if (checks.some(([ok]) => !ok)) process.exit(1)
+}
+
+// ---- reading: score, sweep, stability
+
+// No --bars: the command's own default (CHOSEN_BARS for score and stability, START_BARS for sweep).
+function readBars(path: string | null, unset: Bars): Bars {
+  if (path === null) return unset
+  if (path === 'start') return START_BARS
+  let v: Record<string, Record<string, unknown>>
+  try {
+    v = JSON.parse(readFileSync(path, 'utf8')) as Record<string, Record<string, unknown>>
+  } catch {
+    fail(`${path}: not a JSON file`)
+  }
+  const bars = { ...START_BARS } as Record<string, Record<string, number>>
+  for (const [group, values] of Object.entries(v)) {
+    if (bars[group] === undefined || typeof values !== 'object' || values === null) fail(`${path}: no threshold group ${group}`)
+    for (const [k, x] of Object.entries(values)) {
+      if (!(k in bars[group]!) || typeof x !== 'number' || x < 0 || x > 1) fail(`${path}: ${group}.${k} must be a known threshold between 0 and 1`)
+    }
+    bars[group] = { ...bars[group]!, ...(values as Record<string, number>) }
+  }
+  return bars as unknown as Bars
+}
+
+/** The variant read for a category (the first of a skill pair), or null when the category does not register it. */
+function readVariant(category: Category, names: readonly string[]): Variant | null {
+  if (names.length > 1 || names.includes('all')) fail(`score and stability read one variant at a time: give one --variant <name>, or none for the default\n${USAGE}`, 2)
+  const name = names[0] ?? VARIANTS[category][0]!.name
+  return variantNamed(category, category === 'skill' ? stageOneOf(name) : name) ?? null
+}
+const secondOf = (v: Variant): Variant | undefined => variantNamed('skill', v.name.replace('stage-1', 'stage-2'))
+
+type Opt = { form: 'default' | 'direct'; longUnattended: boolean }
+
+/** A case's outcome at the nth asking, or why there is none. */
+function outcomeAt(ctx: Ctx, c: Case, v: Variant, repeat: number, bars: Bars, opt: Opt): Outcome | string {
+  const first = storedFor(ctx, c, v, repeat)
+  if (first === undefined) return 'not asked'
+  if (!first.ok) return `failed: ${first.reason}`
+  const second = c.category === 'skill' ? storedFor(ctx, c, secondOf(v)!, repeat) : undefined
+  return outcomeOf(c, first, bars, { ...opt, second }) ?? (c.category === 'skill' && second === undefined ? 'no second request' : 'unreadable')
+}
+
+function expected(c: Case): string {
+  if (c.category === 'skill') return [c.expect.skill ?? 'none', ...c.expect.alsoOk].join('/')
+  if (c.category === 'midrun') return `${c.expect.action} ${c.expect.accept.join('/')}`
+  if (c.category === 'agent') return `${c.expect.accept.join('/')} · ${c.expect.models.join('/')}`
+  return c.expect.accept.join('/')
+}
+
+function decision(c: Case, o: Outcome): string {
+  if (c.category === 'skill') return o.skill ?? 'none'
+  return c.category === 'agent' ? `${o.level} · ${o.model}` : String(o.level)
+}
+
+function refuseHeldout(a: Args): void {
+  if (a.set === 'heldout' && !existsSync(join(a.data, HELDOUT_DONE))) fail('the held-out set is not read before its one pass is complete (no heldout-done)')
+}
+
+function score(a: Args, ctx: Ctx, cases: readonly Case[]): void {
+  if (a.set === null) fail(`--set is needed\n${USAGE}`, 2)
+  refuseHeldout(a)
+  const bars = readBars(a.bars, CHOSEN_BARS)
+  const opt: Opt = { form: a.form, longUnattended: a.longUnattended }
+  for (const category of CATEGORIES) {
+    const v = readVariant(category, a.variants)
+    const set = inSet(cases, a.set).filter((c) => c.category === category).sort((x, y) => (x.id < y.id ? -1 : 1))
+    if (v === null || set.length === 0) continue
+    // Not a score of 0: the pass was over before this variant was registered.
+    if (neverAskedOn(a.set, v)) {
+      console.log(`${category} ${v.name}: never asked on the held-out set (registered after its one pass), so there is nothing to score`)
+      continue
+    }
+    const marks: Record<string, number> = {}
+    let none = 0
+    for (const c of set) {
+      const o = outcomeAt(ctx, c, v, 1, bars, opt)
+      if (typeof o === 'string') {
+        none += 1
+        console.log(`${c.id}  expected ${expected(c)}  no answer (${o})`)
+        continue
+      }
+      const m = mark(c, o)
+      marks[m] = (marks[m] ?? 0) + 1
+      console.log(`${c.id}  expected ${expected(c)}  got ${decision(c, o)}  ${m}`)
+    }
+    const tally = Object.entries(marks).map(([m, n]) => `${m} ${n}`).join(', ')
+    console.log(`${category} ${v.name}: right ${marks.right ?? 0} of ${set.length}, no answer ${none}${tally ? ` (${tally})` : ''}`)
   }
 }
+
+/** The cases whose repeats decide differently under these bars, and those with a repeat that has no outcome. */
+function stabilityOf(ctx: Ctx, cases: readonly Case[], names: readonly string[], bars: Bars, opt: Opt): { asked: number; unstable: { c: Case; got: string[] }[]; gaps: Case[] } {
+  const unstable: { c: Case; got: string[] }[] = []
+  const gaps: Case[] = []
+  let asked = 0
+  for (const c of cases) {
+    const v = readVariant(c.category, names)
+    const built = v === null ? null : builtFor(ctx, c, v)
+    if (v === null || built === null) continue
+    const repeats = ctx.store.repeats(built.hash)
+    if (repeats.length < 2) continue
+    asked += 1
+    const got = repeats.map((r) => {
+      const o = outcomeAt(ctx, c, v, r, bars, opt)
+      return typeof o === 'string' ? null : decision(c, o)
+    })
+    if (got.includes(null)) gaps.push(c)
+    const decided = got.filter((d): d is string => d !== null)
+    if (new Set(decided).size > 1) unstable.push({ c, got: got.map((d, i) => `#${repeats[i]} ${d ?? '(no answer)'}`) })
+  }
+  return { asked, unstable, gaps }
+}
+
+function stability(a: Args, ctx: Ctx, cases: readonly Case[]): void {
+  const set = a.set ?? 'tune'
+  refuseHeldout({ ...a, set })
+  const s = stabilityOf(ctx, inSet(cases, set), a.variants, readBars(a.bars, CHOSEN_BARS), { form: a.form, longUnattended: a.longUnattended })
+  for (const u of s.unstable) console.log(`${u.c.id}: ${u.got.join(', ')}`)
+  if (s.gaps.length > 0) console.log(`a repeat with no answer: ${s.gaps.map((c) => c.id).join(', ')}`)
+  console.log(`${s.asked} cases asked more than once, ${s.unstable.length} decide differently`)
+}
+
+function sweepCommand(a: Args, ctx: Ctx, cases: readonly Case[]): void {
+  if (a.path === null) fail(`--path is needed\n${USAGE}`, 2)
+  const path = a.path
+  const category = path.split('.')[0] as Category
+  if (!CATEGORIES.includes(category)) fail(`no threshold at ${path}`, 2)
+  const base = readBars(a.bars, START_BARS)
+  const fit = inSet(cases, 'fit').filter((c) => c.category === category)
+  // Amendment A13: stability is judged once under the start values, before any sweep; a case whose repeats decide
+  // differently there takes no part in the sweep, whatever --bars gives.
+  const { unstable } = stabilityOf(ctx, fit, [], START_BARS, { form: 'default', longUnattended: false })
+  const out = new Set(unstable.map((u) => u.c.id))
+  if (out.size > 0) console.log(`left out (repeats decide differently): ${[...out].join(', ')}`)
+  const kept = fit.filter((c) => !out.has(c.id))
+  const byId = new Map(kept.map((c) => [c.id, c]))
+  const stored = (id: string, variant: string): Stored | undefined => {
+    const c = byId.get(id)!
+    const v = variantNamed(c.category, variant)
+    return v === undefined ? undefined : storedFor(ctx, c, v, 1)
+  }
+  const rows = sweep(kept, stored, base, path)
+  for (const r of rows) console.log(`${r.value.toFixed(2)}  right ${String(r.right).padStart(2)}  no answer ${r.unusable}  ${'█'.repeat(r.right)}`)
+  const p = plateau(rows, conservativeFor(path))
+  console.log(`${path}: best ${p.best} of ${kept.length} from ${p.from.toFixed(2)} to ${p.to.toFixed(2)}; the conservative end is ${p.pick.toFixed(2)}`)
+  // What the record takes (A14, A15, A3), from the start value; the conservative end alone would move thresholds no case asks to move.
+  const r = ruledValue(rows, path, valueAt(START_BARS, path))
+  const why = r.rule === 'A14' ? 'the best stretch covers the grid, start value kept' : r.rule === 'A15' ? 'start value inside the best stretch, kept' : 'start value outside the best stretch: its conservative end'
+  console.log(`${path}: by the record's rules, swept alone over --bars: ${r.value.toFixed(2)} (amendment ${r.rule}: ${why})`)
+}
+
+// ---- main
+
+const a = parseArgs(process.argv.slice(2))
+if (!existsSync(a.data) || !statSync(a.data).isDirectory()) fail(`no data directory: ${a.data}`)
+if (a.cmd === 'check-cases') checkCases(a)
+else if (['plan', 'ask', 'smoke', 'score', 'sweep', 'stability'].includes(a.cmd)) {
+  // Skill cases and the with-skills variant are built over the candidates snapshot.
+  const skills = readSkills(a.data) ?? fail(`no skills.json in ${a.data}: the requests are built over the candidates snapshot`)
+  const cases = loadCases(a.data, skills)
+  const ctx: Ctx = { store: new Store(a.data), skills }
+  if (a.cmd === 'plan') plan(a, ctx, cases)
+  else if (a.cmd === 'ask') await askCommand(a, ctx, cases)
+  else if (a.cmd === 'smoke') await smoke(a, ctx, cases)
+  else if (a.cmd === 'score') score(a, ctx, cases)
+  else if (a.cmd === 'sweep') sweepCommand(a, ctx, cases)
+  else stability(a, ctx, cases)
+} else fail(USAGE, 2)

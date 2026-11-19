@@ -1,0 +1,12 @@
+[
+  { "title": "The Tin Orchard", "author": "Mara Ilves", "pages": 312, "status": "done", "rating": 4, "tags": ["sci-fi", "favourite"] },
+  { "title": "Salt, Rope and Lantern", "author": "Oduya Brandt", "pages": 208, "status": "done", "rating": 5, "tags": ["sea", "favourite"] },
+  { "title": "A Field Guide to Quiet Machines", "author": "Petra Linhart", "pages": 451, "status": "reading", "tags": ["sci-fi"] },
+  { "title": "Nine Letters from Varn", "author": "Tomasz Okeke", "pages": 176, "status": "done", "rating": 3, "tags": ["letters"] },
+  { "title": "The Second Winter", "author": "Ines Halloran", "pages": 289, "status": "to-read", "tags": [] },
+  { "title": "Understory", "author": "Kaito Mbeki", "pages": 344, "status": "done", "rating": 4, "tags": ["nature", "essays"] },
+  { "title": "How the Ferry Keeps Time", "author": "Oduya Brandt", "pages": 132, "status": "to-read", "tags": ["sea"] },
+  { "title": "Glasswork", "author": "Lior Santangelo", "pages": 520, "status": "reading", "tags": ["Sci-Fi", "long"] },
+  { "title": "Small Hours Almanac", "author": "Petra Linhart", "pages": 96, "status": "done", "tags": ["poetry"] },
+  { "title": "Borrowed Rivers", "author": "Wen Aldaine", "pages": 267, "status": "to-read", "tags": ["nature", "Favourite"] }
+]

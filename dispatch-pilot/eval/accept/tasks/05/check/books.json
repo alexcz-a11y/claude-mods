@@ -1,0 +1,14 @@
+[
+  { "title": "Lighthouse Arithmetic", "author": "Dara Voss", "pages": 240, "status": "done", "rating": 5, "tags": ["sea", "favourite"] },
+  { "title": "Moss, Mostly", "author": "Ilan Petrov", "pages": 180, "status": "done", "rating": 4, "tags": ["Nature", "short"] },
+  { "title": "The Other Cartographer", "author": "Seren Abara", "pages": 415, "status": "reading", "tags": ["sci-fi", "favourite"] },
+  { "title": "Tidewrack", "author": "Emeka Oyelaran", "pages": 133, "status": "done", "rating": 3, "tags": ["sea", "short", "Favourite"] },
+  { "title": "Engines of the Low Country", "author": "Dara Voss", "pages": 602, "status": "to-read", "tags": ["Sci-Fi", "long"] },
+  { "title": "Say When, Said the River", "author": "Marit Sol", "pages": 221, "status": "done", "rating": 4, "tags": ["poetry"] },
+  { "title": "Orbit Season", "author": "Ilan Petrov", "pages": 358, "status": "done", "rating": 2, "tags": ["sci-fi"] },
+  { "title": "A Year of Small Bridges", "author": "Hoang Rell", "pages": 274, "status": "done", "tags": [] },
+  { "title": "Scion", "author": "Seren Abara", "pages": 149, "status": "to-read", "tags": ["sci", "short"] },
+  { "title": "Kelp Roads", "author": "Marit Sol", "pages": 310, "status": "reading", "tags": ["sea", "nature"] },
+  { "title": "Ninefold", "author": "Quill Anders", "pages": 505, "status": "done", "rating": 5, "tags": ["SCI-FI", "Favourite", "long"] },
+  { "title": "Winter Ledger", "author": "Hoang Rell", "pages": 88, "status": "to-read", "tags": ["poetry", "short"] }
+]

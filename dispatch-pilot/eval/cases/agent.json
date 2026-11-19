@@ -1,0 +1,358 @@
+[
+ {
+  "id": "agent-03",
+  "category": "agent",
+  "source": "written",
+  "difficulty": "typical",
+  "set": "fit",
+  "tags": [
+   "script",
+   "data",
+   "small-decisions",
+   "level-hold",
+   "model-down"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "Level. `task` specifies a small script almost completely (input columns, the matching rule, which row is kept, the two outputs) and names an existing script to copy the flags, logging and test layout from. Two points are expressly left open: the winner when updated_at ties, and rows with an empty e-mail field. That is the second level, 'a few possibilities within a small area': medium, which is what the parent already has, so the level stays. Low is wrong because two parts need a decision ('Pick something reasonable for each'), so the way is not wholly given. High is wrong because there are no competing designs for the script as a whole; the pattern file fixes its shape and the open points are local. No failure is reported, and files are created, so the work is neither a search for a cause nor read-only. Model. The parent is on opus (written case; inherit chosen as medium and opus). A small, bounded script that follows an existing one is clearly within a cheaper tier, so opus is left out and sonnet is right. Haiku is not listed: code and tests are written and two small decisions are made, which the smallest tier is not clearly enough for. Every piece of evidence is in `task`. Serves S1 (representative: a clear, common case; data scripts), S4 (written, so easier than real traffic), S7, S10."
+  },
+  "input": {
+   "task": "Add scripts/dedupe_contacts.py to this repo.\n\nIt reads data/contacts.csv (columns: id, email, name, updated_at), treats two rows as the same contact when their e-mail values are equal after trimming spaces and lower-casing, keeps the row with the latest updated_at, and writes data/contacts.dedup.csv plus data/merged.json, which maps each kept id to the list of ids that were folded into it.\n\nFollow scripts/normalize_phones.py for the command-line flags (--input, --output, --dry-run), the logging, and the way its tests are laid out under tests/scripts/. Add tests the same way, on a small CSV you write by hand.\n\nTwo things are not decided: which row wins when updated_at is identical, and what happens to rows whose e-mail field is empty. Pick something reasonable for each and say what you picked in the module docstring and in your reply.\n\nDo not change normalize_phones.py or the data files that are already there. Reply with the files you added and the last line of the test run.",
+   "agentType": "general-purpose",
+   "description": "Add contacts dedupe script",
+   "inherit": {
+    "level": "medium",
+    "tier": "opus"
+   }
+  },
+  "expect": {
+   "accept": [
+    "medium"
+   ],
+   "models": [
+    "sonnet"
+   ]
+  }
+ },
+ {
+  "id": "agent-05",
+  "category": "agent",
+  "source": "written",
+  "difficulty": "negative",
+  "set": "check",
+  "tags": [
+   "data-analysis",
+   "read-only",
+   "judgement",
+   "unknown-cause",
+   "level-hold",
+   "model-stay"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "Level. `task` reports a drop in signups whose cause is not known and names two rival explanations that fell in the same week; the agent has to decide which one the data supports, or both, or neither, and how far the data can separate them. That is the third level word for word, 'several ... possible causes; a choice has to be made between them': high, which is what the parent already has, so the level stays. Medium is wrong: the possibilities are not within a small area, since the two causes are confounded and how to slice the data (channel, landing page, visits against conversion) has to be chosen. Xhigh is wrong: nothing is intermittent, concurrent or state-dependent, and no change is made that could be got subtly wrong. The cause being unknown also puts the work at high or above by the mod's own condition question. Model. The parent is on sonnet (written case; inherit chosen as high and sonnet). The task is read-only ('do not edit, create or delete any file'), which is the misleading surface: it is not a lookup and not the repetition of a known approach. Weighing two confounded explanations and saying how sure the data allows one to be is judgement, and haiku would hurt the result, so the model stays on sonnet. The right answer is to leave both as they are. Every piece of evidence is in `task`. Serves S1 (an answer of 'stay', and hard: read-only work that is not cheap), S4 (written; data analysis), S6, S7."
+  },
+  "input": {
+   "task": "Read-only task: do not edit, create or delete any file, and run nothing that writes.\n\nWeekly signups fell from 4,310 in week 41 to 3,540 in week 43. The exports are in analytics/exports/ (signups_w41.csv, signups_w42.csv, signups_w43.csv: one row per signup with created_at, channel, landing_page, plan, country), and the daily visit counts per landing page are in analytics/exports/visits_w41_w43.csv.\n\nTwo things changed in week 42: the pricing page was redesigned (released on the Tuesday) and the paid search campaign ended (on the Thursday). Marketing says it is the campaign, product says it is the page. Work out which of the two the data supports as the reason for the drop, or whether it is both or neither, and how far the data can tell them apart at all, given that both happened in the same week.\n\nReply with your conclusion in two or three sentences, the numbers it rests on, what speaks against it, and what further data would settle the question.",
+   "agentType": "general-purpose",
+   "description": "Explain the signup drop",
+   "inherit": {
+    "level": "high",
+    "tier": "sonnet"
+   }
+  },
+  "expect": {
+   "accept": [
+    "high"
+   ],
+   "models": [
+    "sonnet"
+   ]
+  }
+ },
+ {
+  "id": "agent-06",
+  "category": "agent",
+  "source": "written",
+  "difficulty": "hard",
+  "set": "heldout",
+  "tags": [
+   "frontend",
+   "short-brief-hard-work",
+   "rounding",
+   "no-failure-reported",
+   "level-up",
+   "model-stay"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "state 是 `task` 的四句话（没有被截断）、`agent_type` general-purpose 和 `description`「Round tax on the invoice total」。税额改成在总额上舍入一次之后，`task` 仍要求 “The amounts shown on the lines must still add up to the total shown”，而且是 “in every currency the editor offers (some have no minor unit, some have three decimals)”，“credit notes have negative lines”，旧草稿 “keeps the figures it was saved with until someone edits it”，数字还要和服务端的一样（“the editor has to show the same figures”）。总额只舍入一次，各行之和不会自动对上：差额摊到哪一行、负数行往哪边舍入、小数位随币种变、新旧两种算法并存，每一处错了都只差一个最小单位，粗看看不出来。这就是第 3 档后半句 “the change is easy to get subtly wrong”：xhigh。两位对这一点没有分歧，A 也写这是 “the second half of the fourth level”。分歧只在 high 要不要并列，不并列。差额怎么摊确实有几种可行做法，第 2 档的情形是有的，但五档是有序的，后一档的情形成立时前一档只说到了一部分（第 4 档的文字就是在第 3 档上再加条件）。high 要成立，得有一种读法下这处改动不容易出细微的错，A 没有给出这样的读法，`task` 列出的四个条件也不支持。收 high 等于把没读出易错这一点也算对，而这一例看的正是寥寥几句、没有一个词点明难度的任务会不会被读低。max 不对：可以复现，改动可以撤销，不是运行中切换（旧草稿保留原数字是兼容要求）。`unknown_cause` 为否（没有故障要查，为什么改已经说明），`mechanical` 为否，`read_only` 为否。inherit.level 是 medium，应当升两档到 xhigh。模型两位一致：继承 opus，金额上容易出细微错误的改动换成便宜的模型会损害结果，只写 opus。"
+  },
+  "input": {
+   "task": "In the invoice editor (apps/billing/src/InvoiceTable.tsx) tax is worked out and rounded on each line, and the lines are then added up; the server now rounds once, on the invoice total, and the editor has to show the same figures. Change the editor to match. The amounts shown on the lines must still add up to the total shown, in every currency the editor offers (some have no minor unit, some have three decimals), and credit notes have negative lines. A draft saved before this change keeps the figures it was saved with until someone edits it.",
+   "agentType": "general-purpose",
+   "description": "Round tax on the invoice total",
+   "inherit": {
+    "level": "medium",
+    "tier": "opus"
+   }
+  },
+  "expect": {
+   "accept": [
+    "xhigh"
+   ],
+   "models": [
+    "opus"
+   ]
+  }
+ },
+ {
+  "id": "agent-07",
+  "category": "agent",
+  "source": "written",
+  "difficulty": "boundary",
+  "set": "heldout",
+  "tags": [
+   "documentation",
+   "chinese",
+   "partly-patterned",
+   "level-down",
+   "model-stay"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "Level. `task` is a documentation page in two parts. Nine of eleven entries follow a layout that already exists ('in the layout of docs/zh/upgrading-2.md', 'need nothing beyond the two snippets'). The other two 'have no one-line migration': the agent reads the source, works out what people should do, and where there is more than one reasonable way recommends one. The open part is small and bounded, which is the second level, 'a few possibilities within a small area': medium. It is also a choice between workable ways that the agent has to make and defend, which is the third level, 'several workable designs ... a choice has to be made between them': high. Both are right. Low is wrong: two parts need a decision, so the way is not wholly given. Xhigh is wrong: no cause is unknown, nothing is intermittent or concurrent, and a new documentation page is not a change that is easy to get subtly wrong. The parent is at xhigh (written case; inherit chosen as xhigh and sonnet), so the right move is down by one or two levels and staying is wrong. Model. The parent is on sonnet. A file is written, so the task is not read-only, and the two open items need the source read and a recommendation chosen and explained in Chinese; haiku would hurt the result, so the model stays on sonnet. Every piece of evidence is in `task`. Serves S1 and S6 (between two levels), S4 (written; documentation, with Chinese in about the share the real material has), S7, S16 (held out)."
+  },
+  "input": {
+   "task": "Write docs/zh/upgrading-3.md（《从 2.x 升级到 3.0》）, the Chinese upgrade guide for the 3.0 release. Prose in 简体中文; code, flags and file names stay as they are.\n\nCHANGELOG.md lists the 11 breaking changes of 3.0. Give each its own heading with a 升级前 / 升级后 snippet, in the layout of docs/zh/upgrading-2.md. Nine of them are renamed options or removed flags and need nothing beyond the two snippets.\n\nThe other two have no one-line migration:\n- 配置文件的合并顺序变了: the project file now wins over the user file (src/config/merge.ts).\n- 同步客户端 was removed; only the async client is left (src/client/).\nFor these two, read the source and work out what people should actually do. Where there is more than one reasonable way to migrate, recommend one, say why in a sentence, and mention the other.\n\nDo not touch the English pages. Reply with the path of the file and, for the two harder items, the recommendation you settled on.",
+   "agentType": "general-purpose",
+   "description": "写 3.0 升级指南（中文）",
+   "inherit": {
+    "level": "xhigh",
+    "tier": "sonnet"
+   }
+  },
+  "expect": {
+   "accept": [
+    "medium",
+    "high"
+   ],
+   "models": [
+    "sonnet"
+   ]
+  }
+ },
+ {
+  "id": "agent-08",
+  "category": "agent",
+  "source": "written",
+  "difficulty": "hard",
+  "set": "heldout",
+  "tags": [
+   "repo-chore",
+   "dependency-bump",
+   "long-brief-small-work",
+   "mechanical",
+   "level-down",
+   "model-down"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "Level. A long brief in the form real dispatches have (context, a read-first list, a table, nine steps, rules, a reply format), and its length and its talk of a release, a tag and stop conditions are the misleading surface. Read through, `task` gives every value and every step: the three packages with their old and new versions and sections, the six manifests, the version string and where it goes, the changelog entry word for word, the files to stage, the commit subject, the tag and its message; when a check fails the agent stops and sends the output back. Nothing is chosen by the agent, which is the first level, 'the way to do it is already given; the work is carrying it out': low. Medium is wrong: each place where a trap could sit is settled by a stated rule (a new number 'only for a package it already lists', versions written exact, typescript left alone, what to do when the hook reformats a file), so no possibility is left open and no trap is left for the agent to find. High is wrong: no design is chosen and no cause is looked for. The parent is at high (written case; inherit chosen as high and opus), so the right move is down by two levels. Model. The parent is on opus. Carrying out listed steps is clearly within a cheaper tier, so opus is left out and sonnet is right. Haiku is not listed: the task edits manifests, commits and tags a release, so it is not read-only, and a slip there costs enough that the smallest tier is not clearly enough. That cost bears on the model only; it does not make the work more open. Every piece of evidence is in `task`, which fits the state whole. Serves S1 (hard: a long brief for small work), S2 (the form real dispatches have, here in the held-out set), S4 (written; repository chores), S7, S8, S16 (held out)."
+  },
+  "input": {
+   "task": "You are doing the dependency bump and the version stamp for the 4.12.1 patch release of the tern workspace, a pnpm monorepo. You start at its root, on the branch release/4.12.\n\n## Context\n\n4.12.0 went out nine days ago. Since then three of our own shared libraries have had patch releases, and 4.12.1 exists to pick them up. The three new versions were tried together on the branch deps/trial yesterday: typecheck and the full test suite passed there. The lockfile that came out of that trial was thrown away on purpose, so that the release branch gets one generated from its own state.\n\nThe release itself (pushing, publishing to the registry, the announcement) is done by the release manager tomorrow, from the tag you create. Your part ends at a local commit and a local tag.\n\n## Read first\n\n- docs/RELEASING.md, the section \"Patch releases\": the house rules the steps below follow. Where a step below and that section disagree, the step below wins for this release; mention the difference in your reply.\n- CHANGELOG.md, the top two entries, to see how an entry is laid out.\n- packages/core/src/version.ts: it holds one exported constant, VERSION.\n\n## What changes\n\n| package | from | to | section |\n| --- | --- | --- | --- |\n| @tern/schema | 3.23.8 | 3.24.1 | dependencies |\n| @tern/http | 6.19.2 | 6.21.0 | dependencies |\n| @tern/test-runner | 2.0.5 | 2.1.8 | devDependencies |\n\nThe manifests that list one or more of the three are the package.json files of packages/core, packages/cli, packages/server, packages/web, packages/docs and tools/release. A manifest gets a new number only for a package it already lists, in the section where it lists it today. typescript stays at the version each manifest has now.\n\n## Steps\n\n1. Check that the working tree is clean and that the branch is release/4.12. If either is not so, stop and say what you found.\n2. Edit the six manifests as the table says. Versions are written exact, without ^ or ~, as they are today.\n3. Run pnpm install at the root. It rewrites pnpm-lock.yaml; that is expected and wanted.\n4. Run pnpm -r typecheck, then pnpm -r test. Both have to pass. If one does not, stop there and send back the failing output as it is; do not edit source or tests to get it through, and do not try other versions.\n5. Set \"version\" to 4.12.1 in the same six manifests and in the root package.json, and set VERSION in packages/core/src/version.ts to '4.12.1'.\n6. Add this entry at the top of CHANGELOG.md, above the entry for 4.12.0, with one empty line after it:\n\n   ## 4.12.1\n\n   - Bump @tern/schema to 3.24.1, @tern/http to 6.21.0 and @tern/test-runner to 2.1.8.\n   - No API changes.\n\n7. Run pnpm -r typecheck once more, because version.ts changed.\n8. Stage these files and no others: the seven package.json files, pnpm-lock.yaml, packages/core/src/version.ts and CHANGELOG.md. Commit them with the subject: release: 4.12.1\n9. Create the annotated tag v4.12.1 on that commit, with the message: tern 4.12.1\n\n## Rules\n\n- Do not push, do not publish, do not create a pull request. Nothing leaves this machine.\n- The commit goes through the pre-commit hook; do not skip it. The hook formats JSON: if it changes a file, stage that change and commit again.\n- Touch no file outside the list in step 8. If git status shows any other file modified after step 3, name the file and stop.\n- Do not hand any part of this to another agent.\n- Do not tidy anything on the way: no other dependency, no reordering of keys, no rewording of older changelog entries.\n- Do not amend or rebase commits that are already on the branch.\n\n## Reply\n\nKeep it under ten lines:\n- the short SHA and the subject of the commit;\n- the output of git tag --list 'v4.12.*';\n- the last line of each pnpm command you ran, in the order you ran them;\n- anything in docs/RELEASING.md that differs from the steps above;\n- or, if you stopped: the number of the step and the output that made you stop.",
+   "agentType": "general-purpose",
+   "description": "Bump deps for 4.12.1",
+   "inherit": {
+    "level": "high",
+    "tier": "opus"
+   }
+  },
+  "expect": {
+   "accept": [
+    "low"
+   ],
+   "models": [
+    "sonnet"
+   ]
+  }
+ },
+ {
+  "id": "agent-11",
+  "category": "agent",
+  "source": "written",
+  "difficulty": "hard",
+  "set": "fit",
+  "tags": [
+   "debugging",
+   "api",
+   "unknown-cause",
+   "short-brief",
+   "level-up",
+   "model-stay"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "Written case; inherit medium / opus chosen (a parent on an ordinary turn). Level: xhigh, two steps up. `task` reports a failure and says no one can account for it ('I have no explanation'): the trace ends in a missing key, yet the key is present in the rules document of every failing customer that was looked up, those documents did not change this month and nothing was deployed for nine days. Whether a call fails does not follow from the request ('the same request body') but from something that differs per customer, lasts the day and is different the next morning. That is OPEN_LEVELS[3], 'The cause is unknown and the behavior is intermittent, concurrent or state-dependent'. Not high: there is no set of candidate causes to choose between; the only lead contradicts the data, and the failure follows a state nobody has identified. Not max: it can be reproduced ('customer 4417 fails every time' on staging), the fix is an ordinary code change, and nothing is switched over while running. The surface misleads: under 900 characters, a description that reads like a routine fix, and an exact exception with a line number, which looks like a one-line repair. Nouls: unknown_cause yes, plainly; mechanical no; read_only no. Model: must stay opus. Finding a cause that the visible evidence contradicts is where a cheaper tier would hurt the result, and nothing in the work is at or below medium. The text keeps away from the criteria's own words (it never says intermittent, state-dependent or that the cause is unknown). Serves S1 hard (a short message for large work), S10, S19 (the tuning set gets a case that must reach xhigh and whose unknown_cause is yes, so the upper bars have a case on their far side), S7."
+  },
+  "input": {
+   "task": "`POST /v2/quotes` in quote-service answers 500 for some customers and 200 for others, with the same request body. Once it fails for a customer it fails on every call for the rest of the day; the next morning it usually works again for them and fails for a few different ones. 23 customers were hit yesterday and 19 today, 4 of them on both days.\n\nThe trace always ends in `KeyError: 'tier_rates'` at pricing/rules.py line 212. The key is there in the rules document of every failing customer I looked up in the database (11 of them), and none of those documents has changed this month. Nothing was deployed in the last nine days. I have no explanation.\n\nOn staging with last night's snapshot, customer 4417 fails every time, so you have one to work on. Find out why it happens and fix it. Repo: /srv/work/quote-service. Report what you found, with the evidence, and what you changed.",
+   "agentType": "general-purpose",
+   "description": "Fix 500s on quote creation",
+   "inherit": {
+    "level": "medium",
+    "tier": "opus"
+   }
+  },
+  "expect": {
+   "accept": [
+    "xhigh"
+   ],
+   "models": [
+    "opus"
+   ]
+  }
+ },
+ {
+  "id": "agent-12",
+  "category": "agent",
+  "source": "written",
+  "difficulty": "typical",
+  "set": "check",
+  "tags": [
+   "debugging",
+   "database",
+   "unknown-cause",
+   "level-up",
+   "model-stay"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "Written case; inherit medium / opus chosen (a parent on a routine turn). Level: xhigh, two steps up. `task` reports a failure nobody can explain ('Nothing about why') that shows in about one CI run in eight, never when either test runs alone (50 out of 50) and only when the package's parallel tests run together (2 in 40), with a lock timeout. That is OPEN_LEVELS[3], 'The cause is unknown and the behavior is intermittent, concurrent or state-dependent'. Not high: this is more than picking between candidate causes; it appears only under some interleavings, and the brief warns against settling on the one recent change. Not max: it can be made to happen locally with the given command, the fix is an ordinary code change on an unpushed branch, and nothing is switched over while running. Nouls: unknown_cause yes; mechanical no; read_only no. Model: must stay opus. Working out the lock order of two code paths from evidence is where a cheaper tier would hurt the result, and nothing in the work is at or below medium. The text keeps away from the criteria's own words (it never says intermittent, concurrent or race), so a keyword match does not answer it. Serves S1 representative (the up direction), S10, S7."
+  },
+  "input": {
+   "task": "Find and fix the cause of a test failure in the stockroom service (Go, Postgres 16). Work in /srv/work/stockroom.\n\nWhat happens\n- The CI job `integration` fails about one run in eight. When it fails, the failing test is `TestReserveThenRelease` or `TestBulkReserve` (internal/reservation), each time with `pq: canceling statement due to lock timeout` after 5 s. Re-running the job usually passes.\n- Each of the two tests passes every time when run alone: `go test ./internal/reservation -run TestBulkReserve -count=50` was green 50 times out of 50.\n- Running the whole package the way CI does (its tests are marked t.Parallel()), `go test ./internal/reservation -count=40`, gave 2 failures in 40 on this machine, so you can make it happen here.\n\nWhat is known\n- Nothing about why. Nobody has compared the order in which the two code paths take their row locks, or checked what the test fixtures share.\n- The last change to the package went in three weeks ago (bulk reserve now works in batches of 200 instead of 50). The first failure anyone noticed was about two weeks ago, but CI history before that has not been checked, so do not assume that change is the cause.\n\nWhat I need\n1. What actually happens when it fails: which statements are involved, which locks each one holds and which it waits for. Show it with evidence from a failing run (pg_locks, or the server log with log_lock_waits on), not with a story that merely fits.\n2. A fix in the service code. Raising the timeout, retrying in the tests and running the tests one at a time are not fixes.\n3. A test that fails without your fix and passes with it. If that cannot be made deterministic, say so and give the failure counts over at least 200 runs of the package before and after.\n\nRules\n- No schema change and no edit under db/migrations without asking first.\n- Commit on the branch `fix/reservation-lock-timeout`. Do not push.\n\nReport: the cause with its evidence, the fix, the run counts before and after, and anything you saw that you could not explain.",
+   "agentType": "general-purpose",
+   "description": "Fix reservation test failures in CI",
+   "inherit": {
+    "level": "medium",
+    "tier": "opus"
+   }
+  },
+  "expect": {
+   "accept": [
+    "xhigh"
+   ],
+   "models": [
+    "opus"
+   ]
+  }
+ },
+ {
+  "id": "agent-13",
+  "category": "agent",
+  "source": "written",
+  "difficulty": "boundary",
+  "set": "check",
+  "tags": [
+   "ci",
+   "design-choice",
+   "level-up",
+   "level-either",
+   "model-either"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "state 里 `task` 是全文，没有被截断（2226 字符，约 748 token）。分歧：A 收 medium 和 high、模型 sonnet 或 opus；B 只收 high、模型 opus。`task` 原话：「Open point 1, yours to settle: how packages are assigned to shards」，接着列出三种做法（按今天的耗时配平的固定名单、每个包里用 Vitest 的 `--shard=i/n`、读 main 上一次运行耗时的小脚本），说它们「would each be acceptable to me. Pick one, say why, and say what happens on the day someone adds a package」。这就是第 2 档的原文：「Several workable designs or several possible causes; a choice has to be made between them.」三种都可接受就是 workable designs，「Pick one, say why」就是要做的取舍，选完还要对着硬指标验证（墙上时间 15 分钟以内，覆盖率合计和 main 的 81.4 % 一致，不许改测试文件、package.json 脚本和 Vitest 配置）。`mechanical` 为否（明写了要做决定），`unknown_cause` 为否，`read_only` 为否。medium 不收。A 的依据是 YAML 有 lint 作业作样板（「the matrix block, the pnpm cache step and the gate job carry over as they are」）、两处开放点的选项都列出来了、范围在一个 workflow 文件里，对应第 1 档「A few possibilities within a small area」。这句话字面上套得上，但第 1 档和第 2 档的区别正在「a choice has to be made between them」（设计 5.2 节：要做取舍），而 `task` 明写了要选、要说理由、要说新增一个包那天怎么办。选项被列出、三种都被接受，说的是它们都可行，这是第 2 档成立的条件，不是降到第 1 档的理由。第 2 个开放点（在哪个作业里合并 lcov，「whichever job you find cleaner」）单看是第 1 档，但档位由最开放的那一部分定。B 自己也说 medium 是近邻、细心的人可能接受，但没有收，我同意：近不等于定义下也成立，两档并列不是用来折中的。low（继承值）不对：两处开放点的做法没有给定。不是 xhigh：没有原因不明的故障，选错了会在两次 CI 运行的耗时和覆盖率合计上显出来。模型：inherit.tier 是 opus。第 2 档不触发往下换（表里只有第 0、1 档的概率和够高才往下一档）；`task` 把设计决定交给 agent 并要它说明理由，结果好坏就在这两个决定上，低一档会损害结果，所以只写 opus。A 的 sonnet 明说是「following the reading of the level」，是跟着 medium 的读法来的，medium 不收，它也就没有依据；haiku 两位都不取。这一例仍然贴着 medium 和 high 的分界（S6），只是答案落在 high 一侧。"
+  },
+  "input": {
+   "task": "Task 6 of the CI speed-up plan: 把 test 作业拆成并行分片 (split the test job into parallel shards). Repository: the quillstack monorepo (pnpm workspaces, Vitest, GitHub Actions), checked out at /srv/work/quillstack.\n\n## Where things stand\n\n- .github/workflows/ci.yml has one `test` job that runs `pnpm -r test` over all 31 packages in sequence. It takes 38 minutes on average and is the slowest check on every pull request.\n- The `lint` job in the same file already fans out with a `strategy.matrix` over four package groups, and a gate job `lint-ok` with `needs: lint` is the one branch protection points at. Use it as the model for the YAML: the matrix block, the pnpm cache step and the gate job carry over as they are.\n- Coverage: `test` uploads one coverage/lcov.info as an artifact; the `coverage-report` job downloads it and posts the summary comment on the pull request.\n\n## What to build\n\n- `test` becomes a matrix of shards and finishes in under 15 minutes of wall time. Branch protection must keep pointing at a single required check, as it does for lint: add `test-ok`.\n- Open point 1, yours to settle: how packages are assigned to shards. The lint groups are a hand-written list by directory; the same list for tests would put the three slowest packages (api-client 9 min, editor 8 min, sync 7 min) into one shard. A fixed list balanced by today's timings, Vitest's own `--shard=i/n` inside each package, or a small script that reads the timings of the last run on main would each be acceptable to me. Pick one, say why, and say what happens on the day someone adds a package.\n- Open point 2: each shard now produces its own lcov file, and `coverage-report` must still post one summary with the same total as today, give or take rounding. Merge the files in whichever job you find cleaner.\n\n## Checks\n\n- Open a draft pull request from your branch and let the workflow run twice. Report the wall time of the slowest shard in both runs, and the coverage total next to the one on main (81.4 %).\n- No test file, no package.json script and no Vitest config changes in this task.\n\n## Report\n\nThe shard assignment you chose and the reason, where the coverage merge happens, the two timings, the coverage total, the files changed.",
+   "agentType": "general-purpose",
+   "description": "CI Task 6: 把 test 作业拆成并行分片",
+   "inherit": {
+    "level": "low",
+    "tier": "opus"
+   }
+  },
+  "expect": {
+   "accept": [
+    "high"
+   ],
+   "models": [
+    "opus"
+   ]
+  }
+ },
+ {
+  "id": "agent-14",
+  "category": "agent",
+  "source": "written",
+  "difficulty": "typical",
+  "set": "heldout",
+  "tags": [
+   "infrastructure",
+   "read-only",
+   "inventory",
+   "level-down",
+   "model-down"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "Written case; inherit high / opus chosen. Level: low, two steps down. `task` fixes everything: which file to open (values-prod.yaml, otherwise values.yaml), which fields to copy 'exactly as they are written', what to write for an absent field, the order and format of the output, and it forbids judging the values. That is OPEN_LEVELS[0], 'The way to do it is already given; the work is carrying it out.' Not medium: there is no trap and no possibility to weigh; even the directory with neither file has its rule. The 23 directories are amount of work, which the level does not measure. Nouls: read_only yes ('Do not edit, create or delete anything', nothing is run); mechanical yes (the same stated steps for every directory); unknown_cause no. Model: haiku or sonnet. Copying named fields into a table is work a cheaper tier clearly does as well, so opus is left out. Serves S1 representative (the down direction, for the level and for the model), S7."
+  },
+  "input": {
+   "task": "I need a table of what each service asks for at deploy time. This is collecting, not judging.\n\nRepository: /srv/work/platform-deploy. Every service has a directory under deploy/services/ (23 of them today) holding its Helm values.\n\nFor every directory under deploy/services/:\n1. Open values-prod.yaml if it exists, otherwise values.yaml. Note which of the two you used.\n2. Record these fields exactly as they are written in the file (no unit conversion, no defaults filled in):\n   - image.tag\n   - replicaCount\n   - resources.requests.cpu and resources.requests.memory\n   - resources.limits.memory\n   - whether a readinessProbe block is present (yes or no)\n   - autoscaling.enabled and, when it is true, autoscaling.maxReplicas\n3. A field that is absent is written as \"-\". Do not look it up in the chart's defaults.\n\nOutput: one Markdown table, one row per service, rows sorted by directory name, columns in the order above, with the name of the file you used as the last column. Under the table, list any directory that has neither file.\n\nDo not edit, create or delete anything in the repository, and do not run helm or kubectl: the files are the only source. Do not comment on whether the values are sensible; a later step does that.\n\nYour final message is the table and that list, nothing else.",
+   "agentType": "general-purpose",
+   "description": "Inventory of service deploy values",
+   "inherit": {
+    "level": "high",
+    "tier": "opus"
+   }
+  },
+  "expect": {
+   "accept": [
+    "low"
+   ],
+   "models": [
+    "haiku",
+    "sonnet"
+   ]
+  }
+ },
+ {
+  "id": "agent-15",
+  "category": "agent",
+  "source": "written",
+  "difficulty": "negative",
+  "set": "heldout",
+  "tags": [
+   "performance",
+   "unknown-cause",
+   "alarming-surface",
+   "level-hold",
+   "model-stay"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "Written case; inherit high / opus chosen. The right answer is to leave both as they are. Level: high, unchanged. A failure is reported and its cause is not known ('Nobody has profiled it yet'): four candidate changes in different parts of the code, 'or a combination, or something I have not listed'; and once the cause is found there is a choice between fixes ('If there is more than one way to fix it, take the one that… and say what you turned down'). That is OPEN_LEVELS[2], 'Several workable designs or several possible causes; a choice has to be made between them', and unknown_cause yes gives the same floor. Not xhigh: the slowdown is 'the same on every request', on production and on staging, and grows with the row count (0.4 s to 3 s, 4 s to 31 s), so nothing is intermittent, concurrent or state-dependent; the change is measured before and after and guarded by a test. Not max: it reproduces at will, the work is on staging only and ships with the normal release. Not medium: the cause is unknown and the candidates do not sit in one small area. The escalation ('two large customers', 'a fix today') is pressure, not openness. Nouls: unknown_cause yes; mechanical no; read_only no. Model: must stay opus. Finding the cause among several candidates and then choosing a fix under a memory constraint is not work a cheaper tier does as well, and nothing puts it at or below medium. Serves S1 (an answer of 'stay'), S6, S7."
+  },
+  "input": {
+   "task": "The CSV export of the reporting-api service (Python, FastAPI, SQLAlchemy, Postgres) became slow with release 4.18, and support has escalated it: two large customers have open tickets and the account team is asking for a fix today. What I need from you is the cause, and a fix that addresses the cause. Work in /srv/work/reporting-api.\n\nFacts\n- `GET /exports/ledger.csv` for a tenant with about 120,000 ledger rows took about 4 s on 4.17 and takes about 31 s on 4.18. A tenant with 12,000 rows went from 0.4 s to 3 s. It is the same on every request, on production and on staging with the anonymised dump, so you can measure it on staging as often as you like (`make staging-shell`, then `scripts/time_export.sh TENANT`).\n- No other endpoint got slower. During an export the database's CPU stays flat, while the API pod sits at one full core for the whole 31 s.\n- 4.18 contains 41 commits. The ones that touch anything near this path: the SQLAlchemy upgrade from 1.4 to 2.0 (the ledger query was rewritten in the new style), the switch of the CSV writer to a streaming response, a new currency-formatting helper called once per row, and a change to the connection pool settings. Any one of them, or a combination, or something I have not listed, could be it. Nobody has profiled it yet.\n\nDo\n1. Find out where the 27 extra seconds go. Measure before you decide: a profile of one export on staging, and the SQL that is actually sent on 4.17 against 4.18.\n2. Fix the cause in the code. If there is more than one way to fix it, take the one that keeps memory flat for large tenants (that is what the streaming response was introduced for) and say what you turned down.\n3. Add a regression test that would have caught it: a query count or a bound on time per row, whichever matches the cause.\n\nDo not\n- Roll back the SQLAlchemy upgrade or the streaming change wholesale.\n- Touch production. Staging only; the fix ships with the normal release tomorrow morning.\n\nReport: the cause with the measurements, the fix and the alternatives you turned down, the timing before and after on staging for the same tenant, the test.",
+   "agentType": "general-purpose",
+   "description": "Find the ledger export slowdown",
+   "inherit": {
+    "level": "high",
+    "tier": "opus"
+   }
+  },
+  "expect": {
+   "accept": [
+    "high"
+   ],
+   "models": [
+    "opus"
+   ]
+  }
+ }
+]

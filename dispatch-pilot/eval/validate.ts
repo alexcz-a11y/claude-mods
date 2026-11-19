@@ -1,88 +1,81 @@
-// Checks eval datasets against their format (lib/datasets.ts states it), the
-// README's configuration table against plugin.json and the decision models'
-// defaults, its list of switches against the switches the code defines, each switch against its option in plugin.json, DEVELOPMENT.md's 「结构」 tree against the modules under hooks/, and
-// that only the decision report writes the screens, that `$` never crosses a file, and that hooks/ registers none of the events Code Mode refuses while
-// dispatch-pilot-extras runs every hook it bridges (lib/docs.ts): the checks of the docs a test file cannot make, for it cannot read the files.
-//
-//   node dispatch-pilot/eval/validate.ts                      every eval/datasets/*.jsonl, eval v2, then the README's configuration table
-//   node dispatch-pilot/eval/validate.ts effort-submit        eval/datasets/effort-submit.jsonl
-//   node dispatch-pilot/eval/validate.ts visual-check         eval/datasets/visual-check.jsonl, and that every picture it names is in eval/datasets/visual-check/ (a PNG)
-//   node dispatch-pilot/eval/validate.ts path/to/skill.jsonl  a file elsewhere (skill-catalog.json beside it)
-//   node dispatch-pilot/eval/validate.ts eval-v2              only eval v2 (#45): every file under eval/datasets/eval-v2/, and
-//                                                             eval-v2.jsonl built again against eval-v2/generated.json
-//   node dispatch-pilot/eval/validate.ts docs                 only the docs: the configuration table, the list of switches, the 「结构」 tree and the one-writer check
-//
-// Exits 1 when any item or row breaks a rule; warnings (dataset-wide quotas, eval v2 not written in full yet) do not fail.
+// Run with `node dispatch-pilot/eval/validate.ts` (scripts/check.sh does).
+// The mod registers none of these events in any file under hooks/ (checked against the source text, matcher or not):
+// tool.call and its kin act on each tool call itself, inside a Code Mode script too, and the mod makes no decision
+// request and no decision per such call; it only notes a call's tool and failure on its result row.
+// The module scan takes a state atom only as a const of the file that reads or writes through it, so each file declares
+// the atoms it uses: every declaration of one key must be the same line, or the copies could drift apart.
+// The board-scenes probe (docs/research/board-scenes) shows the tests' scenes from its own copy of them: the copy must
+// be the file itself, byte for byte.
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-import { readFileSync, readdirSync } from 'node:fs'
-import { basename, join } from 'node:path'
-import { parseArgs } from 'node:util'
-import { validateDataset } from './lib/datasets.ts'
-import { checkBridge, checkConfigTable, checkEngineStaysHome, checkOneWriter, checkStructureTree, checkSwitchList, checkSwitchOptions, declaredSwitches, declaredSwitchSpecs } from './lib/docs.ts'
-import { longContextJsonl } from './long-context-items.ts'
-import { DATASETS_DIR, EVAL_V2_JSONL, MOD_DIR, catalogFor, checkPictures, datasetFile, readDataset, readManifest, validateEvalV2 } from './node.ts'
+import { CHANGED } from '../tests/support/option-changes.ts'
+import { changeProblems, optionProblems } from './lib/manifest.ts'
 
-const { positionals } = parseArgs({ allowPositionals: true, options: {} })
-const everything = positionals.length === 0
-// eval-v2.jsonl is made (and checked) from the files under eval-v2/, not a dataset of a kind (validateEvalV2 below).
-const names = everything
-  ? readdirSync(DATASETS_DIR)
-      .filter((file) => file.endsWith('.jsonl') && file !== basename(EVAL_V2_JSONL))
-      .map((file) => basename(file, '.jsonl'))
-  : positionals.filter((name) => name !== 'docs' && name !== 'eval-v2')
+const hooksDir = fileURLToPath(new URL('../hooks/', import.meta.url))
 
-let failed = false
-for (const name of names) {
-  const { kind, path } = datasetFile(name)
-  const { items, errors: unreadable } = readDataset(path)
-  const { errors, warnings } = validateDataset(kind, items, { catalog: catalogFor(kind, path) })
-  // The long-context file is written from the items module (its one source): a hand edit of the JSONL is an error.
-  const drift = kind === 'long-context' && readFileSync(path, 'utf8') !== longContextJsonl() ? ['the file is not what eval/long-context-items.ts makes: edit the items there and run node dispatch-pilot/eval/long-context-gen.ts'] : []
-  // The pictures of the visual-check dataset are in the folder beside it, by the paths its items give: they must be there (a test cannot read the disk).
-  const pictures = kind === 'visual-check' ? checkPictures(items, join(DATASETS_DIR, kind)) : { errors: [], warnings: [] }
-  const all = [...unreadable, ...errors, ...drift, ...pictures.errors]
-  const hard = items.filter((item) => item.difficulty === 'hard').length
-  console.log(`${basename(path)}: ${items.length} items (${hard} hard): ${all.length === 0 ? 'ok' : `${all.length} errors`}`)
-  for (const error of all) console.log(`  ${error}`)
-  for (const warning of [...warnings, ...pictures.warnings]) console.log(`  warning: ${warning}`)
-  if (all.length > 0) failed = true
+// Matched over each file's whole text (global), so on( and the event name on two lines are found too.
+const FORBIDDEN: { why: string; pattern: RegExp }[] = [
+  {
+    why: 'registers an event the mod keeps out of its hooks (no decision per tool call)',
+    pattern: /\bon\(\s*(['"`])(tool\.call|tool\.check|tool\.run|tool\.judge|agent\.offer|session\.send)\1/g,
+  },
+  { why: 'registers a classic.* event, which the mod keeps out of its hooks', pattern: /\bon\(\s*(['"`])classic\./g },
+  { why: 'registers a tool with $.tool.register', pattern: /\$\.tool\.register\b/g },
+]
+
+const files = readdirSync(hooksDir, { recursive: true, encoding: 'utf8' })
+  .filter((name) => /\.tsx?$/.test(name))
+  .sort()
+
+const ATOM_DECLARATION = /^\s*(?:export\s+)?const\s+\w+\s*=\s*atom\(/
+const ATOM_KEY = /\bkey:\s*(['"`])([^'"`]+)\1/
+
+const found: string[] = []
+/** The first declaration of each atom key: where it is, and its line trimmed. */
+const atoms = new Map<string, { at: string; text: string }>()
+for (const name of files) {
+  const source = readFileSync(join(hooksDir, name), 'utf8')
+  for (const { why, pattern } of FORBIDDEN) {
+    for (const m of source.matchAll(pattern)) {
+      const line = source.slice(0, m.index).split('\n').length
+      found.push(`hooks/${name}:${line}: ${why}: ${m[0].replace(/\s+/g, ' ')}`)
+    }
+  }
+  source
+    .split('\n')
+    .forEach((line, i) => {
+      const at = `hooks/${name}:${i + 1}`
+      if (!ATOM_DECLARATION.test(line)) return
+      const key = ATOM_KEY.exec(line)?.[2]
+      if (key === undefined) {
+        found.push(`${at}: an atom declaration whose key this check cannot read (keep it on one line): ${line.trim()}`)
+        return
+      }
+      const first = atoms.get(key)
+      if (first === undefined) atoms.set(key, { at, text: line.trim() })
+      else if (first.text !== line.trim()) found.push(`${first.at} and ${at}: the atom of key '${key}' is declared differently:\n  ${first.text}\n  ${line.trim()}`)
+    })
 }
-if (everything || positionals.includes('eval-v2')) {
-  const { lines, failed: broken } = validateEvalV2()
-  for (const line of lines) console.log(line)
-  if (broken) failed = true
+
+if (files.length === 0) found.push('no .ts file under hooks/: the check is looking in the wrong place')
+
+const scenes = fileURLToPath(new URL('../tests/support/scenes.ts', import.meta.url))
+const scenesCopy = fileURLToPath(new URL('../../docs/research/board-scenes/hooks/scenes-data.ts', import.meta.url))
+if (!existsSync(scenesCopy) || readFileSync(scenesCopy, 'utf8') !== readFileSync(scenes, 'utf8')) {
+  found.push('docs/research/board-scenes/hooks/scenes-data.ts is not a copy of dispatch-pilot/tests/support/scenes.ts; from the repository root run:\n  cp dispatch-pilot/tests/support/scenes.ts docs/research/board-scenes/hooks/scenes-data.ts')
 }
-if (everything || positionals.includes('docs')) {
-  const problems = checkConfigTable(readFileSync(join(MOD_DIR, 'README.md'), 'utf8'), readManifest().userConfig ?? {})
-  console.log(`README.md configuration table: ${problems.length === 0 ? 'ok' : `${problems.length} problems`}`)
-  for (const problem of problems) console.log(`  ${problem}`)
-  if (problems.length > 0) failed = true
-  const hooks = join(MOD_DIR, 'hooks')
-  const modules = readdirSync(hooks, { recursive: true, encoding: 'utf8' }).filter((path) => /\.tsx?$/.test(path)).map((path) => path.split('\\').join('/'))
-  const drift = checkStructureTree(readFileSync(join(MOD_DIR, 'DEVELOPMENT.md'), 'utf8'), modules)
-  console.log(`DEVELOPMENT.md structure tree: ${drift.length === 0 ? 'ok' : `${drift.length} problems`}`)
-  for (const problem of drift) console.log(`  ${problem}`)
-  if (drift.length > 0) failed = true
-  const sources = Object.fromEntries(modules.map((path) => [path, readFileSync(join(hooks, path), 'utf8')]))
-  const switches = checkSwitchList(readFileSync(join(MOD_DIR, 'README.md'), 'utf8'), declaredSwitches(sources))
-  console.log(`README.md list of switches: ${switches.length === 0 ? 'ok' : `${switches.length} problems`}`)
-  for (const problem of switches) console.log(`  ${problem}`)
-  if (switches.length > 0) failed = true
-  const options = checkSwitchOptions(readManifest().userConfig ?? {}, declaredSwitchSpecs(sources))
-  console.log(`plugin.json an option for each switch (ADR 0027): ${options.length === 0 ? 'ok' : `${options.length} problems`}`)
-  for (const problem of options) console.log(`  ${problem}`)
-  if (options.length > 0) failed = true
-  const writers = checkOneWriter(sources)
-  console.log(`hooks/ one writer of the screens (ADR 0004): ${writers.length === 0 ? 'ok' : `${writers.length} problems`}`)
-  for (const problem of writers) console.log(`  ${problem}`)
-  if (writers.length > 0) failed = true
-  const engine = checkEngineStaysHome(sources)
-  console.log(`hooks/ \`$\` stays in its file: ${engine.length === 0 ? 'ok' : `${engine.length} problems`}`)
-  for (const problem of engine) console.log(`  ${problem}`)
-  if (engine.length > 0) failed = true
-  const bridge = checkBridge(sources, readFileSync(join(MOD_DIR, '..', 'dispatch-pilot-extras', 'hooks', 'dispatch-pilot-extras.mjs'), 'utf8'), readFileSync(join(MOD_DIR, 'tests', 'support', 'extras.ts'), 'utf8'))
-  console.log(`hooks/ none of the events Code Mode refuses, and dispatch-pilot-extras runs each bridged hook (ADR 0028): ${bridge.length === 0 ? 'ok' : `${bridge.length} problems`}`)
-  for (const problem of bridge) console.log(`  ${problem}`)
-  if (bridge.length > 0) failed = true
+
+// The options as the configuration shows them: each one read by the code, with the code's default (amendment A17).
+const manifestPath = fileURLToPath(new URL('../.claude-plugin/plugin.json', import.meta.url))
+const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { userConfig?: Record<string, unknown> }
+for (const p of optionProblems(manifest.userConfig ?? {})) found.push(`.claude-plugin/plugin.json userConfig: ${p}`)
+// Each option's proof that changing it changes what the mod does (tests/options-effect.test.ts): one per option.
+for (const p of changeProblems(manifest.userConfig ?? {}, CHANGED)) found.push(`.claude-plugin/plugin.json userConfig: ${p}`)
+
+if (found.length > 0) {
+  console.error(found.join('\n'))
+  process.exit(1)
 }
-process.exit(failed ? 1 : 0)
+console.log(`dispatch-pilot: ${files.length} hook files, none registers tool.call or its kin; ${atoms.size} atom keys, each declared alike; the probe's scenes are the tests' own; ${Object.keys(manifest.userConfig ?? {}).length} options, each a switch or a picker (but the keys and the two model names, free text) read with the code's default and changed in tests/options-effect.test.ts`)

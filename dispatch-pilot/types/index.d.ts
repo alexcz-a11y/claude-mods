@@ -1,633 +1,131 @@
-// dispatch-pilot's $.state contract (PluginState), by key. Hand-written and
-// committed; `claude plugin validate` checks every $.state read and write
-// against it. No top-level export: a contract declares types and nothing else.
-//
-// The shapes mirror hooks/core/plans.ts (Plan, TurnRecord, PendingDecision) and
-// hooks/core/report.ts (Board, BoardNode, LogEntry); tsc checks the two agree
-// wherever the hooks read or write these values.
+// The PluginState contract of dispatch-pilot. `claude plugin validate` requires this file to be
+// self-contained (no import, no reference), so the shapes are written out here again. The TypeScript
+// home of each is a module under hooks/ (state.ts, log.ts and the files they import from), and
+// hooks/state.ts fails `tsc` the moment a shape here and its home drift apart: change both together.
+// The names carry a Dp prefix so none can resolve to one of claude-code's own inside the augmentation.
+
+export type DpLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export type DpTier = 'haiku' | 'sonnet' | 'opus' | 'fable'
+
+export type DpPreviousTurn = { request: string; lastReply: string; ended: 'answered' | 'error' | 'interrupted'; level: DpLevel | null }
+export type DpStepRecord = { did: string; tools: string[]; ok: boolean; result: string }
+export type DpProgressNote = { done: string; remaining: string; cause_known: boolean }
+
+export type DpAnswer =
+  | { type: 'noul'; noul: number }
+  | { type: 'score'; score: number; probabilities: number[] }
+  | { type: 'choice'; choice: string; probabilities: Record<string, number> }
+export type DpFailure = 'no-key' | 'timeout' | 'http' | 'network' | 'bad-answer' | 'model-mismatch'
+export type DpBackend = 'drex' | 'jev'
+export type DpMiss = { reason: DpFailure; backend: DpBackend; status?: number; requestId?: string }
+export type DpAskResult =
+  | { ok: true; answers: Record<string, DpAnswer>; model: string; backend: DpBackend; ms: number; firstFailure?: DpMiss }
+  | ({ ok: false; ms: number; firstFailure?: DpMiss } & DpMiss)
+
+export type DpReason =
+  | 'more-open'
+  | 'less-open'
+  | 'mechanical'
+  | 'unknown-cause'
+  | 'same-failure'
+  | 'contradicts-plan'
+  | 'cause-found'
+  | 'carrying-out'
+  | 'continues'
+  | 'hold'
+export type DpThresholds = { up: number; upHigh: number; down: number; yes: number; no: number; modelDown: number }
+
+export type DpTurnJournal = {
+  steps: DpStepRecord[]
+  workSteps: number
+  failedSteps: number
+  scriptResults: number
+  statedNext: string
+  /** failed: a call inside the open script has errored. */
+  open: { did: string; tools: string[]; failed: boolean } | null
+  lastError: string | null
+  editedSinceError: boolean
+  sameErrorRepeated: boolean
+  consecutiveFailures: number
+  /** The step a further tool result of the same response joins, and the consecutive failures before it. */
+  joins: { failuresBefore: number } | null
+}
+export type DpMidrunCounters = { notes: number; lastShiftAt: number | null; stepsSinceCheck: number; scriptsSinceCheck: number }
+export type DpMark = 'hold' | 'up' | 'down' | 'fail'
+export type DpTrackCell = { level: DpLevel; sent: DpLevel | null; mark: DpMark | null }
+
+/** What a spawn the mod gave no model taught it of an agent type: the tier it ran on and the parent's tier then. */
+export type DpAgentType = { type: string; tier: DpTier | null; parentTier: DpTier | null }
+
+export type DpSessionState = {
+  lock: DpLevel | null
+  codeMode: boolean
+  turnNo: number
+  sessionLevel: DpLevel | null
+  /** The last main-loop step's effort was a number. */
+  effortIsNumber: boolean
+  previous: DpPreviousTurn | null
+  lastSent: DpLevel | null
+  pending: { request: string; result: DpAskResult } | null
+  progressBlocked: boolean
+  agentTypes: DpAgentType[]
+  lastJudged: DpDecision | null
+}
+
+export type DpTurnState = {
+  turnId: string
+  request: string
+  base: DpLevel | null
+  wanted: DpLevel | null
+  journal: DpTurnJournal
+  midrun: DpMidrunCounters
+  pendingNote: string | null
+  queuedCheck: { id: string; level: DpLevel; note: string } | null
+  progress: DpProgressNote | null
+  unverified: { id: string; level: DpLevel } | null
+  stepNo: number
+  track: DpTrackCell[]
+  pendingMark: DpMark | null
+  lastJudged: DpDecision | null
+  shifts: DpDecision[]
+  /** Its message came before any skill listing: judged at the first listing in this turn. */
+  skillsDue: boolean
+}
+
+export type DpAgentState = { effort: DpLevel | null; model: DpTier | null; isEffortExplicit: boolean | null; decisionId: string | null; steps: number }
+
+export type DpDecision = {
+  id: string
+  at: number
+  kind: 'submit' | 'midrun' | 'agent' | 'skill' | 'progress'
+  backend: DpBackend | null
+  model: string | null
+  ms: number
+  raw: Record<string, DpAnswer> | null
+  from: string | null
+  to: string | null
+  reason: DpReason | null
+  detail: string
+  turnId: string | null
+  step: number | null
+  bars: DpThresholds | null
+  failure: DpFailure | null
+  requestId: string | null
+  applied: boolean
+  sent: DpLevel | 'not-sent' | 'unverified' | null
+}
 
 declare module 'claude-code' {
   interface PluginState {
     'dispatch-pilot': {
-      /**
-       * Effort decided for the person's message at prompt.submit, waiting for
-       * the turn that message starts (core's turn.start takes it); oldest
-       * first, at most 16. `effort` null: the decision failed (the turn is
-       * still the person's own, so it keeps its facts as it ends).
-       */
-      pending: { text: string; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null; at: number; report?: true; ruleFloor?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }[]
-      /**
-       * One record per turn of each loop, id `<loop>:<turnId>` where loop is
-       * `main` or the agentId. The core's turn.step writer sends what it says.
-       */
-      turns: StateFamily<{
-        /** The routed effort: the latest decision; null leaves the engine's. */
-        effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        /** No step of the turn goes below it; null for none. */
-        floor: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        /** The model to name, for a dispatched or workflow agent only; never sent for main. */
-        model: string | null
-        /** The text the turn started with (main), redacted and clipped; '' when unknown. */
-        prompt: string
-        /** Decisions made for the turn: the one at its start plus those of messages typed into it. */
-        decisions: number
-        /** Times the routed effort moved from one decided level to another. */
-        changes: number
-        /** Whether the person's own message started the turn (decided at its start or not). */
-        person: boolean
-        /**
-         * The level the turn's latest message was decided at (ADR 0020): `effort` is this until the level moves in the
-         * middle of the run, and where a raise returns to. Absent in a record an earlier version wrote; null: no message
-         * of the turn was decided.
-         */
-        base?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        /** The highest floor that decision's rules gave: nothing lowers the turn under it. Absent or null for none. */
-        ruleFloor?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        /**
-         * What the turn did, for the next message's decision (ADR 0013; features/escalation.ts writes it as a turn the
-         * person's own message started ends, absent until then): the effort its steps went out at (the last one's; null
-         * for a model without one), its tool calls (a plugin's refusal not counted), those that failed and those a hook
-         * refused, whether the failures counted toward escalating reached `escalateAfter`, and the last failed or blocked
-         * calls (at most two, oldest first), each the tool and the first line it said, masked and clipped.
-         */
-        facts?: {
-          effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-          calls: number
-          failed: number
-          blocked: number
-          stuck: boolean
-          errors: string[]
-        }
-      }>
-      /**
-       * A plan for every turn of one dispatched or workflow agent, id = agentId
-       * (written at agent.spawn, or once the agent is known); a turn-level
-       * plan of that agent wins over it slot by slot. `terms`: what the person
-       * asked of its work in their own words (the model and the effort they
-       * named, the models they ruled out); whatever changes the agent's model
-       * or effort keeps to them.
-       */
-      agents: StateFamily<{
-        effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        floor: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        model: string | null
-        terms: {
-          model: 'haiku' | 'sonnet' | 'opus' | 'fable' | null
-          effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-          banned: ('haiku' | 'sonnet' | 'opus' | 'fable')[]
-        } | null
-      }>
-      /**
-       * The board (the 「决定汇报」 module, core/report.ts; GLOSSARY 看板): what
-       * every screen of Dispatch Pilot draws from, with `decisionLog` below.
-       * Written by that module only (the features hand it decisions, the core
-       * hands it readings), read by anything that draws or tests.
-       *
-       * `turn` counts the main agent's turns the session has started (the
-       * module's own `turn.start` hook, which leaves out an agent's run, one
-       * with `agentId`, 2.1.299 on); the person's first message is turn 1.
-       * A decision made before its turn starts is filed under the turn to come
-       * (`turn + 1`), so its node is already there when the turn begins.
-       *
-       * `nodes` are the agents of the latest turns, the current one and the one
-       * before it (the band folds a finished turn into one line, so it still
-       * needs it); each turn has one node per agent, the main agent's `main`.
-       */
-      board: {
-        turn: number
-        /**
-         * When the latest turns started (`$.clock.now()`, ms), by turn, as the module's `turn.start` hook saw it:
-         * what a node's `t0`, a change's `at` and the band's elapsed time count from. Absent in a board an earlier
-         * version wrote.
-         */
-        starts?: { turn: number; at: number }[]
-        /**
-         * The readings that changed, oldest first: an agent's model (by family) or effort differing from its
-         * previous step's in the same turn. The first reading of a node is no change. Kept for the nodes' turns.
-         * Absent in a board an earlier version wrote.
-         */
-        changes?: {
-          /** The turn of the agent's node, and the agent (`main`, or the agentId). */
-          turn: number
-          id: string
-          /** Seconds from the start of that turn to the step that read the change. */
-          at: number
-          /** The `n` of the last `decisionLog` entry when it was read (0: none yet): the event stream places it after that entry. */
-          after: number
-          from: { model?: 'haiku' | 'sonnet' | 'opus' | 'fable'; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number }
-          to: { model?: 'haiku' | 'sonnet' | 'opus' | 'fable'; effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number }
-        }[]
-        /**
-         * What a feature met beside an agent's route, for the band's event stream, oldest first (at most 50, of
-         * the nodes' turns): a request that failed (`failed`: `why` in a few words), one that gave nothing to use
-         * (`skipped`: `why` is `unanswered`, `unread`, `none` or `error`). Absent in a board an earlier version wrote.
-         */
-        notes?: {
-          turn: number
-          /** `main`, or the agentId it was about. */
-          id: string
-          /** The feature's switch name. */
-          feature: string
-          /** Seconds from the start of that turn. */
-          at: number
-          /** The `n` of the last `decisionLog` entry when it was written. */
-          after: number
-          kind: 'failed' | 'skipped'
-          why: string
-        }[]
-        nodes: {
-          /** The turn it belongs to. */
-          turn: number
-          /** `main` for the main agent, else the agentId of a dispatched or Workflow agent. */
-          id: string
-          kind: 'main' | 'agent' | 'wf'
-          /** What the person reads: 主 agent, the agent's name or description, a Workflow agent's label. */
-          name: string
-          /** `main`, the agent type (`Explore`), or `workflow`. */
-          type: string
-          /** The model of its latest step, by family; absent before its first step or for a model of no known family. */
-          model?: 'haiku' | 'sonnet' | 'opus' | 'fable'
-          /** The effort of its latest step as it went out (a level, or the engine's integer budget); absent for a model without effort. */
-          effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | number
-          /**
-           * `queued`: spawned (or decided for) and no step yet; `running`: its latest step has been read and its loop
-           * has not ended; `done`: its loop ended with an answer; `failed`: it ended in an error, a refusal or an
-           * interruption (`why` says which).
-           */
-          state: 'queued' | 'running' | 'done' | 'failed'
-          /** Seconds from the start of the turn to the start of the agent (its first step; for a queued agent, its spawn). 0 for the main agent. */
-          t0: number
-          /** Seconds it ran, as its loop's `turn.complete` reports; absent while it runs. */
-          dur?: number
-          /** Whether its steps go out as Dispatch Pilot decided (or the person locked); false: as the engine made them (未路由). */
-          routed: boolean
-          /** The person's lock (`/dp lock`) holds the main agent's effort. */
-          locked?: true
-          /** Why it is not routed, or failed, in a few words. */
-          why?: string
-          /** The failed decision request behind `why`, for the rationale card. */
-          failure?: {
-            backend: string
-            kind: 'config' | 'timeout' | 'network' | 'busy' | 'quota' | 'http' | 'parse' | 'request'
-            detail: string
-            status?: number
-          }
-          /** The `n` of its decision in `decisionLog`. */
-          decision?: number
-          /**
-           * The Workflow it belongs to, `id` = the Workflow tool call's id: a Workflow agent, or, before it
-           * starts, the call of the script that stands for it (id `<tool_use_id>#<index>`, state `queued`).
-           */
-          workflow?: { id: string; name: string }
-          /** The failed tool calls, hook blocks and model step-ups of the agent's loop (escalation); absent while none. */
-          counts?: { failed: number; blocked: number; raised: number }
-          /**
-           * The agent's visual_check calls of its loop, counted by verdict: checks that passed, failed, got no verdict
-           * to trust. The band's row says `核对 N：x 过 · y 不过 · z 没把握`. `takeovers`: images the screenshot takeover
-           * kept from the agent, added to the same count. Absent while the agent made no check (and for a new turn's node).
-           */
-          visualChecks?: { passed: number; failed: number; unsure: number; takeovers?: number }
-        }[]
-      }
-      /**
-       * What the features decided and why (core/report.ts `report`, a `decision`),
-       * oldest first: the
-       * last 20 turns, at most 300 entries. `n` counts the session's entries
-       * from 1; it is what `/dp log` and the debug log's `#n` show.
-       */
-      decisionLog: {
-        n: number
-        /** The turn it was made for (`board.turn`'s numbering). */
-        turn: number
-        /** Seconds from the start of that turn to when it was reported (0 for a decision made before the turn started); absent in an entry an earlier version wrote. */
-        at?: number
-        /** Who decided: the feature's switch name (a report's decision adds ` (agent report)`). */
-        feature: string
-        /** `main`, or the agentId it was about; absent for an entry of a feature not yet migrated, and for the session's (the decision model's fallback). */
-        agent?: string
-        tone: 'ok' | 'warn' | 'fail' | 'info'
-        /** What was decided, in a few words: `effort high`. */
-        outcome: string
-        /** What it was about: the start of the message, an agent's label. */
-        subject: string
-        /** Why: what the decision model said, the rule that applied. */
-        reason: string
-        /** The decision model's probability of each effort level. */
-        probs?: { low: number; medium: number; high: number; xhigh: number; max: number }
-        /** The decision model's confidence. */
-        conf?: number
-        /** The rules' working, step by step (decision/effort.ts, decision/message-effort.ts): each step names its rule and whether it took effect; the rest of its fields are the rule's own. */
-        trace?: { rule: string; applied: boolean; [field: string]: string | number | boolean | null }[]
-        /** The model's floor lifted the effort (`from` to `to`, because of `model`). */
-        floor?: {
-          from: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-          to: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-          model: 'haiku' | 'sonnet' | 'opus' | 'fable'
-        }
-        /**
-         * The model (by family) and the effort an agent was decided to run with: a dispatched or Workflow agent's
-         * decision (the model, the effort), the main agent's effort decision (the effort only); its node says what its
-         * steps went out with. The screens read the level from here, never from `outcome`'s words.
-         */
-        model?: 'haiku' | 'sonnet' | 'opus' | 'fable'
-        effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-        /**
-         * What the failures forced on a dispatched agent (escalation): its effort one level up first (ADR 0020), then the
-         * next model up, as its steps name them; each with what it went from and to.
-         */
-        forced?: { kind: 'model'; from: string; to: string } | { kind: 'effort'; from: 'low' | 'medium' | 'high' | 'xhigh' | 'max'; to: 'low' | 'medium' | 'high' | 'xhigh' | 'max' }
-        /**
-         * A mid-run look at the main agent's level (`midrun-effort`, ADR 0020): the level it was on, the one its steps go
-         * out at from here (the same for a level kept), the level its message was decided at, what came of it, the event
-         * that asked (`failure`, `resolved`, `report`, `handback`, `skill`, `todo`, `steps`), and whether the step that takes it
-         * carried input already (no row was appended).
-         */
-        midrun?: {
-          from: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-          to: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-          base: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
-          move: 'raise' | 'return' | 'down' | 'keep'
-          event: string
-          free: boolean
-        }
-        /** The skills a message or a find_skill call got: those suggested to the main agent, and those only the person can start (「可试 /x」), each with its relevance. */
-        skills?: { suggest: { name: string; relevance: number }[]; try: { name: string; relevance: number }[] }
-        /** The loop's counts when its failures were dealt with (escalation). */
-        counts?: { failed: number; blocked: number; raised: number }
-        /** A Workflow call's decision that was sent back to the main agent to write in (return mode). */
-        sentBack?: true
-        /** The complexity reading of the reference images a message came with (#63) that went into its effort request: the level (0 to 4) and how many images it came from. */
-        reference?: { level: number; images: number }
-        /**
-         * An unresolved-count judgement (`unresolved`): the count before and after the message, what the answers did to it,
-         * each question's probability (null: no answer) and verdict, and the bars they were held to (ADR 0014).
-         */
-        unresolved?: {
-          before: number
-          count: number
-          change: 'add' | 'reset' | 'keep'
-          probs: { still_failing: number | null; solved: number | null; new_task: number | null }
-          verdicts: { still_failing: 'yes' | 'band' | 'no'; solved: 'yes' | 'band' | 'no'; new_task: 'yes' | 'band' | 'no' }
-          thresholds: { yes: number; no: number }
-        }
-        /**
-         * A visual_check call (`visual-check`): the screenshot, what it was checked against (`paths`: the reference images or
-         * the other screenshot; none for a spec), the decision model that judged it, each check with its verdict, the
-         * probability that it holds and whether the verdict rests on the zoomed re-check (`zoomed`; `why` for an unsure one),
-         * whether any did, and how long the call took in ms. Paths and numbers only: no image, no key, no specification text.
-         * A series of quality levels (`against.kind` 'sequence'): `paths` are all the levels, lowest first, `image` the first, and each
-         * check is made on each two neighbouring levels, `pair` being which two, counted from 1 (none for a series that could not be read).
-         */
-        visualCheck?: {
-          image: string
-          against: { kind: 'spec' | 'reference' | 'compare_to' | 'sequence'; paths: string[] }
-          backend: string
-          checks: { part: string; property: string; verdict: 'pass' | 'fail' | 'unsure'; probability: number | null; zoomed: boolean; why?: string; pair?: [number, number] }[]
-          zoomed: boolean
-          ms: number
-        }
-        /**
-         * An entry of feature `decision-model` (another model takes the images, #56): which requests it is about. `text` only in
-         * an entry an earlier version wrote (the decision model no longer falls back, ADR 0014). What the screens and the
-         * entry's replacement read, not its words.
-         */
-        fallbackFor?: 'text' | 'images'
-      }[]
-      /**
-       * The agent the person picked on the band (its digit key, 0 the main agent) or paged to in the rationale
-       * pane (p / n), whose card the pane shows: its node's turn and id. Null, or absent, until one is picked.
-       * Written by the band's and the pane's buttons only.
-       */
-      selected: { turn: number; id: string } | null
-      /**
-       * The rationale pane's own view (hooks/board/rationale.ts `PaneState`): the turns of the decision log the
-       * person folded (`open` false) or opened, the others as the pane leaves them (the newest two open); off the
-       * terminal, whether the switches and the lock are shown.
-       * Absent until the person pressed one of its keys. Written by the pane's buttons only.
-       */
-      paneView: { folds: { turn: number; open: boolean }[]; switches?: boolean }
-      /**
-       * Whether the person folded the band to its one line, on a surface that has no fold of its own (Desktop,
-       * VS Code, the mobile app; the terminal folds the band itself). Kept for the session, every turn alike.
-       * Absent until they pressed 收起. Written by the band's fold button only.
-       */
-      bandFolded: boolean
-      /**
-       * The prompt hint for the draft being written, where the band's idle line shows it (a session on Desktop,
-       * which has no status line for it); null when the draft has none or a turn started. Written by prompt-hint.ts
-       * and, as a turn starts, the status hooks (screens.tsx).
-       */
-      draftHint: string | null
-      /**
-       * The unresolved count (hooks/core/unresolved.ts; GLOSSARY 未解决次数): how many of the person's messages in a
-       * row said the problem they and the main agent are on is still not solved. The decision model reads each
-       * message (`effort.still_failing`, `effort.solved`, `effort.new_task`) and the count moves by the answers: one
-       * more, back to nothing, or as it was. Kept whatever the switches say (ADR 0014). Per session: `/clear` and a new
-       * session start it over, `/compact` keeps it, a hot reload does not lose it. Absent until a message moved it; read
-       * as 0. Written by that module only.
-       *
-       * With it, the problem summary (#40; GLOSSARY 问题摘要): what a cheap model has written, after each turn
-       * of the person's own, of the problem they are on (the problem, what was tried, where things stand), which the
-       * decision model reads beside the conversation. It starts over wherever the count does (solved, another problem,
-       * `/clear`, a new session); `/compact` keeps it. `turn` is the last turn it covers; an attempt is `unresolved`
-       * once a message of the person's said it did not solve the problem.
-       */
-      unresolved: {
-        count: number
-        summary?: {
-          problem: string
-          tried: { text: string; unresolved?: true }[]
-          status: string
-          turn: string
-        }
-        /**
-         * The turns whose summaries are queued or being written (the writes run in the background, one after the
-         * other): a reset takes them out, so a write that lands afterwards is dropped; a hot reload that lost them
-         * finds them here.
-         */
-        writing?: string[]
-        /** The turn whose summary, once written, has its last attempt marked unresolved: the message that said so came before the write landed. */
-        owed?: string
-      }
-      /**
-       * The rate limit on pplx requests (decision/pplx-rate.ts): when the latest sends of the last second
-       * went out (`$.clock.now()` ms, at most `pplxQps` of them, oldest first). It lives here so that a hot reload,
-       * which restarts the module, does not let a burst out. Written by that limiter only (through `BackendIo.pace`).
-       */
-      pplxRate: number[]
-      /**
-       * When each loop began (core/loop-start.ts; GLOSSARY 循环), id `main` for the main agent (its latest turn's
-       * `turn.start`) or the agentId of a dispatched or Workflow agent (its `agent.spawn`, so a resumed run starts it
-       * again; its first `turn.start` when no spawn was seen), `$.clock.now()` ms. The images work (spec #55) tells an
-       * image the loop made from one that was there before it by a file's modification time against this: the screenshot
-       * takeover (#62) takes over the first kind, the routing's reference images (#64) are the second. Written by that
-       * module only.
-       */
-      loops: StateFamily<{ startedAt: number }>
-      /** The person's lock on the main agent's effort: wins over every decision; null when unlocked. */
-      lock: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-      /**
-       * The person's lasting rules for the work (decision/constraints.ts; GLOSSARY 长期约束, ADR 0014): each message of theirs
-       * the `effort.constraint` question said sets one, verbatim and masked, with the last paragraph of the assistant's message
-       * before it; at most 5, oldest first. Every later effort request carries them (`standing_constraints`). Per session:
-       * `/clear` and a new session empty it. Written by features/main-effort.ts (and emptied by features/unresolved.ts).
-       */
-      constraints: { person_said: string; assistant_before: string }[]
-      /**
-       * Where the next message finds the facts of the person's latest turn (features/escalation.ts writes it as such a turn
-       * ends, beside its `turns` record): that turn and its facts. null after `/clear` and in a new session.
-       */
-      lastTurn: {
-        turnId: string
-        facts: {
-          effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-          calls: number
-          failed: number
-          blocked: number
-          stuck: boolean
-          errors: string[]
-        }
-      } | null
-      /**
-       * The complexity readings of the reference images the session has met (#63; GLOSSARY 复杂度读数,
-       * hooks/core/complexity.ts), the latest groups' (at most 8), the one asked or reused last at the end. A group of
-       * images is recognised by `key`, a hash of the images' content (as they are sent), and asked once; `level` is
-       * 0 (trivial) to 4 (very complex), `images` how many images it came from, `at` when it was asked or last reused
-       * (`$.clock.now()`, ms). The latest is what a request that carries no image of its own (a dispatched agent's)
-       * takes. Written by hooks/core/complexity.ts only.
-       */
-      referenceReadings: { key: string; level: number; images: number; at: number }[]
-      /**
-       * Each loop's tool calls, failures and model step-ups (#7, ADR 0013), id
-       * `main` for the main agent (its counts are those of the turn `turnId`; a
-       * new turn starts them afresh, and the facts of the one that ended went on
-       * its `turns` record) or the agentId of a dispatched or workflow agent
-       * (counted for as long as it lives). Written by features/escalation.ts only.
-       */
-      escalation: StateFamily<{
-        /** The main turn the counts belong to; '' for an agent. */
-        turnId: string
-        /** Tool calls that ended since the loop began (a plugin's refusal not counted); only the main agent's are all counted. */
-        calls: number
-        /** Tool calls that failed since the loop began (hook blocks and the person's refusals not counted). */
-        failures: number
-        /** Tool calls a hook refused. */
-        hookBlocks: number
-        /** The counts when they last started over (an agent's step-up, or one that could not be made): what is counted is the rest. */
-        base: { failures: number; hookBlocks: number }
-        /** An agent's step-ups so far (one that could not be made is not one). */
-        raises: number
-        /** The loop's latest step and the model the engine named on it. */
-        step: number | null
-        model: string | null
-        /** The effort the loop's latest step went out at, as the core sends it; null for none (the main agent's facts, and where a failing agent's effort is raised from). */
-        effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        /** The main agent's: the last failed or blocked calls (at most two), each the tool and the first line it said, masked and clipped. */
-        errors: string[]
-        /** The escalation switch was off when the loop was last seen: what was counted meanwhile is written off once it is on. */
-        paused: boolean
-        /** An agent's: times its failures raised its effort instead of its model (ADR 0020: the effort first; ADR 0023: again where its model cannot go up); absent in a record an earlier version wrote. */
-        effortRaises?: number
-        /** An agent's: the step its effort was last raised in (its other failures of that step raise nothing more). */
-        effortStep?: number | null
-        /** An agent's: the step its model was last stepped up in (its other failures of that step raise nothing more); absent in a record an earlier version wrote. */
-        raiseStep?: number | null
-      }>
-      /**
-       * The main agent's run as the mid-run effort feature keeps it (ADR 0020; features/midrun-effort.ts, shape
-       * decision/midrun-track.ts `MidrunRecord`), id `main`: one turn's, started afresh by the next turn's first step.
-       */
-      midrun: StateFamily<{
-        turnId: string
-        /** The latest step, the engine's own effort on it (null for a model without one), and the tool calls that ended in it so far. */
-        step: number
-        engine: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        toolsInStep: number
-        /** The tool calls the latest step's response asked for; null until the response is in. */
-        uses: number | null
-        /** Tool calls that ended in the turn, and those that failed. */
-        calls: number
-        failed: number
-        /** The latest steps, oldest first (at most 10): the end of what the assistant wrote, and each tool call's target, outcome and first error line, masked and clipped. */
-        recent: { step: number; assistant_text: string; earlier_calls_not_shown?: number; tools: readonly { tool: string; target: string; outcome: 'ok' | 'failed' | 'blocked' | 'denied'; error?: string }[]; script_result?: string; script_error?: string }[]
-        /** The shell commands seen, by class (at most 16): how often each passed and failed, how it last ended, the count of file edits then, its failures in a row after an edit, its latest error line, the step it was last seen in. */
-        commands: Record<string, { ok: number; failed: number; last: 'ok' | 'failed'; editsAtLast: number; refails: number; error: string; seenAt: number }>
-        /** File edits that went through. */
-        edits: number
-        /** The latest failing step's first error line, the key two failures are compared by, and its step. */
-        lastError: { line: string; key: string; step: number } | null
-        /** The task list's item in progress when it was last written. */
-        todo: string | null
-        /** The command a raise was for (null: not raised for a failure), the step of the raise, whether that command has passed since. */
-        raisedFor: string | null
-        raisedAt: number | null
-        resolved: boolean
-        /** A red flag raised the level this turn: nothing lowers it under its base again. A failure of this turn already read as one whose cause is not found (`stuck`). */
-        ratchet: boolean
-        stuck: boolean
-        /** The highest level the stakes asked for this turn: a raise taken back when its command passes goes no lower. */
-        stakesFloor: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        /** Rows appended for a switch this turn and the step of the last; times the decision model was asked and the step of the last. */
-        switches: number
-        switchedAt: number | null
-        judged: number
-        judgedAt: number | null
-        /** Looks by step count this turn (`midrun-steps`) and the step of the last; what the latest wanted and did not take, and its step. */
-        ticks?: number
-        tickedAt?: number | null
-        wanted?: { way: 'raise' | 'lower'; step: number } | null
-        /** Steps since the last look in which the model only waited (Code Mode's `Poll`): a look by step count leaves them out. */
-        idle?: number
-        /** The steps of this turn in which the model only waited (the latest 64): the code's gaps are counted in steps of work. */
-        waited?: number[]
-        /** The scripts (Code Mode) whose end was read this turn, by the number each was dispatched under. */
-        evals?: number[]
-      }>
-      /**
-       * The person's own words this turn, masked and clipped (core/setup.ts
-       * `saidTokens`), oldest first: the last message they sent while the
-       * session was idle, then the ones they typed while its turn ran (at most
-       * 8). A dispatched agent's decision reads them as `user_message`, and a
-       * Workflow's; a run keeps those of the turn that launched it (`labelRuns`).
-       */
-      said: string[]
-      /**
-       * The Workflows the workflow-agents feature sent back to the main agent
-       * (return mode), as a hash of each one's name and prompts, oldest first,
-       * at most 16: a Workflow is sent back once, its second submission runs.
-       */
-      returned: string[]
-      /**
-       * The directories of the session's Workflow runs, as the escalation
-       * feature (#7) notes them when a run's tool call returns (newest last, at
-       * most 8), whatever the other features' switches say: it reads a workflow
-       * agent's transcript there (the engine keeps it from `$.session.messages`).
-       */
-      workflowRuns: {
-        /** The run's id (`runId` of the Workflow tool's result). */
-        runId: string
-        /** The run's directory (`transcriptDir`): each agent's transcript. */
-        dir: string
-      }[]
-      /**
-       * The Workflow runs of the session, as the workflow-labels feature (#9)
-       * records them when the run's tool call returns (newest last, at most 8):
-       * it routes their agents as each one is spawned, by the label the spawn
-       * carries (`description`).
-       */
-      labelRuns: {
-        /** The run's id (`runId` of the Workflow tool's result). */
-        runId: string
-        /** The Workflow tool call that launched it: the id its agents' nodes on the board are grouped under (absent in a run an earlier load of the mod recorded: `runId` stands for it). */
-        callId?: string
-        /** The script's `meta` name and description; null when it has none (or could not be read). */
-        workflow: string | null
-        description: string | null
-        /** The script's agent() calls in order; null when the script could not be read: each agent is decided from its own prompt. */
-        sites: {
-          /** The line the call starts on. */
-          line: number
-          /** The label as the script writes it (a template keeps its `${...}`); null when it has none, or works it out when it runs. */
-          label: string | null
-          /**
-           * How the label an agent is spawned with is told to be this call's: `exact` (a string label),
-           * `pattern` (a template label, a regular expression's source), `head` (no label: the engine
-           * labels it with the prompt's start, `whole` when the prompt is a string), `none` (nothing to tell it by).
-           */
-          match: { kind: 'exact'; label: string } | { kind: 'pattern'; source: string } | { kind: 'head'; head: string; whole: boolean } | { kind: 'none' }
-          /** `set`: decided when the run started; `runtime`: decided from each agent's prompt as it is spawned; `script`: left as the script says. */
-          route:
-            | { kind: 'set'; model: 'haiku' | 'sonnet' | 'opus' | 'fable' | null; effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null }
-            | { kind: 'runtime' }
-            | { kind: 'script' }
-          /** The call's own `model`, `effort` and `agentType` options, for a decision made as its agents start. */
-          model: { kind: 'none' } | { kind: 'literal'; value: string } | { kind: 'dynamic' }
-          effort: { kind: 'none' } | { kind: 'literal'; value: string } | { kind: 'dynamic' }
-          agentType: string | null
-          /** The person's terms for the call's work, as its decision read them; its agents' plans keep them. */
-          terms: {
-            model: 'haiku' | 'sonnet' | 'opus' | 'fable' | null
-            effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-            banned: ('haiku' | 'sonnet' | 'opus' | 'fable')[]
-          } | null
-        }[] | null
-        /**
-         * What the turn that launched the run said, for its agents decided as each one starts (absent in a run an earlier
-         * version recorded, 0.4.4 and before, which kept it only for runs with calls left to their agents): the person may
-         * have sent another message by then, about something else.
-         */
-        launch?: {
-          /** The person's words of that turn (`said` then). */
-          said: string[]
-          /** The problem summary as the decision model reads it (named fields), while the summary switch was on, and the unresolved count. */
-          problem_summary?: { problem: string; tried: { text: string; unresolved: boolean }[]; status: string }
-          unresolved_count?: number
-          /** The script's text, cut to a third of an agent's budget (`SCRIPT_SHARE`); kept where the decision model's `agentBackground` is on (Jev and pplx both). */
-          script?: string
-          /** The loop that called the Workflow tool, absent for the main one: its conversation up to the run's call is read as an agent starts. */
-          caller?: string
-        }
-      }[]
-      /**
-       * What the workflow-agents feature (#8) read of the person's terms for
-       * each agent() call of a script the main agent sent inline (by the
-       * call's index; null for none), id = the Workflow call's tool_use_id.
-       * Written before the tool runs, read by the workflow-labels feature (#9)
-       * within the same call, so the agents of the calls #8 wrote into get the
-       * terms in their plans as they start.
-       */
-      workflowTerms: StateFamily<({
-        model: 'haiku' | 'sonnet' | 'opus' | 'fable' | null
-        effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null
-        banned: ('haiku' | 'sonnet' | 'opus' | 'fable')[]
-      } | null)[]>
-      /**
-       * Skills the main agent has had described beside a message in this
-       * conversation (#10): suggested again, they are only named. Emptied by
-       * /compact and /clear.
-       */
-      skillsShown: string[]
-      /**
-       * The session's skills (hooks/core/skills.ts `CatalogSkill`), read once
-       * per session by the skills feature (#10). find_skill (#12) reads it,
-       * and reads and keeps it itself when the skills feature did not. `file`
-       * is the SKILL.md (or command file) found on disk, null when none (a
-       * built-in skill). null: read it again.
-       */
-      skillCatalog: {
-        skills: {
-          name: string
-          description: string
-          by: 'model' | 'person'
-          source: string
-          file: string | null
-        }[]
-      } | null
-      /**
-       * How the skills feature answered the main agent's skill listing, which
-       * the engine keeps for the conversation (#10): `withheld` (with the
-       * engine's text), `passed`, or `restored`: withheld, then sent beside a
-       * message once the `skills` switch went off. null: not answered in
-       * this conversation.
-       */
-      skillListing: { answered: 'withheld' | 'passed' | 'restored'; text: string } | null
-    }
-  }
-
-  /**
-   * The noun this plugin adds to `$` in `engine.create` (hooks/core/bridge.ts, ADR 0028): dispatch-pilot-extras runs the
-   * hooks of the events Code Mode refuses a mod for through it. `start` runs the hook `name` up to its `next`,
-   * `resume` hands it what the engine's `next` came to.
-   */
-  interface EngineInterface {
-    /** dispatch-pilot-extras' own noun: there when that plugin is loaded (hooks/core/bridge.ts `hasExtras`); a call on it throws when it is not. */
-    dispatchPilotExtras: { present: () => Promise<boolean> }
-    dispatchPilot: {
-      start: (call: { name: string; id: string; e: unknown; origin?: { plugin?: string } }) => Promise<DispatchPilotStep>
-      resume: (answer: { id: string; result?: unknown; error?: string }) => Promise<DispatchPilotStep>
+      session: DpSessionState
+      turn: DpTurnState | null
+      /** By agentId. */
+      agents: StateFamily<DpAgentState>
+      /** The candidates: every skill the session's main-loop listings named, merged by name (a later entry replaces one of its name). */
+      skills: { name: string; description: string }[]
+      /** This session's last 30 decisions; the board reads them. $.store's log is the machine's. */
+      recent: DpDecision[]
     }
   }
 }
-
-/** What one half of a bridged hook comes to (hooks/core/bridge.ts `BridgeStep`). */
-export type DispatchPilotStep = { kind: 'next'; input: unknown } | { kind: 'done'; result: unknown } | { kind: 'error'; message: string } | { kind: 'pass' }

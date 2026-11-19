@@ -1,59 +1,59 @@
-// Drex Max v1.1, Nace's decision model, as the eval's `--backend drex` asks it (docs/research/drex-max-decision-model.md,
-// 2026-11-12): the mod's backend (hooks/decision/drex.ts, the default since 0.13.0, ADR 0026) with images, which the mod
-// leaves with Jev. A request without images is the mod's, word for word.
-//
-// What differs is the images (console.nace.ai/docs/drex/guides/drex-max): they go in a top-level `images` array, every
-// question sees them all, and the text calls them "Image 1", "Image 2" by their place in it; at most 8 a request, about
-// 3 MiB of inline bytes in all; no Box question (422), so no zoomed re-check. No header is needed.
-//
-// Pure: the network is handed in.
+// One request to Drex for the calibration, through the mod's own ask() (it checks the answer's model and every
+// question's type). Imports node: modules: neither the tests nor hooks/ import it. The key is read from NACE_API_KEY
+// at the moment of the call and goes into no output, log line, error text or file.
+import { ask } from '../../hooks/backend.ts'
+import type { Io } from '../../hooks/backend.ts'
+import { readConfig } from '../../hooks/config.ts'
+import type { Question } from '../../hooks/questions.ts'
+import type { Result } from './store.ts'
 
-import { errorText, postJson, readPosted, withoutKey, type Backend } from '../../hooks/decision/backend.ts'
-import { DREX_MODEL, DREX_URL } from '../../hooks/decision/drex.ts'
-import { placeImages } from '../../hooks/decision/images.ts'
-import type { DecisionRequest } from '../../hooks/decision/system-one.ts'
+/** Each request's deadline: the client lower bound Nace's documentation asks for. */
+export const TIMEOUT_MS = 60_000
+// A fetch that ask() gave up on is cut off a little later, so it cannot keep the process alive.
+const FETCH_LIMIT_MS = TIMEOUT_MS + 5_000
 
-export { DREX_MODEL, DREX_URL }
-/** Input price per million tokens; output is free (reference/pricing, 2026-11-12; Nace calls it a launch discount). */
-export const DREX_PRICE = 0.03
-/** The most images in one request ("at most 8 images allowed"). */
-export const DREX_MAX_IMAGES = 8
-/** About how many bytes of inline images a request holds: its body is 4 MiB at the most, base64 included. */
-export const DREX_INLINE_BYTES = 3 * 1024 * 1024
-/** How long a client should wait: Drex queues a request up to 55 s when it is busy (guides/errors-and-retries: "at least 60 seconds"). */
-export const DREX_ATTEMPT_MS = 60_000
+export const hasKey = (): boolean => (process.env.NACE_API_KEY ?? '').trim() !== ''
 
-export function drexBackend(apiKey: string, options: { url?: string; model?: string } = {}): Backend {
-  const url = options.url ?? DREX_URL
-  const model = options.model ?? DREX_MODEL
+/** The raw reply, for the smoke checks: its status and its body parsed (undefined when not JSON). */
+export type Reply = { status: number; body: unknown }
+
+function nodeIo(onReply?: (r: Reply) => void): Io {
   return {
-    name: 'drex',
-    configured: apiKey !== '',
-    async ask(io, request, timeoutMs) {
-      if (!apiKey) return { ok: false, failure: { kind: 'config', detail: 'no Nace API key: set NACE_API_KEY' } }
-      let body: unknown
-      try {
-        body = drexRequest(request, model)
-      } catch (error) {
-        return { ok: false, failure: { kind: 'request', detail: errorText(error) } }
+    async fetch(url, init) {
+      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_LIMIT_MS) })
+      const text = await res.text()
+      if (onReply !== undefined) {
+        let body: unknown
+        try {
+          body = JSON.parse(text)
+        } catch {
+          body = undefined
+        }
+        onReply({ status: res.status, body })
       }
-      return withoutKey(readPosted(await postJson(io, url, { authorization: `Bearer ${apiKey}` }, body, timeoutMs)), apiKey)
+      return { status: res.status, ok: res.ok, headers: Object.fromEntries(res.headers.entries()), text }
     },
+    sleep(ms, signal) {
+      return new Promise<void>((resolve, reject) => {
+        if (signal.aborted) return reject(new Error('aborted'))
+        const timer = setTimeout(resolve, ms)
+        signal.addEventListener('abort', () => (clearTimeout(timer), reject(new Error('aborted'))), { once: true })
+      })
+    },
+    now: async () => Date.now(),
   }
 }
 
 /**
- * The body a request goes out with. With images: each `imageRef` of the state and the questions becomes "Image N", N the
- * image's place in `images`, which holds them as data URLs. Throws a RangeError for a request Drex would answer 422: a Box
- * question, more than DREX_MAX_IMAGES images, images past DREX_INLINE_BYTES (and what `placeImages` refuses).
+ * Asks Drex (drex-max-v1.1, no fallback: Jev is asked nothing) one request; every failure is a Result, never a throw.
+ * partial: ask() keeps the answers that came back usable, as the mod asks a request whose skill questions ride along.
  */
-export function drexRequest(request: DecisionRequest, model: string = DREX_MODEL): unknown {
-  if (Object.values(request.questions).some((question) => question.type === 'box')) throw new RangeError(`${model} has no Box question`)
-  const images = request.images ?? []
-  if (images.length === 0) return { model, state: request.state, questions: request.questions }
-  if (images.length > DREX_MAX_IMAGES) throw new RangeError(`${images.length} images in one request; ${model} takes at most ${DREX_MAX_IMAGES}`)
-  const bytes = images.reduce((sum, image) => sum + Math.floor((image.base64.length * 3) / 4), 0)
-  if (bytes > DREX_INLINE_BYTES) throw new RangeError(`${bytes} bytes of images in one request; ${model} takes about ${DREX_INLINE_BYTES}`)
-  const { state, questions } = placeImages(request, (_image, index) => `Image ${index + 1}`)
-  return { model, state, questions, images: images.map((image) => `data:image/${image.format};base64,${image.base64}`) }
+export async function askDrex(req: { state: Record<string, unknown>; questions: Record<string, Question>; partial: boolean }, onReply?: (r: Reply) => void): Promise<{ result: Result; ms: number }> {
+  const cfg = readConfig({ backend: 'drex', fallback: false, drexApiKey: process.env.NACE_API_KEY ?? '' })
+  const r = await ask(nodeIo(onReply), cfg, req, TIMEOUT_MS)
+  if (r.ok) return { result: { ok: true, model: r.model, answers: r.answers }, ms: r.ms }
+  const result: Result = { ok: false, reason: r.reason }
+  if (r.status !== undefined) result.status = r.status
+  if (r.requestId !== undefined) result.requestId = r.requestId
+  return { result, ms: r.ms }
 }

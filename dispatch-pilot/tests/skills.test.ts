@@ -1,944 +1,1018 @@
-// Skills (#10, ADR 0018): the main agent's skill listing withheld, and the
-// skill that fits each message the person sends suggested beside it, picked as
-// TypeSafe's skill suggestion cookbook picks it. Seam 1: engine events in;
-// what reaches the model, the decision backend and the board data
-// (`w.board()`) out.
+import { expect, test } from 'claude-code/testing'
+import type { Engine, MockClock } from 'claude-code/testing'
 
-import { expect } from 'claude-code/testing'
-import { test } from './support/test.ts'
-import { describeStages } from '../hooks/core/skills.ts'
-import { JEV_MODEL } from '../hooks/decision/jev.ts'
-import { LIQUID_GUIDE, TYPESAFE_GUIDE } from '../hooks/decision/guides.ts'
+import { DREX_URL, JEV_URL } from '../hooks/backend.ts'
+import { readConfig } from '../hooks/config.ts'
+import type { AskResult, Answer } from '../hooks/backend.ts'
+import type { Decision } from '../hooks/log.ts'
 import {
-  EXCERPT_CHARS,
-  findSkills,
-  MENTION_BODY_CHARS,
-  mentionBlock,
-  modRanker,
-  namedSkills,
-  pickSkills,
-  readGate,
-  relevanceBlock,
-  skillOpening,
-  skillsPart,
-  skillsRequest,
-  typedNames,
+  ACTION_BAR,
+  BATCH,
+  FITS_BAR,
+  LISTING_NOTE,
+  NAMED_BAR,
+  NO_CANDIDATES_REPLY,
+  SEARCH_OFF_REPLY,
+  SEARCH_FAILED_BUDGET,
+  SHORTLIST,
+  findSkillReply,
+  searchFailedReply,
+  parseListing,
+  pick,
+  pickMany,
+  queryOf,
+  readStageOne,
+  readStageTwo,
+  shortlist,
+  skillDecision,
+  stageOne,
+  stageTwo,
+  suggestionBlock,
   wantsSkill,
-  type SkillOption,
-  type SkillRanking,
-} from '../hooks/decision/skills.ts'
-import type { Reply, Sent, SkillsWorld } from './support/world.ts'
-import { isSecondSkillsRequest, jev, KEY, OWN_EFFORT, rates, UNRESOLVED_ON, type World, world } from './support/world.ts'
+} from '../hooks/skills.ts'
+import type { Skill } from '../hooks/skills.ts'
+import { estimateTokens } from '../hooks/statebuild.ts'
+import { KEYS, complete, dp, drexOk, noul, score, start, step, submit, turnStart, turns, world } from './support/world.ts'
 
-/** The skills decisions the board keeps, oldest first. */
-async function skillDecisions(w: World) {
-  return (await w.board()).log.filter((entry) => entry.feature === 'skills')
+type World = ReturnType<typeof world>
+
+const logged = (w: World): Decision[] => (w.storeWrites.filter((s) => s.key === 'log').at(-1)?.value ?? []) as Decision[]
+const skillDecisions = (w: World): Decision[] => logged(w).filter((d) => d.kind === 'skill')
+const submitDecisions = (w: World): Decision[] => logged(w).filter((d) => d.kind === 'submit')
+const skillWrites = (w: World): unknown[] => w.stateWrites.filter((s) => s.key === 'skills' && s.isSet).map((s) => s.value)
+const efforts = (w: World): unknown[] => w.stepsSent.map((s) => s.effort)
+
+const PDF: Skill = { name: 'pdf', description: 'Fill in, merge and split PDF files.' }
+const XLSX: Skill = { name: 'anthropic-skills:xlsx', description: 'Read, write and chart spreadsheets.' }
+const WRANGLER: Skill = { name: 'cloudflare:wrangler', description: 'Run or troubleshoot Wrangler CLI commands.' }
+const BRAIN: Skill = { name: 'superpowers:brainstorming', description: 'You MUST use this before any creative work.' }
+const GSAP: Skill = { name: 'gsap-core', description: '' }
+const FIVE = [PDF, XLSX, WRANGLER, BRAIN, GSAP]
+
+// A listing as the engine words it in an ordinary session: a preamble, then one line per skill.
+function listingOf(skills: Skill[]): string {
+  const lines = skills.map((s) => (s.description ? '- ' + s.name + ': ' + s.description : '- ' + s.name))
+  return ['The following skills are available for use with the Skill tool:', '', ...lines].join('\n')
 }
 
-/** The names the latest skills decision suggested to the main agent, and pointed out to the person (「可试 /x」). */
-async function picked(w: World) {
-  const skills = (await skillDecisions(w)).at(-1)?.skills
-  return { suggest: skills?.suggest.map((skill) => skill.name), try: skills?.try.map((skill) => skill.name) }
+function attach($: Engine, text: string, agentId?: string) {
+  return $.prompt.attachment({ type: 'skill_listing', text, origin: { kind: 'engine' }, ...(agentId === undefined ? {} : { agentId }) })
 }
 
-// What the engine lists for the main agent at the first request of a session.
-const LISTING = [
-  'The following skills are available for use with the Skill tool:',
-  '',
-  '- tdd: Test-driven development. Use when the user wants to build features or fix bugs test-first.',
-  '- code-review: Review the changes since a fixed point along two axes: Standards and Spec.',
-  '- anthropic-skills:computer-use: Read this skill before the first step of any request to do something in an app on the person’s own computer.',
-].join('\n')
-
-// A session's skills as Claude Code reports them: the commands the person can
-// run, the main agent's listing as the context counts it, the settings, the
-// SKILL.md files on disk.
-const SKILLS: SkillsWorld = {
-  commands: [
-    { name: 'tdd', description: 'Test-driven development. Use when the user wants to build features or fix bugs test-first.', source: 'user' },
-    { name: 'code-review', description: 'Review the changes since a fixed point along two axes: Standards and Spec.', source: 'user' },
-    { name: 'computer-use', description: 'Read this skill before the first step of any request to do something in an app on the person’s own computer.', source: 'user' },
-  ],
-  listed: [
-    { name: 'tdd', source: 'userSettings', tokens: 52 },
-    { name: 'code-review', source: 'userSettings', tokens: 144 },
-    { name: 'computer-use', source: 'syncedSkills', tokens: 322 },
-  ],
+function findSkill($: Engine, text: string, pluginName = 'dispatch-pilot') {
+  return $.skill.prompt({ skill: 'dispatch-pilot:find-skill', text, pluginName, source: 'plugin', frontmatter: {} })
 }
 
-// What the main agent reads in place of the listing: a fixed note on how to
-// come by a skill, naming none (the attachment is part of the prompt cache).
-const HINT =
-  "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, load the skill dispatch-pilot:find-skill with the Skill tool, with a few words on the work as its args: it answers with the skills that fit. Then load one of them with the Skill tool by its exact name."
+// Answers whose level, read from medium, is high.
+const RAISE = { open: score([0.02, 0.08, 0.25, 0.55, 0.1]), mechanical: noul(0.1), unknown_cause: noul(0.2) }
+const EFFORT_IDS = ['open', 'mechanical', 'unknown_cause', 'continues']
+const GATE_IDS = ['acts_on_user_system', 'would_follow_documented_procedure', 'prose_suffices', 'named']
 
-test("the main agent's skill listing is withheld, a fixed note on finding skills in its place; a dispatched agent's reaches it as the engine wrote it", { options: KEY }, async ($, on) => {
-  const w = world($, on, { skills: SKILLS })
-  expect(await w.listing(LISTING)).toEqual({ text: HINT })
-  expect(await w.listing(LISTING, 'a1')).toEqual({ text: LISTING })
-})
+type Gates = { acts: number; procedure: number; prose: number; named: number }
+// The action answers average (0.8 + 0.6 + 0.8) / 3 = 0.73: a skill is wanted.
+const WANTED: Gates = { acts: 0.8, procedure: 0.6, prose: 0.2, named: 0.1 }
+// (0.1 + 0.2 + 0.4) / 3 = 0.23, under 0.30, and named 0.2, under 0.50: nothing is wanted.
+const NOT_WANTED: Gates = { acts: 0.1, procedure: 0.2, prose: 0.6, named: 0.2 }
 
-// The note with find_skill switched off: it does not send the main agent to it.
-const HINT_WITHOUT_FIND_SKILL =
-  "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it; load one, or any skill you know, with the Skill tool by its exact name."
-
-test('with find_skill switched off (/dp find-skill off, kept from an earlier session), the note does not name it', { options: KEY }, async ($, on) => {
-  const w = world($, on, { skills: SKILLS, switches: { 'find-skill': false } })
-  await w.start()
-  expect(await w.listing(LISTING)).toEqual({ text: HINT_WITHOUT_FIND_SKILL })
-})
-
-test('the note is the same text each time the engine asks, whatever skills the session has or the listing holds', { options: KEY }, async ($, on) => {
-  const skills = { commands: [...(SKILLS.commands ?? [])], listed: [...(SKILLS.listed ?? [])] }
-  const w = world($, on, { skills, session: true })
-  await w.start()
-  const first = await w.listing(LISTING)
-  const again = await w.listing(LISTING)
-  // A new conversation (/clear), with one more skill installed meanwhile: the skills are read afresh.
-  skills.commands.push({ name: 'wrangler', description: 'Deploy Cloudflare Workers with Wrangler.', source: 'user' })
-  skills.listed.push({ name: 'wrangler', source: 'userSettings', tokens: 40 })
-  await w.clear()
-  const later = await w.listing(`${LISTING}\n- wrangler: Deploy Cloudflare Workers with Wrangler.`)
-
-  expect(first).toEqual({ text: HINT })
-  expect(again).toEqual(first)
-  expect(later).toEqual(first)
-})
-
-// The engine asks about the listing once per conversation and keeps the answer
-// (a mid-conversation `$.ui.invalidate` does not ask again: real engine,
-// 2.1.289), so the note follows the find-skill switch as it stands when the
-// engine asks, and a switch flipped mid-conversation shows from the next
-// conversation on. Meanwhile the tool itself answers by the switch.
-test('the note follows the find-skill switch as it stands when the engine asks: flipped, it shows from the next conversation (/clear) on', { options: KEY }, async ($, on) => {
-  const w = world($, on, { skills: SKILLS, session: true })
-  expect(await w.listing(LISTING)).toEqual({ text: HINT })
-  await w.command('dp', 'find-skill off')
-  await w.clear()
-  expect(await w.listing(LISTING)).toEqual({ text: HINT_WITHOUT_FIND_SKILL })
-  await w.command('dp', 'find-skill on')
-  await w.clear()
-  expect(await w.listing(LISTING)).toEqual({ text: HINT })
-})
-
-test('with the skills switch off (/dp skills off, kept from an earlier session), nothing is asked about the skills and the main agent reads the listing as the engine wrote it', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS, switches: { skills: false } })
-  await w.start()
-  await w.submit('先写一个失败的测试')
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(OWN_EFFORT)
-  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
-  expect(await w.command('dp', 'status')).toMatch(/关 +skills +\S/)
-})
-
-// The engine keeps its answer about the listing for the conversation (a
-// mid-conversation `$.ui.invalidate` does not bring it back: real engine,
-// 2.1.289), so the listing the feature withheld travels with a message instead.
-const RESTORED = `Dispatch Pilot's skill suggestions are switched off, so here is the skill listing it had left out:\n\n${LISTING}`
-
-test('switched off mid-conversation, the listing it withheld reaches the main agent with the next message, once; suggestions stop', { options: KEY }, async ($, on) => {
-  const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({ '(none)': 1 }), skills: SKILLS })
-  expect(await w.listing(LISTING)).toEqual({ text: HINT })
-  await w.submit('先写一个失败的测试')
-  await w.command('dp', 'skills off')
-  await w.submit('再写一个')
-  await w.submit('还有吗')
-
-  // The first message was rated (nothing fits: the main agent is told so); the next ones are not.
-  expect(w.prompts.map((prompt) => prompt.context)).toEqual([[NONE_BLOCK], [RESTORED], undefined])
-  expect(Object.keys(w.requests.at(-1)?.body.questions)).toEqual(OWN_EFFORT)
-})
-
-/** The cookbook's block naming a skill, with its description the first time the main agent meets it. */
-function suggested(name: string, description?: string): string {
-  return ['<skill_relevance>', `Relevant to the current request: ${name}. Ignore this if it does not fit what the user actually asked for.`, ...(description === undefined ? [] : [`${name}: ${description}`]), '</skill_relevance>'].join('\n')
+// A choice answer over the options asked: each named option weighs what is given, the rest 0.01; the heaviest is chosen.
+function choiceOf(options: string[], weights: Record<string, number>) {
+  const raw = options.map((o) => weights[o] ?? 0.01)
+  const sum = raw.reduce((s, x) => s + x, 0)
+  const probabilities = Object.fromEntries(options.map((o, i) => [o, raw[i]! / sum]))
+  const choice = options.reduce((best, o) => (probabilities[o]! > probabilities[best]! ? o : best), options[0]!)
+  return { type: 'choice', choice, probabilities }
 }
-/** The cookbook's block when no skill fits. */
-const NONE_BLOCK = ['<skill_relevance>', 'No skill in the roster appears relevant to this request.', '</skill_relevance>'].join('\n')
 
-const TDD_DESCRIPTION = 'Test-driven development. Use when the user wants to build features or fix bugs test-first.'
-const REVIEW_DESCRIPTION = 'Review the changes since a fixed point along two axes: Standards and Spec.'
+type Plan = {
+  effort?: Record<string, unknown>
+  gates?: Gates
+  /** Stage one's choice weights by skill name. */
+  first?: Record<string, number>
+  which?: string
+  /** Each fits noul by skill name; 0.1 for one not given. */
+  fits?: Record<string, number>
+  /** Questions left out of the answer. */
+  drop?: string[]
+  model?: string
+}
 
-test('/dp off brings the withheld listing back the same way; switched on again, suggestions resume and the listing is not sent twice', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.7, '(none)': 0.3 }, { tdd: 0.7 }), skills: SKILLS })
-  await w.listing(LISTING)
-  await w.command('dp', 'off')
-  await w.submit('先写一个失败的测试')
-  await w.command('dp', 'on')
-  await w.submit('再写一个')
-  await w.command('dp', 'skills off')
-  await w.submit('还有吗')
+// Answers every question a request asks, the effort ones and the skill ones alike, as the plan says.
+function answering(p: Plan) {
+  return ({ body }: { body: any }) => {
+    const out: Record<string, unknown> = {}
+    const gates = p.gates ?? WANTED
+    const gateOf: Record<string, number> = { acts_on_user_system: gates.acts, would_follow_documented_procedure: gates.procedure, prose_suffices: gates.prose, named: gates.named }
+    for (const [id, q] of Object.entries(body.questions as Record<string, any>)) {
+      if (EFFORT_IDS.includes(id)) out[id] = (p.effort ?? RAISE)[id as 'open'] ?? noul(0.1)
+      else if (id.startsWith('skill_')) out[id] = choiceOf(Object.keys(q.criteria), p.first ?? {})
+      else if (id === 'which') out[id] = choiceOf(Object.keys(q.criteria), { [p.which ?? '']: 1 })
+      else if (id.startsWith('fits_')) out[id] = noul(p.fits?.[/Does the skill '([^']+)'/.exec(q.instructions)![1]!] ?? 0.1)
+      else out[id] = noul(gateOf[id] ?? 0.5)
+    }
+    for (const id of p.drop ?? []) delete out[id]
+    return drexOk(out, p.model)
+  }
+}
 
-  expect(w.prompts[0]?.context).toEqual([RESTORED])
-  // Only the suggestion: the listing went back with the first message and does not go again.
-  expect(w.prompts[1]?.context).toEqual([suggested('tdd', TDD_DESCRIPTION)])
-  expect(w.prompts[2]?.context).toBeUndefined()
+const TASK = 'Fill in the tax form in ~/Downloads/form.pdf with my details'
+
+// Folds the listing and sends one message, its turn started inside prompt.submit as the engine does.
+async function sendWithListing($: Engine, w: World, skills: Skill[] = FIVE, text = TASK) {
+  await start($)
+  await attach($, listingOf(skills))
+  await submit($, text)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+}
+
+// The brief's twelve.
+
+test('parseListing：带冒号的名字、跨行的说明、标题行不算', () => {
+  // Lines as the real 2.1.327 listing has them (real-skill-listing.txt).
+  const text = [
+    'The following skills are available for use with the Skill tool:',
+    '',
+    '- gsap-core',
+    '- code-review:code-review: Code review a pull request',
+    '- superpowers:brainstorming: You MUST use this before any creative work - creating features, building components.',
+    '- claude-api: Reference for the Claude API / Anthropic SDK — model ids, pricing.',
+    'TRIGGER — read FIRST, before you answer: the prompt names Claude/Anthropic in any form.',
+    'SKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini.',
+    '- init: Initialize a new CLAUDE.md file with codebase documentation',
+  ].join('\n')
+  expect(parseListing(text)).toEqual([
+    { name: 'gsap-core', description: '' },
+    { name: 'code-review:code-review', description: 'Code review a pull request' },
+    { name: 'superpowers:brainstorming', description: 'You MUST use this before any creative work - creating features, building components.' },
+    {
+      name: 'claude-api',
+      description:
+        'Reference for the Claude API / Anthropic SDK — model ids, pricing.\nTRIGGER — read FIRST, before you answer: the prompt names Claude/Anthropic in any form.\nSKIP only when another provider is being worked on (overrides all triggers): OpenAI/GPT/Gemini.',
+    },
+    { name: 'init', description: 'Initialize a new CLAUDE.md file with codebase documentation' },
+  ])
 })
 
-test('after /compact the listing goes back again with the next message while the switch stays off', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS, session: true })
-  await w.listing(LISTING)
-  await w.command('dp', 'skills off')
-  await w.submit('再写一个')
-  await w.compact()
-  await w.submit('还有吗')
-  await w.submit('继续')
+test('主循环的列表换成 LISTING_NOTE，候选存下；agent 的列表不动', { options: KEYS }, async ($, on) => {
+  const w = world(on)
+  await start($)
+  const text = listingOf(FIVE)
+  const forAgent = await attach($, text, 'agent-1')
+  expect(forAgent.text).toBe(text)
+  expect(skillWrites(w)).toEqual([])
 
-  expect(w.prompts.map((prompt) => prompt.context)).toEqual([[RESTORED], [RESTORED], undefined])
+  const forMain = await attach($, text)
+  expect(forMain.text).toBe(LISTING_NOTE)
+  expect(skillWrites(w)).toEqual([FIVE])
+  // Both went through to the engine as they came: the mod answers on the way back.
+  expect(w.attachments.map((a) => a.text)).toEqual([text, text])
 })
 
-test('without a TypeSafe key nothing could suggest a skill, so the main agent keeps its listing', async ($, on) => {
-  const w = world($, on, { skills: SKILLS })
-  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
+test('没有密钥：列表原样', { options: {} }, async ($, on) => {
+  const w = world(on)
+  await start($)
+  const r = await attach($, listingOf(FIVE))
+  expect(r.text).toBe(listingOf(FIVE))
+  expect(w.attachments).toHaveLength(1)
+  expect(skillWrites(w)).toEqual([])
 })
 
-// Withheld, the listing could only come back as suggestions: with no skill the
-// main agent can load left to suggest, it stays.
-test('with no skill the main agent can load to suggest, the main agent keeps its listing, and the debug log says why', { options: KEY }, async ($, on) => {
-  const w = world($, on, {
-    skills: { commands: [{ name: 'grill-me', description: 'Interview the user relentlessly about a plan.', source: 'user' }], listed: [] },
-    disk: { '/home/u/.claude/skills/grill-me/SKILL.md': '---\nname: grill-me\ndisable-model-invocation: true\n---\nAsk.\n' },
-    session: true,
+test('skills 关着：列表原样', { options: { ...KEYS, skills: false } }, async ($, on) => {
+  const w = world(on)
+  await start($)
+  const r = await attach($, listingOf(FIVE))
+  expect(r.text).toBe(listingOf(FIVE))
+  expect(skillWrites(w)).toEqual([])
+})
+
+test('shadow：列表原样交给主 agent，候选照样记下', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+  const w = world(on)
+  await start($)
+  const r = await attach($, listingOf(FIVE))
+  expect(r.text).toBe(listingOf(FIVE))
+  // Recorded (merged) all the same, so a message is still judged for skills (final review I4c).
+  expect(skillWrites(w)).toEqual([FIVE])
+})
+
+test('发消息：一次请求里既有 effort 题也有 skill_0 和四道门控题', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: NOT_WANTED }) })
+  await sendWithListing($, w)
+
+  expect(w.fetched).toHaveLength(1)
+  expect(w.fetched[0]!.url).toBe(DREX_URL)
+  const qs = w.fetched[0]!.body.questions
+  expect(Object.keys(qs)).toEqual(['open', 'mechanical', 'unknown_cause', 'skill_0', ...GATE_IDS])
+  expect(w.fetched[0]!.body.state.request).toBe(TASK)
+  // The cookbook's words, verbatim; the options are the skills by source (no prefix first), each with its description.
+  expect(qs.skill_0).toEqual({
+    type: 'choice',
+    instructions: 'Which of these skills, if any, is the right one to load to help with the user\'s latest request?',
+    criteria: { pdf: PDF.description, 'gsap-core': null, 'anthropic-skills:xlsx': XLSX.description, 'cloudflare:wrangler': WRANGLER.description, 'superpowers:brainstorming': BRAIN.description, other: null },
   })
-  await w.start()
-  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
-  expect(w.logs.map((log) => log.text)).toContain('skills: 0 the main agent can load, 1 only you can start (/grill-me); the main agent keeps the skill listing, since no skill in it could be suggested')
-})
-
-test('every skill the main agent can load in skillsNeverSuggested: none could be suggested, so the listing stays', { options: { ...KEY, skillsNeverSuggested: ['tdd', 'code-review', 'anthropic-skills:computer-use'] } }, async ($, on) => {
-  const w = world($, on, { skills: SKILLS })
-  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
-})
-
-test("a message's skills request asks, in the cookbook's words, which skill the main agent could load for it, each by its own description, three questions on whether it needs one at all and one on whether it names a method", { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: jev([0, 1, 0, 0, 0]), skills: SKILLS })
-  await w.submit('先写一个失败的测试，再实现登录限流')
-
-  const questions = w.withoutEffort[0]?.body.questions
-  expect(Object.keys(questions)).toEqual(['skills.which', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices', 'skills.named'])
-  // The cookbook's NAMED_QUESTION, word for word (ADR 0021): "the request", as the gate's questions say it.
-  expect(questions['skills.named']).toEqual({ type: 'noul', instructions: 'Does the request ask for a specific named tool, format, template, or method to be used, rather than for general help?' })
-  const which = questions['skills.which']
-  expect(which.type).toBe('choice')
-  // The names the Skill tool takes (a synced skill with its prefix); no "none of these" option (the gate asks that).
-  expect(Object.keys(which.criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:computer-use'])
-  expect(which.criteria.tdd).toBe(TDD_DESCRIPTION)
-  expect(which.instructions).toBe("Which of these skills, if any, is the right one to load to help with the user's latest request?")
-  expect(questions['skills.gate.acts_on_user_system']).toEqual({
+  expect(qs.acts_on_user_system).toEqual({
     type: 'noul',
     instructions: "Is the assistant being asked to act on the user's files, accounts, devices, or online services, rather than only to explain or advise?",
+    criteria: { true: 'Yes.', false: 'No.' },
   })
-  expect(questions['skills.gate.prose_suffices'].instructions).toBe(
+  expect(qs.would_follow_documented_procedure.instructions).toBe(
+    'Would a careful expert answering this consult a specific documented procedure or set of commands, rather than answering from general understanding?',
+  )
+  expect(qs.prose_suffices.instructions).toBe(
     "Could a knowledgeable generalist fully satisfy this request in prose, with no tools, no documentation, and no access to the user's files or accounts?",
   )
+  expect(qs.named.instructions).toBe('Does the request ask for a specific named tool, format, template, or method to be used, rather than for general help?')
+  // The effort decision is taken from the same answers.
+  expect(efforts(w)).toEqual(['high'])
+  expect(submitDecisions(w)).toHaveLength(1)
+  expect(Object.keys(submitDecisions(w)[0]!.raw!)).toEqual(['open', 'mechanical', 'unknown_cause'])
 })
 
-test("the skill stage two's Choice picks is suggested beside the message in the cookbook's words, described the first time", { options: KEY }, async ($, on) => {
-  const w = world($, on, {
-    backend: rates({ tdd: 0.62, 'code-review': 0.23, 'anthropic-skills:computer-use': 0.01, '(none)': 0.14 }, { tdd: 0.64, 'code-review': 0.91 }),
-    skills: SKILLS,
+test('动作题平均低于 0.30 且点名题低于 0.50：不发第二次请求，context 不变', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: NOT_WANTED, first: { pdf: 0.9 } }) })
+  await sendWithListing($, w)
+
+  expect(w.fetched).toHaveLength(1)
+  expect(w.submitted).toHaveLength(1)
+  expect(w.submitted[0]!.text).toBe(TASK)
+  expect(w.submitted[0]!.context).toBeUndefined()
+  const d = skillDecisions(w)
+  expect(d).toHaveLength(1)
+  expect(d[0]).toMatchObject({ kind: 'skill', to: null, from: null, applied: false, failure: null, turnId: 't1', step: 0, backend: 'drex', model: 'drex-max-v1.1' })
+  expect(d[0]!.detail).toContain('0.23')
+  expect(Object.keys(d[0]!.raw!)).toEqual(['skill_0', ...GATE_IDS])
+})
+
+test('动作题过了：第二次请求有 which 和三道 fits；fits 够高时 context 多一段，写着选中的 skill 名', { options: KEYS }, async ($, on) => {
+  const w = world(on, {
+    onSubmit: turns($),
+    answer: answering({ gates: WANTED, first: { pdf: 0.6, 'anthropic-skills:xlsx': 0.2, 'cloudflare:wrangler': 0.1 }, which: 'pdf', fits: { pdf: 0.9 } }),
   })
-  await w.submit('先写一个失败的测试，再实现登录限流')
+  await sendWithListing($, w)
 
-  // The three best of stage one re-read: one Choice over them, one yes/no each, in the cookbook's words.
-  const second = w.withoutEffort[1]?.body.questions
-  expect(Object.keys(second)).toEqual(['skills.which', 'skills.fits.0', 'skills.fits.1', 'skills.fits.2'])
-  expect(second['skills.which'].instructions).toBe("Exactly one of these skills is the right one to load for the user's latest request. Which one? Read what each actually does, not just its name.")
-  expect(second['skills.fits.0'].instructions).toBe(`Does the skill 'tdd' do the specific thing the user's request asks for? It is described as: ${TDD_DESCRIPTION}`)
-  expect(w.prompts[0]?.context).toEqual([suggested('code-review', REVIEW_DESCRIPTION)])
-})
-
-test("as in the cookbook's deck example, the Choice settles which skill and the fits whether to say anything: the pick need not be the best fit", { options: KEY }, async ($, on) => {
-  const w = world($, on, {
-    backend: (request) =>
-      isSecondSkillsRequest(request)
-        ? jev([0, 1, 0, 0, 0], { nouls: { 'skills.fits.0': 0.73, 'skills.fits.1': 0.38, 'skills.fits.2': 0.02 }, shares: { 'skills.which': { 'code-review': 0.8, tdd: 0.2 } } })(request)
-        : rates({ tdd: 0.7, 'code-review': 0.3, '(none)': 0 })(request),
-    skills: SKILLS,
+  expect(w.fetched).toHaveLength(2)
+  const second = w.fetched[1]!.body
+  expect(second.state).toEqual(w.fetched[0]!.body.state)
+  expect(Object.keys(second.questions)).toEqual(['which', 'fits_0', 'fits_1', 'fits_2'])
+  expect(second.questions.which).toEqual({
+    type: 'choice',
+    instructions: 'Exactly one of these skills is the right one to load for the user\'s latest request. Which one? Read what each actually does, not just its name.',
+    criteria: { pdf: PDF.description, 'anthropic-skills:xlsx': XLSX.description, 'cloudflare:wrangler': WRANGLER.description, other: null },
   })
-  await w.submit('先审一下这个分支')
-  await w.step({ index: 0 })
-
-  expect(w.prompts[0]?.context).toEqual([suggested('code-review', REVIEW_DESCRIPTION)])
-  expect(await picked(w)).toEqual({ suggest: ['code-review'], try: [] })
-  expect((await skillDecisions(w))[0]?.skills?.suggest[0]?.relevance).toBe(0.38)
-})
-
-test('when the three gate questions say the message needs no skill and it names no method, nothing is asked a second time, and the main agent is told none appears relevant', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.03, 'code-review': 0.04, 'anthropic-skills:computer-use': 0.02, '(none)': 0.91 }), skills: SKILLS })
-  await w.submit('这个函数为什么返回 undefined？')
-  await w.step({ index: 0 })
-  expect(w.withoutEffort).toHaveLength(1)
-  expect(w.prompts[0]?.context).toEqual([NONE_BLOCK])
-  expect((await skillDecisions(w))[0]).toMatchObject({ outcome: '没有推荐 skill', reason: '要不要 skill 0.09、点名方法 0.00（两项分别低于 0.30、0.50 才不推荐）' })
-})
-
-// The cookbook's second reason (ADR 0021): a turn that names a method a skill owns needs it though it wants no action on the
-// person's things (its meme example: action 0.12, names a method 0.87, suggest). `named` has a bar of its own, 0.50, and a
-// value on it counts (`>=`).
-for (const { named, asked } of [
-  { named: 0.87, asked: true },
-  { named: 0.5, asked: true },
-  { named: 0.49, asked: false },
-]) {
-  test(`with the action mean below its bar, a named method of ${named} ${asked ? 'still asks stage two' : 'does not'} (TypeSafe's bar: 0.50)`, { options: KEY }, async ($, on) => {
-    const w = world($, on, { backend: rates({ tdd: 0.05, 'code-review': 0.9, '(none)': 0.88, '(named)': named }, { 'code-review': 0.84 }), skills: SKILLS })
-    await w.submit('按 Conventional Comments 的格式审一下这个 diff')
-    await w.step({ index: 0 })
-    expect(w.withoutEffort).toHaveLength(asked ? 2 : 1)
-    expect(await picked(w)).toEqual({ suggest: asked ? ['code-review'] : [], try: [] })
-    expect((await skillDecisions(w))[0]?.reason).toMatch(new RegExp(`^要不要 skill 0\\.12、点名方法 ${named.toFixed(2).replace('.', '\\.')}（两项分别低于 0\\.30、0\\.50 才不推荐）${asked ? '；第一段' : '$'}`))
+  expect(second.questions.fits_0).toEqual({
+    type: 'noul',
+    instructions: "Does the skill 'pdf' do the specific thing the user's request asks for? It is described as: " + PDF.description,
+    criteria: { true: 'Yes.', false: 'No.' },
   })
-}
+  expect(second.questions.fits_1.instructions).toContain("'anthropic-skills:xlsx'")
 
-test('when no candidate does the specific thing asked (the best fit under 0.30), nothing is suggested, and the main agent is told so', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.3, 'code-review': 0.2, '(none)': 0.5 }, { tdd: 0.12, 'code-review': 0.05 }), skills: SKILLS })
-  await w.submit('这个函数为什么返回 undefined？')
-  expect(w.withoutEffort).toHaveLength(2)
-  expect(w.prompts[0]?.context).toEqual([NONE_BLOCK])
+  expect(w.submitted[0]!.text).toBe(TASK)
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(suggestionBlock(PDF)).toContain('pdf')
+  expect(suggestionBlock(PDF)).toContain(PDF.description)
+  expect(suggestionBlock(PDF)).toContain('Skill tool')
+
+  const d = skillDecisions(w)
+  expect(d).toHaveLength(1)
+  expect(d[0]).toMatchObject({ kind: 'skill', to: 'pdf', detail: '', applied: true, failure: null, turnId: 't1', step: 0 })
+  expect(Object.keys(d[0]!.raw!)).toEqual(['skill_0', ...GATE_IDS, 'which', 'fits_0', 'fits_1', 'fits_2'])
+  // The effort decision stands beside it.
+  expect(efforts(w)).toEqual(['high'])
 })
 
-test('one skill at most is suggested, however many fit', { options: KEY }, async ($, on) => {
-  const w = world($, on, {
-    backend: rates({ tdd: 0.3, 'code-review': 0.45, 'anthropic-skills:computer-use': 0.2, '(none)': 0.05 }, { tdd: 0.8, 'code-review': 0.9, 'anthropic-skills:computer-use': 0.6 }),
-    skills: SKILLS,
-  })
-  await w.submit('先审一下这个分支，再补测试')
-  await w.step({ index: 0 })
-  expect(w.prompts[0]?.context).toEqual([suggested('code-review', REVIEW_DESCRIPTION)])
-  expect(await picked(w)).toEqual({ suggest: ['code-review'], try: [] })
+test('只有点名题过了 0.50 也发第二次请求', { options: KEYS }, async ($, on) => {
+  const gates = { ...NOT_WANTED, named: 0.87 }
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates, first: { 'superpowers:brainstorming': 0.7 }, which: 'superpowers:brainstorming', fits: { 'superpowers:brainstorming': 0.8 } }) })
+  await sendWithListing($, w, FIVE, 'Brainstorm a name for the project with the brainstorming method')
+
+  expect(w.fetched).toHaveLength(2)
+  expect(Object.keys(w.fetched[1]!.body.questions)).toContain('which')
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(BRAIN)])
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'superpowers:brainstorming', applied: true })
 })
 
-// The same session with two more skills the person can run that the engine
-// keeps out of the main agent's listing: grill-me, whose SKILL.md reserves it
-// for the person, and claude-handoff, reserved too but switched off in the
-// project's local settings. And one of a plugin, reserved for the person.
-const WITH_PERSONS: SkillsWorld = {
-  ...SKILLS,
-  commands: [
-    ...(SKILLS.commands ?? []),
-    { name: 'grill-me', description: 'Interview the user relentlessly about a plan until every branch is resolved.', source: 'user' },
-    { name: 'claude-handoff', description: 'Hand the current conversation off to a fresh background agent.', source: 'user' },
-    { name: 'ship:release', description: 'Cut a release: tag, changelog, publish.', source: 'plugin', plugin: 'ship' },
-    { name: 'clear', description: 'Clear conversation history and free up context', source: 'builtin' },
-  ],
-  overrides: { user: { 'claude-handoff': 'on' }, local: { 'claude-handoff': 'off' } },
-}
-const PERSON_FILES: Record<string, string> = {
-  '/home/u/.claude/skills/grill-me/SKILL.md': '---\nname: grill-me\ndescription: Interview the user relentlessly.\ndisable-model-invocation: true\n---\n\nAsk one question at a time.\n',
-  '/home/u/.claude/skills/claude-handoff/SKILL.md': '---\nname: claude-handoff\ndisable-model-invocation: true\n---\nHand off.\n',
-  '/home/u/.claude/plugins/installed_plugins.json': JSON.stringify({ version: 2, plugins: { 'ship@acme': [{ scope: 'user', installPath: '/home/u/.claude/plugins/cache/acme/ship/1.0.0' }] } }),
-  '/home/u/.claude/plugins/cache/acme/ship/1.0.0/skills/release/SKILL.md': '---\nname: release\ndisable-model-invocation: "true"\n---\nRelease.\n',
-}
+// An option overrides its threshold (amendment A17): with skillNamed at 0.80 a named answer of 0.75 asks no second request.
+test('skillNamed 设成 0.80：点名题 0.75 不再够，不发第二次请求，不推荐', { options: { ...KEYS, skillNamed: '0.80' } }, async ($, on) => {
+  const gates = { ...NOT_WANTED, named: 0.75 }
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates, first: { 'superpowers:brainstorming': 0.7 }, which: 'superpowers:brainstorming', fits: { 'superpowers:brainstorming': 0.8 } }) })
+  await sendWithListing($, w, FIVE, 'Brainstorm a name for the project with the brainstorming method')
 
-test('skills only the person can start (disable-model-invocation in their SKILL.md) are asked about in a Choice of their own; one switched off in settings is not', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({}), skills: WITH_PERSONS, disk: PERSON_FILES })
-  await w.submit('这个方案往死里挑刺')
-  const questions = w.withoutEffort[0]?.body.questions
-  expect(Object.keys(questions)).toEqual(['skills.which', 'skills.hint', 'skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices', 'skills.named'])
-  expect(Object.keys(questions['skills.which'].criteria)).toEqual(['tdd', 'code-review', 'anthropic-skills:computer-use'])
-  const hint = questions['skills.hint']
-  expect(hint.type).toBe('choice')
-  expect(Object.keys(hint.criteria)).toEqual(['grill-me', 'ship:release'])
-  expect(hint.criteria['grill-me']).toBe('Interview the user relentlessly about a plan until every branch is resolved.')
-  expect(hint.instructions).toContain('The user starts these skills themselves')
+  expect(w.fetched).toHaveLength(1)
+  expect(w.submitted[0]!.context).toBeUndefined()
+  expect(skillDecisions(w)[0]).toMatchObject({ to: null, applied: false, failure: null })
+  expect(skillDecisions(w)[0]!.detail).toContain('0.80')
 })
 
-/**
- * Jev answering as one Choice shares its probability: each option of a
- * skills Choice gets its weight over the weights of the options asked beside
- * it; the second request gets `fits`.
- */
-function competing(weights: Record<string, number>, fits: Record<string, number>) {
-  return (request: Sent): Reply => {
-    if (isSecondSkillsRequest(request)) return rates({}, fits)(request)
-    const shares: Record<string, Record<string, number>> = {}
-    for (const [id, question] of Object.entries(request.body.questions as Record<string, { type: string; criteria?: Record<string, unknown> }>)) {
-      if (question.type !== 'choice' || !id.startsWith('skills.')) continue
-      const options = Object.keys(question.criteria ?? {})
-      const sum = options.reduce((total, option) => total + (weights[option] ?? 0), 0)
-      shares[id] = Object.fromEntries(options.map((option) => [option, sum > 0 ? (weights[option] ?? 0) / sum : 1 / options.length]))
-    }
-    return jev([0, 1, 0, 0, 0], { shares, nouls: { 'skills.gate.acts_on_user_system': 0.9, 'skills.gate.would_follow_documented_procedure': 0.8, 'skills.gate.prose_suffices': 0.1 } })(request)
-  }
-}
+test('fits 最高的低于 0.30：不推荐', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.29, 'anthropic-skills:xlsx': 0.2 } }) })
+  await sendWithListing($, w)
 
-// The eval's 033 and 090: a skill only the person can start that fits the
-// message outright took nearly all of one shared Choice, and the skill the
-// main agent should load got too little to be re-read. Asked apart, each
-// question shares its own probability.
-test('a skill only the person can start that fits outright takes nothing from the skills the main agent can load: both kinds are re-read, one suggested, one pointed out', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: competing({ 'grill-me': 98, 'code-review': 1 }, { 'code-review': 0.9, 'grill-me': 0.95 }), skills: WITH_PERSONS, disk: PERSON_FILES })
-  await w.submit('这个方案往死里挑刺，再审一下改动')
-  await w.step({ index: 0 })
-
-  expect(Object.keys(w.withoutEffort[1]?.body.questions ?? {})).toEqual(['skills.which', 'skills.hint', 'skills.fits.0', 'skills.fits.1', 'skills.fits.2', 'skills.fits.3', 'skills.fits.4'])
-  expect(w.prompts[0]?.context).toEqual([suggested('code-review', REVIEW_DESCRIPTION)])
-  expect(await picked(w)).toEqual({ suggest: ['code-review'], try: ['grill-me'] })
-  const [entry] = await skillDecisions(w)
-  expect(entry).toMatchObject({ turn: 1, agent: 'main', tone: 'ok', subject: '"这个方案往死里挑刺，再审一下改动"', outcome: '推荐 code-review；可试 /grill-me' })
-  expect(entry?.skills?.try[0]?.relevance).toBe(0.95)
+  expect(w.fetched).toHaveLength(2)
+  expect(w.submitted[0]!.context).toBeUndefined()
+  const d = skillDecisions(w)[0]!
+  expect(d).toMatchObject({ to: null, applied: false, failure: null })
+  expect(d.detail).toContain('0.29')
+  expect(Object.keys(d.raw!)).toContain('fits_2')
 })
 
-test('with only skills the person can start to ask about, the main agent keeps its listing, and the one that fits is pointed out to the person', { options: KEY }, async ($, on) => {
-  const w = world($, on, {
-    backend: rates({ 'grill-me': 0.7, '(none)': 0.3 }, { 'grill-me': 0.9 }),
-    skills: { commands: [{ name: 'grill-me', description: 'Interview the user relentlessly about a plan.', source: 'user' }], listed: [] },
-    disk: { '/home/u/.claude/skills/grill-me/SKILL.md': '---\nname: grill-me\ndisable-model-invocation: true\n---\nAsk.\n' },
-  })
-  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
-  await w.submit('这个方案往死里挑刺')
-  await w.step({ index: 0 })
+test('Drex 的选择题有 other，Jev 没有；选中 other 不推荐', { options: { backend: 'jev', jevApiKey: 'k-jev' } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 }, model: 'jev-1.14.0' }) })
+  await sendWithListing($, w)
 
-  // One skill of that kind: no Choice to ask, it goes to stage two as it is.
-  expect(Object.keys(w.withoutEffort[0]?.body.questions)).toEqual(['skills.gate.acts_on_user_system', 'skills.gate.would_follow_documented_procedure', 'skills.gate.prose_suffices', 'skills.named'])
-  expect(Object.keys(w.withoutEffort[1]?.body.questions)).toEqual(['skills.fits.0'])
-  expect(w.prompts[0]?.context).toEqual([NONE_BLOCK])
-  expect(await picked(w)).toEqual({ suggest: [], try: ['grill-me'] })
+  expect(w.fetched.map((f) => f.url)).toEqual([JEV_URL, JEV_URL])
+  expect(Object.keys(w.fetched[0]!.body.questions.skill_0.criteria)).not.toContain('other')
+  expect(Object.keys(w.fetched[0]!.body.questions.skill_0.criteria)).toHaveLength(5)
+  expect(Object.keys(w.fetched[1]!.body.questions.which.criteria)).toEqual(['pdf', 'gsap-core', 'anthropic-skills:xlsx'])
+  // Jev's own answer is taken as it comes.
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+
+  // Drex's questions carry other, and an answer that picks it suggests nothing.
+  expect(Object.keys(stageOne(FIVE, 'drex', true).skill_0!.criteria)).toContain('other')
+  expect(Object.keys(stageTwo([PDF, XLSX], 'drex').which!.criteria)).toEqual(['pdf', 'anthropic-skills:xlsx', 'other'])
+  const short = [PDF, XLSX, WRANGLER]
+  const fits = { fits_0: { type: 'noul', noul: 0.9 }, fits_1: { type: 'noul', noul: 0.2 }, fits_2: { type: 'noul', noul: 0.1 } } as Record<string, Answer>
+  expect(pick(short, { ...fits, which: { type: 'choice', choice: 'other', probabilities: { pdf: 0.3, 'anthropic-skills:xlsx': 0.1, 'cloudflare:wrangler': 0.1, other: 0.5 } } })).toBeNull()
+  expect(pick(short, { ...fits, which: { type: 'choice', choice: 'pdf', probabilities: { pdf: 0.7, 'anthropic-skills:xlsx': 0.1, 'cloudflare:wrangler': 0.1, other: 0.1 } } })).toEqual(PDF)
 })
 
-test('a skill only the person can start is never suggested to the main agent: the board data names it for them (可试 /x)', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ 'grill-me': 0.55, 'code-review': 0.3, '(none)': 0.15 }, { 'grill-me': 0.95, 'code-review': 0.3 }), skills: WITH_PERSONS, disk: PERSON_FILES })
-  await w.submit('这个方案往死里挑刺，问到我答不上来为止')
-  await w.step({ index: 0 })
+test('Drex 的第二次请求选中 other：不推荐', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'other', fits: { pdf: 0.9 } }) })
+  await sendWithListing($, w)
 
-  // 0.30 is the cookbook's bar, and a fit on it counts.
-  expect(w.prompts[0]?.context).toEqual([suggested('code-review', REVIEW_DESCRIPTION)])
-  expect(await picked(w)).toEqual({ suggest: ['code-review'], try: ['grill-me'] })
+  expect(w.fetched).toHaveLength(2)
+  expect(Object.keys(w.fetched[1]!.body.questions.which.criteria)).toContain('other')
+  expect(w.submitted[0]!.context).toBeUndefined()
+  expect(skillDecisions(w)[0]).toMatchObject({ to: null, applied: false, failure: null })
+  expect(skillDecisions(w)[0]!.detail).toContain('other')
 })
 
-// A message typed while the main agent works (2026-11-11, 2.1.322: 「这里提醒一下 做票严格按照 /implement-spec 来」). The engine
-// notes a `/name` only in the message a turn starts with, and its Skill tool lets a skill only the person can start
-// load only when that message names it; the main agent went to find_skill, which never returns such a skill.
-const GRILL_NOTE = [
-  '<skill_mentions>',
-  "The user's message contains /grill-me, which is the name of a skill only the user can start. They typed it while you were working, where the Skill tool may refuse to load it, so its instructions are below: typing its name is the user starting the skill. If they are asking you to run it, follow these instructions from here on as if the skill had been loaded; there is no need to call the Skill tool for it. If they only mention it, do not run it.",
-  '<skill name="grill-me">',
-  'Base directory for this skill: /home/u/.claude/skills/grill-me',
-  '',
-  'Ask one question at a time.',
-  '</skill>',
-  '</skill_mentions>',
-].join('\n')
-
-/** What the main agent reads beside the message typed into the running turn, the skill suggestion left out. */
-async function typedInto(w: World, text: string, origin?: Parameters<World['submit']>[1]) {
-  await w.submit('先审一下这个分支')
-  await w.submit(text, { turnId: 't1', ...origin })
-  return (w.prompts[1]?.context ?? []).filter((block) => !block.startsWith('<skill_relevance>'))
-}
-
-test('a skill only the person can start, named (/name) in a message typed while the main agent works, reaches it as its instructions: the engine neither notes it there nor lets the Skill tool load it', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES })
-  expect(await typedInto(w, '这里提醒一下 接下来严格按照 /grill-me 来')).toEqual([GRILL_NOTE])
-  // The message that started the turn is the engine's to note (`skill_mention`), and its Skill tool loads the skill.
-  expect(w.prompts[0]?.context?.join('\n')).not.toContain('skill_mentions')
-  expect(w.logs.filter((log) => log.text.startsWith('skills named'))).toEqual([
-    { text: 'skills named in "这里提醒一下 接下来严格按照 /grill-me 来", typed into a running turn: grill-me (only the person can start it: its instructions given)', to: 'debug' },
-  ])
-})
-
-test('a message that starts a turn gets no such note, whatever it names: the engine notes it and its Skill tool loads the skill', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES })
-  await w.submit('这个方案按 /grill-me 来，再 /tdd')
-  expect(w.prompts[0]?.context?.join('\n')).not.toContain('skill_mentions')
-})
-
-test("a skill the main agent can load, named in a message typed while it works, gets the engine's own note; a plugin's skill is named in full or by its own name", { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES })
-  const [note] = await typedInto(w, '改完用 /tdd 补测试，然后 /release 和 /computer-use')
-  expect(note?.split('\n')).toEqual([
-    '<skill_mentions>',
-    'The user\'s message contains /tdd, which is the name of a skill. If they are asking you to run it, call the Skill tool with skill: "tdd", passing any arguments they gave as args. If they only mention it, do not run it.',
-    '',
-    "The user's message contains /ship:release, which is the name of a skill only the user can start. They typed it while you were working, where the Skill tool may refuse to load it, so its instructions are below: typing its name is the user starting the skill. If they are asking you to run it, follow these instructions from here on as if the skill had been loaded; there is no need to call the Skill tool for it. If they only mention it, do not run it.",
-    '<skill name="ship:release">',
-    'Base directory for this skill: /home/u/.claude/plugins/cache/acme/ship/1.0.0/skills/release',
-    '',
-    'Release.',
-    '</skill>',
-    '',
-    'The user\'s message contains /anthropic-skills:computer-use, which is the name of a skill. If they are asking you to run it, call the Skill tool with skill: "anthropic-skills:computer-use", passing any arguments they gave as args. If they only mention it, do not run it.',
-    '</skill_mentions>',
-  ])
-})
-
-test('only what the person typed at the terminal starts a skill of theirs: over Remote Control a skill the main agent can load is still noted, one only the person can start is not', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES })
-  const [note, ...more] = await typedInto(w, '按 /grill-me 来，再 /tdd 补测试', { origin: { kind: 'bridge' } })
-  expect(note).toContain('call the Skill tool with skill: "tdd"')
-  expect(note).not.toContain('grill-me')
-  expect(more).toEqual([])
-})
-
-// Pasted text; a path, a name inside a word, a skill switched off in settings; the command a message starts with.
-for (const text of ['<pasted_content id="a1">照 /grill-me 来</pasted_content> 看看这段', '看 /Users/u/grill-me 和 src/grill-me，按/grill-me来，或者 /claude-handoff', '/grill-me 这个方案']) {
-  test(`no skill is named by ${JSON.stringify(text)}`, { options: KEY }, async ($, on) => {
-    const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES })
-    expect(await typedInto(w, text)).toEqual([])
-  })
-}
-
-test('with the skills switch off nothing is said about a skill named mid-turn', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ '(none)': 1 }), skills: WITH_PERSONS, disk: PERSON_FILES, switches: { skills: false } })
-  await w.start()
-  expect(await typedInto(w, '接下来严格按照 /grill-me 来')).toEqual([])
-})
-
-test('without a decision model a skill named mid-turn is still said: nothing is asked for it', async ($, on) => {
-  const w = world($, on, { skills: WITH_PERSONS, disk: PERSON_FILES })
-  expect(await typedInto(w, '接下来严格按照 /grill-me 来')).toEqual([GRILL_NOTE])
-})
-
-test('a skill of the person whose file cannot be read, or runs too long to put beside a message: the main agent is told to ask for the command, or pointed at the file', () => {
-  expect(mentionBlock([{ name: 'grill-me', by: 'person', file: '/home/u/.claude/commands/grill-me.md', body: null }])).toBe(
-    [
-      '<skill_mentions>',
-      "The user's message contains /grill-me, which is the name of a skill only the user can start. They typed it while you were working, where the Skill tool may refuse to load it, and Dispatch Pilot could not read its instructions. If they are asking you to run it, tell them to send /grill-me as a message of its own; do not carry out its workflow from memory. If they only mention it, do not run it.",
-      '</skill_mentions>',
-    ].join('\n'),
-  )
-  const long = mentionBlock([{ name: 'grill-me', by: 'person', file: '/home/u/.claude/skills/grill-me/SKILL.md', body: 'x'.repeat(MENTION_BODY_CHARS + 1) }])
-  expect(long).toContain('so read its instructions in /home/u/.claude/skills/grill-me/SKILL.md. If they are asking you to run it, follow these instructions from here on')
-  expect(long.length).toBeLessThan(700)
-  // A command file has no directory of its own; a skill that takes arguments is told where they are.
-  const command = mentionBlock([{ name: 'ask', by: 'person', file: '/home/u/.claude/commands/ask.md', body: 'Answer $ARGUMENTS.' }])
-  expect(command).not.toContain('Base directory')
-  expect(command).toContain('Where they say $ARGUMENTS, read what the user wrote in this message.')
-})
-
-test('the names a message types as /name: after the start or whitespace and up to whitespace, the command it starts with and pasted text left out', () => {
-  expect(typedNames('先 /tdd 再 /ship:release\n/code-review')).toEqual(['tdd', 'ship:release', 'code-review'])
-  expect(typedNames('/implement #19 然后 /tdd')).toEqual(['tdd'])
-  expect(typedNames('按/tdd来 /tdd。 a/tdd /Users/u/x <pasted_content id="1">\n/tdd\n</pasted_content>')).toEqual([])
-  // Each once; a short name two skills end with names neither.
-  const options: SkillOption[] = [
-    { name: 'tdd', description: '', by: 'model' },
-    { name: 'ship:release', description: '', by: 'person' },
-    { name: 'notes:release', description: '', by: 'model' },
-    { name: 'ship:tag', description: '', by: 'person' },
+test('超过 250 个候选：分成 skill_0 和 skill_1 两道', { options: KEYS }, async ($, on) => {
+  // 160 from a source late in the alphabet listed first, then 140 from an early one.
+  const many: Skill[] = [
+    ...Array.from({ length: 160 }, (_, i) => ({ name: 'zeta:s' + i, description: 'Zeta skill ' + i + '.' })),
+    ...Array.from({ length: 140 }, (_, i) => ({ name: 'alpha:s' + i, description: 'Alpha skill ' + i + '.' })),
   ]
-  expect(namedSkills('先 /tdd 再 /tdd，/release 之后 /tag 和 /notes:release', options).map((skill) => skill.name)).toEqual(['tdd', 'ship:tag', 'notes:release'])
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: NOT_WANTED }) })
+  await sendWithListing($, w, many)
+
+  expect(skillWrites(w)).toEqual([many])
+  const qs = w.fetched[0]!.body.questions
+  expect(Object.keys(qs).filter((k) => k.startsWith('skill_'))).toEqual(['skill_0', 'skill_1'])
+  const zero = Object.keys(qs.skill_0.criteria)
+  const one = Object.keys(qs.skill_1.criteria)
+  // Each batch is at most BATCH skills, plus Drex's other.
+  expect(zero.length <= BATCH + 1 && one.length <= BATCH + 1).toBe(true)
+  expect(zero.at(-1)).toBe('other')
+  expect(one.at(-1)).toBe('other')
+  // By source: every alpha before any zeta, each source in listing order.
+  const names = [...zero, ...one].filter((n) => n !== 'other')
+  expect(names).toEqual([...many.slice(160), ...many.slice(0, 160)].map((s) => s.name))
 })
 
-// A project's own skills: `$.command.list()` gives a project's file the same
-// source as the person's own (`user`: CommandSource in Claude Code's types),
-// and the context counts a listed one as `projectSettings`. Both are read
-// under the session's working directory.
-const PROJECT: SkillsWorld = {
-  commands: [
-    { name: 'deploy-docs', description: 'Build the docs site and deploy it.', source: 'user' },
-    { name: 'check-links', description: 'Check every link of the docs site.', source: 'user' },
-    { name: 'release-notes', description: 'Write the release notes for a tag.', source: 'user' },
-  ],
-  listed: [
-    { name: 'deploy-docs', source: 'projectSettings', tokens: 20 },
-    { name: 'check-links', source: 'projectSettings', tokens: 20 },
-  ],
-  cwd: '/work',
-}
-const PROJECT_FILES: Record<string, string> = {
-  '/work/.claude/skills/deploy-docs/SKILL.md': '---\nname: deploy-docs\n---\nRun the docs build, then push the site.\n',
-  '/work/.claude/skills/check-links/SKILL.md': '---\nname: check-links\n---\nCrawl the built site and list the broken links.\n',
-  '/work/.claude/skills/release-notes/SKILL.md': '---\nname: release-notes\ndisable-model-invocation: true\n---\nList the merged changes since the last tag.\n',
-}
-
-test("a project's own skills are read under its working directory: stage two's Choice reads each by its description and the opening of its SKILL.md, and one only the person can start is pointed out", { options: KEY }, async ($, on) => {
-  const w = world($, on, {
-    backend: rates({ 'deploy-docs': 0.7, 'check-links': 0.1, 'release-notes': 0.6, '(none)': 0.1 }, { 'deploy-docs': 0.9, 'release-notes': 0.85 }),
-    skills: PROJECT,
-    disk: PROJECT_FILES,
+test('第二次请求赶不上时限：不推荐，effort 的决定照常生效', { options: KEYS }, async ($, on) => {
+  const late: { clock: MockClock | null } = { clock: null }
+  const answer = answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 } })
+  const w = world(on, {
+    onSubmit: turns($),
+    answer: async (req) => {
+      // The first request takes 3600 ms of the 4000: 400 are left, under the 500 a second one needs.
+      await late.clock!.sleep(3600)
+      return answer(req)
+    },
   })
-  await w.submit('发版：更新文档站，再写这次的发布说明')
-  await w.step({ index: 0 })
+  late.clock = w.clock
+  await start($)
+  await attach($, listingOf(FIVE))
+  const sent = submit($, TASK)
+  await w.clock.settle()
+  await w.clock.advance(3600)
+  await sent
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  await step($, { turnId: 't1', index: 1, effort: 'medium' })
 
-  const second = w.withoutEffort[1]?.body.questions
-  // The cookbook's `f"{description_full} — {body[:excerpt]}"`.
-  expect(second['skills.which'].criteria).toEqual({
-    'deploy-docs': 'Build the docs site and deploy it. — Run the docs build, then push the site.',
-    'check-links': 'Check every link of the docs site. — Crawl the built site and list the broken links.',
+  expect(w.fetched).toHaveLength(1)
+  expect(w.submitted[0]!.context).toBeUndefined()
+  expect(efforts(w)).toEqual(['high', 'high'])
+  expect(submitDecisions(w)[0]).toMatchObject({ from: 'medium', to: 'high', applied: true, failure: null })
+  const d = skillDecisions(w)[0]!
+  expect(d).toMatchObject({ to: null, applied: false, failure: null, ms: 3600 })
+  expect(d.detail).toContain('500')
+})
+
+test('find-skill：不问门控题，回答里最多三个 skill 名；后端失败时写明没查成', { options: KEYS }, async ($, on) => {
+  const down = { yes: false }
+  const answer = answering({ first: { pdf: 0.5, 'anthropic-skills:xlsx': 0.3, 'cloudflare:wrangler': 0.1 }, which: 'pdf', fits: { pdf: 0.9, 'anthropic-skills:xlsx': 0.6, 'cloudflare:wrangler': 0.5 } })
+  const w = world(on, { answer: (req) => (down.yes ? null : answer(req)) })
+  await start($)
+  await attach($, listingOf(FIVE))
+
+  const r = await findSkill($, 'Query: pdf form')
+  expect(w.fetched).toHaveLength(2)
+  expect(Object.keys(w.fetched[0]!.body.questions)).toEqual(['skill_0'])
+  expect(w.fetched[0]!.body.state.request).toBe('pdf form')
+  expect(Object.keys(w.fetched[1]!.body.questions)).toEqual(['which', 'fits_0', 'fits_1', 'fits_2'])
+  expect(r.text).toBe(findSkillReply('pdf form', [PDF, XLSX, WRANGLER], null))
+  expect(r.text).toContain('pdf: ' + PDF.description)
+  expect(r.text).toContain('anthropic-skills:xlsx')
+  expect(r.text).toContain('cloudflare:wrangler')
+
+  down.yes = true
+  const failed = await findSkill($, 'Query: pdf form')
+  expect(w.fetched).toHaveLength(3)
+  // The search did not run: the reply says so, then names every recorded candidate with its description (final review
+  // I4b), so the agent is never worse off than with the listing itself.
+  expect(failed.text).toBe(searchFailedReply('pdf form', 'network', FIVE))
+  expect(failed.text).toContain('did not run')
+  for (const s of FIVE) expect(failed.text).toContain(s.description === '' ? '- ' + s.name : '- ' + s.name + ': ' + s.description)
+})
+
+// Beyond the brief's twelve: listings as they really come.
+
+test('列表包在 system-reminder 里：照样读出', () => {
+  const text = '<system-reminder>\n' + listingOf([PDF, BRAIN]) + '\n</system-reminder>'
+  expect(parseListing(text)).toEqual([PDF, BRAIN])
+  // Tags on the same line as the first or the last entry.
+  expect(parseListing('<system-reminder>- pdf: ' + PDF.description + '\n- gsap-core</system-reminder>')).toEqual([PDF, GSAP])
+})
+
+test('没有说明的条目：说明是空的，选项里写 null，fits 题照样能问', () => {
+  expect(parseListing('- gsap-core\n- tripo3d\n- pdf: ' + PDF.description)).toEqual([GSAP, { name: 'tripo3d', description: '' }, PDF])
+  expect(stageOne([GSAP, PDF], 'jev', false).skill_0!.criteria).toEqual({ 'gsap-core': null, pdf: PDF.description })
+  const fits = stageTwo([GSAP, PDF], 'jev').fits_0!
+  expect(fits.instructions.startsWith("Does the skill 'gsap-core' do the specific thing the user's request asks for?")).toBe(true)
+  expect(fits.instructions).not.toMatch(/described as: $/)
+})
+
+test('前言里以 - 开头、名字带空格的行不算 skill；名字重复时只留第一个', () => {
+  const text = ['Use the Skill tool to load one:', '- Use the exact name below.', '- pdf: ' + PDF.description, '- pdf: Another pdf skill.'].join('\n')
+  expect(parseListing(text)).toEqual([PDF])
+})
+
+test('一个条目也没有的列表：原样放行，候选不动', { options: KEYS }, async ($, on) => {
+  const w = world(on)
+  await start($)
+  const text = 'The following skills are available for use with the Skill tool:\n\n'
+  const r = await attach($, text)
+  expect(r.text).toBe(text)
+  expect(w.attachments).toHaveLength(1)
+  expect(skillWrites(w)).toEqual([])
+})
+
+test('引擎这一层把附件去掉（text 为 null）：原样放行', { options: KEYS }, async ($, on) => {
+  const w = world(on, { attachmentText: () => null })
+  await start($)
+  const r = await attach($, listingOf(FIVE))
+  expect(r.text).toBeNull()
+  expect(w.attachments).toHaveLength(1)
+  expect(skillWrites(w)).toEqual([])
+})
+
+test('后来的列表并进候选：同名的换成新的，新名字接在后面', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: NOT_WANTED }) })
+  await start($)
+  await attach($, listingOf(FIVE))
+  const brainNow = { name: BRAIN.name, description: 'Brainstorm before building anything.' }
+  const NEW = { name: 'tripo3d', description: 'Make 3D models from images.' }
+  const second = await attach($, listingOf([brainNow, NEW]))
+  expect(second.text).toBe(LISTING_NOTE)
+  expect(skillWrites(w)).toEqual([FIVE, [PDF, XLSX, WRANGLER, brainNow, GSAP, NEW]])
+  await submit($, TASK)
+  expect(w.fetched[0]!.body.questions.skill_0.criteria).toEqual({
+    pdf: PDF.description,
+    'gsap-core': null,
+    tripo3d: NEW.description,
+    'anthropic-skills:xlsx': XLSX.description,
+    'cloudflare:wrangler': WRANGLER.description,
+    'superpowers:brainstorming': brainNow.description,
+    other: null,
   })
-  expect(Object.keys(second)).toEqual(['skills.which', 'skills.fits.0', 'skills.fits.1', 'skills.fits.2'])
-  expect(await picked(w)).toEqual({ suggest: ['deploy-docs'], try: ['release-notes'] })
 })
 
-/** Answers each message's two skills requests by the message they ask about: `byMessage[text]` is `[shares, fits]`. */
-function byMessage(answers: Record<string, [Record<string, number>, Record<string, number>?]>) {
-  return (request: Parameters<ReturnType<typeof rates>>[0]) => {
-    const [shares, fits] = answers[request.body.state.user_message] ?? [{ '(none)': 1 }]
-    return rates(shares, fits)(request)
-  }
-}
-
-test('each message gets its own skills decision: the skill suggested, and none once nothing fits', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: byMessage({ 先写失败的测试: [{ tdd: 0.7, '(none)': 0.3 }, { tdd: 0.9 }] }), skills: SKILLS })
-  await w.submit('先写失败的测试')
-  await w.step({ index: 0 })
-  expect(await picked(w)).toEqual({ suggest: ['tdd'], try: [] })
-  await w.submit('这个报错是什么意思？')
-  await w.step({ index: 0 })
-  expect(await picked(w)).toEqual({ suggest: [], try: [] })
-  expect((await skillDecisions(w)).map((entry) => [entry.turn, entry.outcome])).toEqual([
-    [1, '推荐 tdd'],
-    [2, '没有推荐 skill'],
-  ])
-})
-
-test("a failed decision request suggests nothing and says nothing: no skills decision for that message, and its main agent's node says why", { options: KEY }, async ($, on) => {
-  // The first message's three requests (effort, skills, the skills' second stage) are answered; the next message's are refused.
-  const w = world($, on, { backend: (request, n) => (n <= 3 ? rates({ tdd: 0.7, '(none)': 0.3 }, { tdd: 0.9 })(request) : { status: 503, body: 'overloaded' }), skills: SKILLS })
-  await w.submit('先写失败的测试')
-  await w.step({ index: 0 })
-  expect(await picked(w)).toEqual({ suggest: ['tdd'], try: [] })
-  await w.submit('然后把限流也加上')
-  await w.step({ index: 0, effort: 'xhigh' })
-
-  expect(w.requests).toHaveLength(5)
-  expect(w.prompts[1]?.context).toBeUndefined()
-  expect((await skillDecisions(w)).map((entry) => entry.turn)).toEqual([1])
-  expect((await w.board()).main).toMatchObject({ turn: 2, routed: false, why: 'jev：繁忙（状态码 503）' })
-})
-
-test('an answer that leaves the skills questions out suggests nothing, and the effort still goes through', { options: KEY }, async ($, on) => {
-  // The second message's skills request is answered with nothing; its effort request is answered as usual.
-  const effortOnly = (request: Parameters<ReturnType<typeof rates>>[0]) => {
-    const reply = rates({ tdd: 0.7, '(none)': 0.3 }, { tdd: 0.9 })(request)
-    if (request.body.state.user_message !== '然后把限流也加上' || 'effort.level' in request.body.questions || !('body' in reply)) return reply
-    const body = reply.body as { answers: Record<string, unknown> }
-    return { ...reply, body: { ...body, answers: {} } }
-  }
-  const w = world($, on, { backend: effortOnly, skills: SKILLS })
-  await w.submit('先写失败的测试')
-  await w.step({ index: 0 })
-  await w.submit('然后把限流也加上')
-  await w.step({ index: 0, effort: 'xhigh' })
-
-  expect(w.prompts[1]?.context).toBeUndefined()
-  // The first message was rated, the second got nothing about the skills: no decision for it, and the effort's went through.
-  expect((await skillDecisions(w)).map((entry) => entry.turn)).toEqual([1])
-  expect((await w.board()).main).toMatchObject({ turn: 2, routed: true })
-})
-
-test('a skill suggested earlier in the conversation is named again without its description', { options: KEY }, async ($, on) => {
-  const w = world($, on, {
-    backend: byMessage({
-      先写失败的测试: [{ tdd: 0.6, '(none)': 0.4 }, { tdd: 0.9 }],
-      '再补边界情况的测试': [{ tdd: 0.5, 'code-review': 0.3, '(none)': 0.2 }, { tdd: 0.8, 'code-review': 0.3 }],
-      再审一下: [{ 'code-review': 0.8, '(none)': 0.2 }, { 'code-review': 0.9 }],
-    }),
-    skills: SKILLS,
+test('实测的情形：169 个，会话中途加了一个 skill，下一份列表只有它；候选成了 170 个，推荐和 find-skill 都还够得着旧的', { options: KEYS }, async ($, on) => {
+  const old: Skill[] = Array.from({ length: 168 }, (_, i) => ({ name: 'src' + (i % 7) + ':s' + i, description: 'Old skill ' + i + '.' }))
+  const full = [...old, PDF]
+  const added = { name: 'tripo3d', description: 'Make 3D models from images.' }
+  const w = world(on, {
+    onSubmit: turns($),
+    answer: answering({ gates: WANTED, first: { pdf: 0.6, tripo3d: 0.2 }, which: 'pdf', fits: { pdf: 0.9, tripo3d: 0.4 } }),
   })
-  await w.submit('先写失败的测试')
-  await w.submit('再补边界情况的测试')
-  await w.submit('再审一下')
+  await start($)
+  expect((await attach($, listingOf(full))).text).toBe(LISTING_NOTE)
+  // The delta: the same preamble, one entry.
+  expect((await attach($, listingOf([added]))).text).toBe(LISTING_NOTE)
+  const held = skillWrites(w).at(-1) as Skill[]
+  expect(held).toHaveLength(170)
+  expect(held.slice(0, 169)).toEqual(full)
+  expect(held[169]).toEqual(added)
 
-  expect(w.prompts.map((prompt) => prompt.context)).toEqual([[suggested('tdd', TDD_DESCRIPTION)], [suggested('tdd')], [suggested('code-review', REVIEW_DESCRIPTION)]])
+  await submit($, TASK)
+  const options = Object.keys(w.fetched[0]!.body.questions.skill_0.criteria)
+  expect(options).toHaveLength(171)
+  expect(options).toContain('src3:s3')
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+
+  const r = await findSkill($, 'Query: pdf form')
+  expect(r.text).toBe(findSkillReply('pdf form', [PDF, added], null))
 })
 
-test('after /compact or /clear, a skill suggested earlier is described again', { options: KEY }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.6, '(none)': 0.4 }, { tdd: 0.9 }), skills: SKILLS, session: true })
-  await w.submit('先写失败的测试')
-  await w.compact()
-  await w.submit('继续写测试')
-  await w.submit('再补一个')
-  await w.clear()
-  await w.submit('新的任务：先写测试')
-
-  const described = w.prompts.map((prompt) => (prompt.context?.[0] ?? '').includes(TDD_DESCRIPTION))
-  expect(described).toEqual([true, true, false, true])
-})
-
-test('a message refused beneath never showed its suggestion, so it is described the next time', { options: KEY }, async ($, on) => {
-  let refuse = true
-  const w = world($, on, { backend: rates({ tdd: 0.6, '(none)': 0.4 }, { tdd: 0.9 }), skills: SKILLS, beneath: { drop: () => (refuse ? 'blocked by a UserPromptSubmit hook' : undefined) } })
-  await w.submit('先写失败的测试')
-  refuse = false
-  await w.submit('先写失败的测试')
-
-  expect(w.prompts).toHaveLength(1)
-  expect(w.prompts[0]?.context).toEqual([suggested('tdd', TDD_DESCRIPTION)])
-})
-
-test('a skill the listing still shows (skillsAlwaysListed) is suggested by name only', { options: { ...KEY, skillsAlwaysListed: ['tdd'] } }, async ($, on) => {
-  const w = world($, on, { backend: rates({ tdd: 0.6, '(none)': 0.4 }, { tdd: 0.88 }), skills: SKILLS })
-  await w.submit('先写失败的测试')
-  expect(w.prompts[0]?.context).toEqual([suggested('tdd')])
-})
-
-test('skills named in skillsNeverSuggested are never offered, to the main agent or to the person', { options: { ...KEY, skillsNeverSuggested: ['code-review', 'grill-me'] } }, async ($, on) => {
-  const w = world($, on, { backend: rates({}), skills: WITH_PERSONS, disk: PERSON_FILES })
-  await w.submit('审一下这个分支')
-  const questions = w.withoutEffort[0]?.body.questions
-  expect(Object.keys(questions['skills.which'].criteria)).toEqual(['tdd', 'anthropic-skills:computer-use'])
-  // One skill only the person can start is left: no Choice over it, it goes to stage two as it is.
-  expect(questions['skills.hint']).toBeUndefined()
-  expect(JSON.stringify(w.withoutEffort[1]?.body.questions)).toContain("Does the skill 'ship:release'")
-})
-
-test("when the session's skills cannot be read, nothing is asked about them and the main agent keeps its listing", { options: KEY }, async ($, on) => {
-  const w = world($, on, { switches: UNRESOLVED_ON, backend: rates({}), skills: { ...SKILLS, listed: null } })
-  await w.submit('先写失败的测试')
-  expect(Object.keys(w.requests[0]?.body.questions)).toEqual(OWN_EFFORT)
-  expect(await w.listing(LISTING)).toEqual({ text: LISTING })
-})
-
-test('at session start the skills are read, and the debug log says what was found and whether the listing is withheld; no model is asked to write anything', { options: KEY }, async ($, on) => {
-  const w = world($, on, { skills: WITH_PERSONS, disk: PERSON_FILES, session: true })
-  await w.start()
-  // The skills feature's line (the settings line at session start is tests/backend-defaults.test.ts's).
-  expect(w.logs.filter((log) => log.text.startsWith('skill'))).toEqual([
-    { text: 'skills: 3 the main agent can load, 2 only you can start (/grill-me /ship:release); the listing is withheld from the main agent', to: 'debug' },
-  ])
-  expect(w.completions).toEqual([])
-})
-
-test('without a decision model the debug log says the listing stays', async ($, on) => {
-  const w = world($, on, { skills: SKILLS, session: true })
-  await w.start()
-  expect(w.logs.map((log) => log.text).filter((text) => text.startsWith('skill'))).toEqual(['skills: no decision model is set up, so the main agent keeps the skill listing and nothing is suggested'])
-})
-
-test('the skills switch is listed by /dp with what it does', { options: KEY }, async ($, on) => {
-  const w = world($, on, { skills: SKILLS })
-  expect(await w.command('dp', 'status')).toMatch(/开 +skills +不把完整的 skill 列表交给主 agent/)
-})
-
-test('each listing withheld from the main agent is noted in the debug log, with what it kept and whether the note names find_skill', { options: { ...KEY, skillsAlwaysListed: ['tdd'] } }, async ($, on) => {
-  const w = world($, on, { skills: SKILLS })
-  await w.listing(LISTING)
-  await w.listing(LISTING, 'a1')
-  await w.command('dp', 'find-skill off')
-  await w.listing(LISTING)
-  expect(w.logs.map((log) => log.text)).toEqual([
-    `withheld the skill listing from the main agent (3 skills, ${LISTING.length} characters); kept tdd; the note names find_skill`,
-    `withheld the skill listing from the main agent (3 skills, ${LISTING.length} characters); kept tdd; the note leaves find_skill out (switched off)`,
-  ])
-})
-
-test('each decision about the skills goes to the decision log (/dp log) and the debug log, never into the conversation', { options: KEY }, async ($, on) => {
-  const w = world($, on, {
-    backend: byMessage({
-      先写一个失败的测试再实现登录限流: [{ tdd: 0.62, 'code-review': 0.23, 'anthropic-skills:computer-use': 0.01, '(none)': 0.14 }, { tdd: 0.97, 'code-review': 0.41 }],
-      这个方案往死里挑刺: [{ 'grill-me': 0.4, '(none)': 0.6 }, { 'grill-me': 0.93 }],
-      这个报错什么意思: [{ tdd: 0.02, '(none)': 0.98 }],
-    }),
-    skills: WITH_PERSONS,
-    disk: PERSON_FILES,
-  })
-  await w.submit('先写一个失败的测试再实现登录限流')
-  await w.submit('这个方案往死里挑刺')
-  await w.submit('这个报错什么意思')
-
-  // The gate and `named` against their bars; what each Choice of stage one put forward with its share; each candidate's fit
-  // against the bar, and whom stage two's Choice picked of a kind whose best fit reached it; or that the gate stopped it.
-  const first =
-    '推荐 tdd · "先写一个失败的测试再实现登录限流"：要不要 skill 0.86、点名方法 0.00（两项分别低于 0.30、0.50 才不推荐）；第一段 tdd 0.72、code-review 0.27、anthropic-skills:computer-use 0.01；只能你触发的 grill-me 0.50、ship:release 0.50；第二段相关度 tdd 0.97、code-review 0.41、anthropic-skills:computer-use 0.00、grill-me 0.00、ship:release 0.00（≥ 0.30 才推荐），选择题选 tdd'
-  const second =
-    '没有推荐 skill；可试 /grill-me · "这个方案往死里挑刺"：要不要 skill 0.40、点名方法 0.00（两项分别低于 0.30、0.50 才不推荐）；第一段 tdd 0.33、code-review 0.33、anthropic-skills:computer-use 0.33；只能你触发的 grill-me 1.00、ship:release 0.00；第二段相关度 tdd 0.00、code-review 0.00、anthropic-skills:computer-use 0.00、grill-me 0.93、ship:release 0.00（≥ 0.30 才推荐），选择题选 grill-me'
-  const third = '没有推荐 skill · "这个报错什么意思"：要不要 skill 0.02、点名方法 0.00（两项分别低于 0.30、0.50 才不推荐）'
-  expect(w.logs.filter((log) => log.text.startsWith('推荐 ') || log.text.startsWith('没有推荐 '))).toEqual([
-    { text: first, to: 'debug' },
-    { text: second, to: 'debug' },
-    { text: third, to: 'debug' },
-  ])
-  const log = await w.command('dp', 'log 10')
-  expect(log).toContain(`skills：${first}`)
-  expect(log).toContain(`skills：${second}`)
-})
-
-test('what the mod sends is exactly what the decision module builds from a message and its recent context, so the eval measures the live request (spec #67)', { options: KEY }, async ($, on) => {
-  const messages = [
-    { role: 'user' as const, text: '登录接口加个限流', toolUses: [] },
-    { role: 'assistant' as const, text: '好的，要先写测试吗？', toolUses: [{ tool_use_id: 'u1', tool: 'Read', input: {}, text: 'FILE BODY' }] },
+test('mod 自己的 find-skill 不当候选', { options: KEYS }, async ($, on) => {
+  const w = world(on)
+  await start($)
+  const own = [
+    { name: 'dispatch-pilot:find-skill', description: "Searches this session's skills for the ones that fit a piece of work." },
+    { name: 'find-skill', description: "Searches this session's skills for the ones that fit a piece of work." },
   ]
-  const w = world($, on, { backend: rates({}), skills: WITH_PERSONS, disk: PERSON_FILES, messages })
-  await w.submit('要，先写失败的测试')
-
-  // The session's skills as the eval's catalog gives them: the listing's names, who can start each.
-  const options: SkillOption[] = [
-    { name: 'tdd', description: TDD_DESCRIPTION, by: 'model' },
-    { name: 'code-review', description: REVIEW_DESCRIPTION, by: 'model' },
-    { name: 'anthropic-skills:computer-use', description: 'Read this skill before the first step of any request to do something in an app on the person’s own computer.', by: 'model' },
-    { name: 'grill-me', description: 'Interview the user relentlessly about a plan until every branch is resolved.', by: 'person' },
-    { name: 'ship:release', description: 'Cut a release: tag, changelog, publish.', by: 'person' },
-  ]
-  // The skills questions in English; the effort question has a request of its own (tests/effort-request.test.ts).
-  const { request } = skillsRequest(
-    { message: '要，先写失败的测试', recent_context: [{ role: 'user', text: '登录接口加个限流' }, { role: 'assistant', text: '好的，要先写测试吗？', toolUses: [{ tool: 'Read' }] }] },
-    options,
-    { limits: { messages: 4, tokens: 2000 } },
-  )
-  expect(w.withoutEffort[0]?.body).toEqual({ model: JEV_MODEL, ...request })
+  expect((await attach($, listingOf([PDF, ...own, XLSX]))).text).toBe(LISTING_NOTE)
+  expect(skillWrites(w)).toEqual([[PDF, XLSX]])
 })
 
-test('the skills named in skillsAlwaysListed stay in the main agent’s listing, as the engine wrote them, the note after them', { options: { ...KEY, skillsAlwaysListed: ['anthropic-skills:computer-use', 'code-review', 'not-installed'] } }, async ($, on) => {
-  const w = world($, on, { skills: SKILLS })
-  expect(await w.listing(LISTING)).toEqual({
-    text: [
-      'The following skills are available for use with the Skill tool:',
-      '',
-      '- code-review: Review the changes since a fixed point along two axes: Standards and Spec.',
-      '- anthropic-skills:computer-use: Read this skill before the first step of any request to do something in an app on the person’s own computer.',
-      '',
-      HINT,
-    ].join('\n'),
+test('Jev 只有一个候选：不问 skill_0，门控过了直接进第二次；第二次不问 which，只看 fits', { options: { backend: 'jev', jevApiKey: 'k-jev' } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, fits: { pdf: 0.9 }, model: 'jev-1.14.0' }) })
+  await sendWithListing($, w, [PDF])
+
+  expect(Object.keys(w.fetched[0]!.body.questions)).toEqual(['open', 'mechanical', 'unknown_cause', ...GATE_IDS])
+  expect(Object.keys(w.fetched[1]!.body.questions)).toEqual(['fits_0'])
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, failure: null })
+  expect(efforts(w)).toEqual(['high'])
+
+  // find-skill: no first request at all, the one candidate is the shortlist.
+  const r = await findSkill($, 'Query: pdf form')
+  expect(w.fetched).toHaveLength(3)
+  expect(Object.keys(w.fetched[2]!.body.questions)).toEqual(['fits_0'])
+  expect(r.text).toBe(findSkillReply('pdf form', [PDF], null))
+})
+
+test('短名单只有一个：Jev 不问 which，fits 自己定；Drex 照常问（多一个 other）', () => {
+  expect(Object.keys(stageTwo([PDF], 'jev'))).toEqual(['fits_0'])
+  expect(Object.keys(stageTwo([PDF], 'drex'))).toEqual(['which', 'fits_0'])
+  expect(Object.keys(stageTwo([PDF], 'drex').which!.criteria)).toEqual(['pdf', 'other'])
+  expect(stageOne([PDF], 'jev', true).skill_0).toBeUndefined()
+  expect(Object.keys(stageOne([PDF], 'drex', true).skill_0!.criteria)).toEqual(['pdf', 'other'])
+  expect(shortlist([PDF], {})).toEqual([PDF])
+  expect(pick([PDF], { fits_0: { type: 'noul', noul: 0.9 } })).toEqual(PDF)
+  expect(pick([PDF], { fits_0: { type: 'noul', noul: 0.2 } })).toBeNull()
+})
+
+test('一次合并的请求、fallback 开着：第一家的回答一部分不能用，也算答了，不改问另一家，能用的部分照样作数', { options: { drexApiKey: 'k-drex', jevApiKey: 'k-jev', fallback: true } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 }, drop: ['open'] }) })
+  await sendWithListing($, w)
+
+  expect(w.fetched.map((f) => f.url)).toEqual([DREX_URL, DREX_URL])
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(submitDecisions(w)[0]).toMatchObject({ failure: 'bad-answer', backend: 'drex', applied: false })
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', backend: 'drex', applied: true })
+})
+
+test('queryOf 取第一个 Query: 之后的全部', () => {
+  expect(queryOf('Query: what does "Query: " mean in this log')).toBe('what does "Query: " mean in this log')
+  expect(queryOf('Base directory: /x\n\nQuery: pdf form\n')).toBe('pdf form')
+  expect(queryOf('pdf form')).toBe('pdf form')
+})
+
+test('find-skill：skills 关着时回答搜索关了，用会话自己的列表', { options: { ...KEYS, skills: false } }, async ($, on) => {
+  const w = world(on, { answer: answering({}) })
+  await start($)
+  const r = await findSkill($, 'Query: pdf form')
+  expect(r.text).toBe(SEARCH_OFF_REPLY)
+  expect(r.text).toContain("session's own skill listing")
+  expect(w.fetched).toHaveLength(0)
+})
+
+test('find-skill：shadow 时同样回答搜索关了', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+  const w = world(on, { answer: answering({}) })
+  await start($)
+  const r = await findSkill($, 'Query: pdf form')
+  expect(r.text).toBe(SEARCH_OFF_REPLY)
+  expect(w.fetched).toHaveLength(0)
+})
+
+// The readings, as pure functions.
+
+const choice = (probabilities: Record<string, number>): Answer => ({
+  type: 'choice',
+  choice: Object.entries(probabilities).sort((a, b) => b[1] - a[1])[0]![0],
+  probabilities,
+})
+const n = (p: number): Answer => ({ type: 'noul', noul: p })
+
+test('两批选择题的概率合成一张短名单，去掉 other', () => {
+  const a = { name: 'a', description: 'A.' }
+  const b = { name: 'b', description: 'B.' }
+  const c = { name: 'c', description: 'C.' }
+  const d = { name: 'd', description: 'D.' }
+  const answers = { skill_0: choice({ a: 0.35, b: 0.15, other: 0.5 }), skill_1: choice({ c: 0.6, d: 0.4 }) }
+  expect(shortlist([a, b, c, d], answers)).toEqual([c, d, a])
+  expect(SHORTLIST).toBe(3)
+  // A missing batch leaves the batches that came.
+  expect(shortlist([a, b, c, d], { skill_1: choice({ c: 0.6, d: 0.4 }) })).toEqual([c, d])
+  expect(shortlist([a, b], {})).toEqual([])
+})
+
+test('wantsSkill：动手题的平均、点名题，三道动手题缺一道时只看点名题', () => {
+  expect(ACTION_BAR).toBe(0.3)
+  expect(NAMED_BAR).toBe(0.5)
+  // (0.3 + 0.3 + (1 - 0.7)) / 3 = 0.30: at the bar counts.
+  expect(wantsSkill({ acts: 0.3, procedure: 0.3, prose: 0.7, named: 0 })).toBe(true)
+  expect(wantsSkill({ acts: 0.2, procedure: 0.3, prose: 0.7, named: 0.49 })).toBe(false)
+  expect(wantsSkill({ acts: 0.1, procedure: 0.1, prose: 0.9, named: 0.5 })).toBe(true)
+  // One of the three missing: the average is not taken, however high the other two.
+  expect(wantsSkill({ acts: 0.95, procedure: 0.95, named: 0.1 })).toBe(false)
+  expect(wantsSkill({ procedure: 0.95, prose: 0.0, named: 0.1 })).toBe(false)
+  expect(wantsSkill({ acts: 0.95, prose: 0.0, named: 0.6 })).toBe(true)
+  expect(wantsSkill({})).toBe(false)
+})
+
+test('pick 和 pickMany 的读法', () => {
+  expect(FITS_BAR).toBe(0.3)
+  const short = [PDF, XLSX, WRANGLER]
+  const which = choice({ pdf: 0.2, 'anthropic-skills:xlsx': 0.7, 'cloudflare:wrangler': 0.1 })
+  // which settles the skill once any fits reaches the bar, even another one's.
+  expect(pick(short, { which, fits_0: n(0.9), fits_1: n(0.1), fits_2: n(0.1) })).toEqual(XLSX)
+  expect(pick(short, { which, fits_0: n(0.3), fits_1: n(0.1), fits_2: n(0.1) })).toEqual(XLSX)
+  expect(pick(short, { which, fits_0: n(0.29), fits_1: n(0.1), fits_2: n(0.1) })).toBeNull()
+  expect(pick(short, { fits_0: n(0.9) })).toBeNull()
+  expect(pickMany(short, { fits_0: n(0.4), fits_1: n(0.8), fits_2: n(0.2) })).toEqual([XLSX, PDF])
+  expect(pickMany(short, { fits_0: n(0.3), fits_1: n(0.3), fits_2: n(0.3) })).toEqual(short)
+  expect(pickMany(short, { fits_0: n(0.1) })).toEqual([])
+})
+
+test('skill 的三个门槛默认是起步值（扫门槛没有挪动它们）', () => {
+  expect(readConfig({}).bars.skill).toEqual({ action: ACTION_BAR, named: NAMED_BAR, fits: FITS_BAR })
+  expect([ACTION_BAR, NAMED_BAR, FITS_BAR]).toEqual([0.3, 0.5, 0.3])
+})
+
+test('readStageOne、readStageTwo 和 pickMany 按交给它们的门槛读', () => {
+  const bars = readConfig({}).bars.skill
+  const ok = (answers: Record<string, Answer>): AskResult => ({ ok: true, answers, model: 'drex-max-v1.1', backend: 'drex', ms: 1 })
+  // The action answers' mean is 0.40: past the start bar 0.30, short of 0.45. The bar differs from named's 0.50, so
+  // the detail shows which bar it read.
+  const gate = { acts_on_user_system: n(0.4), would_follow_documented_procedure: n(0.4), prose_suffices: n(0.6), named: n(0.1) }
+  const first = ok({ skill_0: choice({ pdf: 0.7, 'anthropic-skills:xlsx': 0.2, other: 0.1 }), ...gate })
+  expect(readStageOne([PDF, XLSX], first, true, bars)).toEqual({ short: [PDF, XLSX] })
+  const strict = readStageOne([PDF, XLSX], first, true, { ...bars, action: 0.45 })
+  expect(strict).toEqual({ detail: '不需要 skill：动手题平均 0.40，点名题 0.10（分别低于 0.45、0.50）' })
+  const second = ok({ which: choice({ pdf: 0.8, 'anthropic-skills:xlsx': 0.1, other: 0.1 }), fits_0: n(0.4), fits_1: n(0.1) })
+  expect(readStageTwo([PDF, XLSX], second, bars)).toEqual({ skill: PDF, detail: '' })
+  expect(readStageTwo([PDF, XLSX], second, { ...bars, fits: 0.5 })).toEqual({ skill: null, detail: '最合适的 fits 只有 0.40，低于 0.50' })
+  expect(pickMany([PDF, XLSX], second.ok ? second.answers : {}, 0.5)).toEqual([])
+})
+
+test('findSkillReply 的几种回答', () => {
+  const found = findSkillReply('pdf form', [PDF, GSAP], null)
+  expect(found).toContain('pdf: ' + PDF.description)
+  expect(found).toContain('- gsap-core')
+  expect(found).toContain('Skill tool')
+  const none = findSkillReply('pdf form', [], null)
+  expect(none).toContain('pdf form')
+  expect(none).not.toContain('did not run')
+  expect(findSkillReply('pdf form', [], 'timeout')).toContain('did not run')
+  expect(findSkillReply('', [], null)).toContain('a few words')
+})
+
+// Beyond the brief's twelve: the two parts of one answer stand apart.
+
+test('skill 的部分不能用（缺 skill_0）：不推荐，effort 的决定照常', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 }, drop: ['skill_0'] }) })
+  await sendWithListing($, w)
+
+  expect(w.fetched).toHaveLength(1)
+  expect(w.submitted[0]!.context).toBeUndefined()
+  expect(efforts(w)).toEqual(['high'])
+  expect(submitDecisions(w)[0]).toMatchObject({ to: 'high', failure: null, applied: true })
+  const d = skillDecisions(w)[0]!
+  expect(d).toMatchObject({ to: null, applied: false })
+  expect(d.detail).not.toBe('')
+})
+
+test('effort 的部分不能用（缺 open）：effort 放行，skill 照样推荐', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 }, drop: ['open'] }) })
+  await sendWithListing($, w)
+
+  expect(w.fetched).toHaveLength(2)
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(efforts(w)).toEqual(['medium'])
+  expect(submitDecisions(w)[0]).toMatchObject({ failure: 'bad-answer', from: 'medium', to: 'medium', applied: false, raw: null })
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, failure: null })
+})
+
+test('submitShift 关着、skills 开着：请求里只有 skill 题，不留 effort 判断', { options: { ...KEYS, submitShift: false } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 } }) })
+  await sendWithListing($, w)
+
+  expect(Object.keys(w.fetched[0]!.body.questions)).toEqual(['skill_0', ...GATE_IDS])
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(efforts(w)).toEqual(['medium'])
+  expect(submitDecisions(w)).toHaveLength(0)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, turnId: 't1' })
+})
+
+test('第一次请求失败：不推荐，记一条失败的 skill 决定', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($) })
+  await sendWithListing($, w)
+
+  expect(w.fetched).toHaveLength(1)
+  expect(w.submitted[0]!.context).toBeUndefined()
+  expect(skillDecisions(w)[0]).toMatchObject({ kind: 'skill', to: null, failure: 'http', applied: false, raw: null, turnId: 't1' })
+  expect(submitDecisions(w)[0]).toMatchObject({ failure: 'http' })
+})
+
+test('第二次请求用的是剩下的时间：到点按超时记', { options: KEYS }, async ($, on) => {
+  const late: { clock: MockClock | null } = { clock: null }
+  const answer = answering({ gates: WANTED, first: { pdf: 0.6 } })
+  const w = world(on, {
+    onSubmit: turns($),
+    answer: async (req) => {
+      await late.clock!.sleep('which' in req.body.questions ? 60_000 : 3000)
+      return answer(req)
+    },
   })
+  late.clock = w.clock
+  await start($)
+  await attach($, listingOf(FIVE))
+  const sent = submit($, TASK)
+  await w.clock.settle()
+  await w.clock.advance(3000)
+  await w.clock.settle()
+  await w.clock.advance(1000)
+  await sent
+
+  expect(w.fetched).toHaveLength(2)
+  expect(w.submitted[0]!.context).toBeUndefined()
+  expect(skillDecisions(w)[0]).toMatchObject({ to: null, failure: 'timeout', applied: false, ms: 4000 })
 })
 
-// The decision module's skills interface: what the eval (#16) imports to
-// build the mod's request and to read an answer the way the mod does
-// (seam 2's code side; pure, no network).
+test('shadow：列表没有收起；发消息时照样问 skill 题、记下 skill 决定（未执行），不加推荐', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6, 'anthropic-skills:xlsx': 0.2, 'cloudflare:wrangler': 0.1 }, which: 'pdf', fits: { pdf: 0.9 } }) })
+  await sendWithListing($, w)
 
-const OPTIONS: SkillOption[] = [
-  { name: 'pr', description: 'Use when writing a PR body.', by: 'model' },
-  { name: 'code-review', description: 'Review the changes since a fixed point.', by: 'model' },
-  { name: 'grill-me', description: 'Interview the user relentlessly about a plan.', by: 'person' },
-  { name: 'ship', description: 'Cut a release.', by: 'person' },
-]
-
-test("stage one's questions: a Choice over the skills the main agent can load, one over those only the person can start, each with two or more, and the gate unless left out; no skill, no part", () => {
-  const part = skillsPart(OPTIONS)
-  const criteria = (id: string) => {
-    const question = part?.questions[id]
-    return question?.type === 'choice' ? question.criteria : {}
-  }
-  expect(Object.keys(part?.questions ?? {})).toEqual(['which', 'hint', 'gate.acts_on_user_system', 'gate.would_follow_documented_procedure', 'gate.prose_suffices', 'named'])
-  expect(criteria('which')).toEqual({ pr: 'Use when writing a PR body.', 'code-review': 'Review the changes since a fixed point.' })
-  expect(Object.keys(criteria('hint'))).toEqual(['grill-me', 'ship'])
-  // find_skill's: no gate, no `named`.
-  expect(Object.keys(skillsPart(OPTIONS, { gate: false })?.questions ?? {})).toEqual(['which', 'hint'])
-  // One skill of a kind: no Choice over it.
-  expect(Object.keys(skillsPart(OPTIONS.slice(0, 3), { gate: false })?.questions ?? {})).toEqual(['which'])
-  expect(skillsPart([OPTIONS[0] as SkillOption], { gate: false })).toBeNull()
-  expect(skillsPart([])).toBeNull()
+  expect(w.fetched).toHaveLength(2)
+  expect(Object.keys(w.fetched[0]!.body.questions)).toEqual(['open', 'mechanical', 'unknown_cause', 'skill_0', ...GATE_IDS])
+  expect(w.submitted[0]!.context).toBeUndefined()
+  expect(submitDecisions(w)[0]).toMatchObject({ to: 'high', applied: false })
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: false, turnId: 't1' })
 })
 
-test('a Choice takes at most 255 options, and past its budget every description is cut to the same length, the most that fits', () => {
-  const many: SkillOption[] = Array.from({ length: 300 }, (_, i) => ({ name: `skill-${i}`, description: `Skill number ${i}. ${'It does a great many things. '.repeat(20)}`, by: 'model' }))
-  const whole = skillsPart(many, { gate: false })?.questions.which
-  const names = whole?.type === 'choice' ? Object.keys(whole.criteria) : []
-  expect(names).toHaveLength(255)
-  expect(names.at(-1)).toBe('skill-254')
-  const cut = skillsPart(many, { gate: false, budget: 8000 })?.questions.which
-  const texts = cut?.type === 'choice' ? Object.values(cut.criteria) : []
-  expect(texts).toHaveLength(255)
-  expect(JSON.stringify(cut).length).toBeLessThan(JSON.stringify(whole).length)
-  expect(String(texts[0]).startsWith('Skill number 0.')).toBe(true)
+test('find-skill：还没有候选时不发请求，照实回答', { options: KEYS }, async ($, on) => {
+  const w = world(on, { answer: answering({}) })
+  await start($)
+  const r = await findSkill($, 'Query: pdf form')
+  expect(w.fetched).toHaveLength(0)
+  expect(r.text).toBe(NO_CANDIDATES_REPLY)
+  expect(r.text).not.toContain('No skill in this session fits')
 })
 
-test("the gate reads as the mean of its three answers, prose_suffices turned round, with `named` apart (null when it did not come back); none of the three answered, no reading", () => {
-  const noul = (p: number) => ({ type: 'noul' as const, noul: p })
-  const three = { 'gate.acts_on_user_system': noul(0.9), 'gate.would_follow_documented_procedure': noul(0.6), 'gate.prose_suffices': noul(0.3) }
-  const gate = readGate({ ...three, named: noul(0.4) })
-  expect(Math.abs((gate?.mean ?? 0) - (0.9 + 0.6 + 0.7) / 3)).toBeLessThan(1e-9)
-  expect(gate?.values).toEqual({ acts_on_user_system: 0.9, would_follow_documented_procedure: 0.6, prose_suffices: 0.3 })
-  expect(gate?.named).toBe(0.4)
-  expect(readGate(three)?.named).toBeNull()
-  expect(readGate({ named: noul(0.9) })).toBeNull()
-  expect(readGate({})).toBeNull()
+test('别的 plugin 的 find-skill：原样放行', { options: KEYS }, async ($, on) => {
+  const w = world(on, { answer: answering({}) })
+  await start($)
+  await attach($, listingOf(FIVE))
+  const r = await findSkill($, 'Query: pdf form', 'someone-else')
+  expect(r.text).toBe('Query: pdf form')
+  expect(w.fetched).toHaveLength(0)
 })
 
-test("the cookbook's needs_skill (ADR 0021): either reason is enough, a value on a bar counts; TypeSafe's bars 0.30 and 0.50, Liquid's clear no below 0.2 for both; a `named` that did not come back is no reason", () => {
-  const gate = (mean: number, named: number | null) => ({ mean, values: {}, named })
-  const typesafe = TYPESAFE_GUIDE.skills
-  const liquid = LIQUID_GUIDE.skills
-  expect([gate(0.3, 0), gate(0.29, 0.5), gate(0.29, 0.49), gate(0.29, null)].map((one) => wantsSkill(one, typesafe))).toEqual([true, true, false, false])
-  expect([gate(0.2, 0), gate(0.19, 0.2), gate(0.19, 0.19), gate(0.19, null)].map((one) => wantsSkill(one, liquid))).toEqual([true, true, false, false])
+test('消息被丢掉：推荐不算数，skill 决定在 prompt.submit 里记下，没有轮；之后同样文字的 turn.start 不再记', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: () => ({ drop: 'blocked by a hook' }), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 } }) })
+  await start($)
+  await attach($, listingOf(FIVE))
+  const r = await submit($, TASK)
+
+  expect(r.drop).toBe('blocked by a hook')
+  // The suggestion went down with the message; the message did not go in.
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: false, turnId: null, step: 0 })
+  // The judgement was recorded once: a turn.start with the same text finds nothing held.
+  await turnStart($, 't1', TASK)
+  expect(skillDecisions(w)).toHaveLength(1)
 })
 
-test("the reason says the gate's mean and `named` against their bars, each guide's; without a `named` answer, the mean alone, as before ADR 0021", () => {
-  const stopped = (named: number | null): SkillRanking => ({ gate: { mean: 0.02, values: {}, named }, shortlist: [], hints: [], fits: [], winner: null, hintWinner: null, shares: {}, stopped: 'gate' })
-  expect(describeStages(stopped(null), TYPESAFE_GUIDE.skills)).toBe('要不要 skill 0.02（低于 0.30 不推荐）')
-  expect(describeStages(stopped(0.12), TYPESAFE_GUIDE.skills)).toBe('要不要 skill 0.02、点名方法 0.12（两项分别低于 0.30、0.50 才不推荐）')
-  expect(describeStages(stopped(0.12), LIQUID_GUIDE.skills)).toBe('要不要 skill 0.02、点名方法 0.12（两项分别低于 0.20、0.20 才不推荐）')
+// F1 (live run on 2.1.328): prompt.submit's next(e) returns once turn.start's hook has started, before it has finished.
+// The judgement stays held until the turn.start of its text records it, whenever that hook starts or finishes.
+
+const ONLY_PDF = { gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 } }
+
+test('next(e) 返回之后才有 turn.start：prompt.submit 不记，skill 决定等到这一轮才记，带它的 id', { options: KEYS }, async ($, on) => {
+  const w = world(on, { answer: answering(ONLY_PDF) })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(skillDecisions(w)).toHaveLength(0)
+  await turnStart($, 't1', TASK)
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, turnId: 't1', step: 0 })
 })
 
-/** A ranking as stage two leaves it. */
-function ranking(fits: { name: string; fit: number; by?: 'model' | 'person' }[], winner: string | null, hintWinner: string | null = null): SkillRanking {
-  return {
-    gate: { mean: 0.8, values: {}, named: null },
-    shortlist: [],
-    hints: [],
-    fits: fits.map((fit) => ({ name: fit.name, fit: fit.fit, by: fit.by ?? 'model' })),
-    winner,
-    hintWinner,
-    shares: {},
-  }
+test('turn.start 在 next(e) 里开始、在它返回之后才完（实测的顺序）：skill 决定记在这一轮上，只记一次', { options: KEYS }, async ($, on) => {
+  // The engine's prompt.submit answers without waiting for the turn.start it raised.
+  const raised: { turn: Promise<unknown> | null } = { turn: null }
+  const w = world(on, {
+    answer: answering(ONLY_PDF),
+    onSubmit: (e) => {
+      raised.turn = turnStart($, 't1', e.text)
+      return undefined
+    },
+  })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+  await raised.turn
+
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, turnId: 't1', step: 0 })
+})
+
+test('turn.start 在 next(e) 里开始也完：skill 决定照样记在这一轮上，只记一次', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering(ONLY_PDF) })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, turnId: 't1', step: 0 })
+})
+
+test('一条消息的判断没有轮来取，下一条消息的判断放下时先记它（没有轮、未执行），下一条由它自己的轮记', { options: KEYS }, async ($, on) => {
+  const w = world(on, { answer: answering(ONLY_PDF) })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+  expect(skillDecisions(w)).toHaveLength(0)
+
+  const OTHER = 'Merge the two PDF files in ~/Downloads into one'
+  await submit($, OTHER)
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: false, turnId: null })
+  await turnStart($, 't2', OTHER)
+  expect(skillDecisions(w).map((d) => [d.turnId, d.applied])).toEqual([
+    [null, false],
+    ['t2', true],
+  ])
+})
+
+test('没有轮来取的判断在下一次 prompt.submit 开始时记下并放掉，那条消息没有自己的判断也一样：同样文字的轮不会拿走它', { options: KEYS }, async ($, on) => {
+  const w = world(on, { answer: answering(ONLY_PDF) })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+  expect(skillDecisions(w)).toHaveLength(0)
+
+  // The same text again, from where nothing is judged: no judgement of its own (a failed ask still is one).
+  await submit($, TASK, { kind: 'task-notification' })
+  expect(w.fetched).toHaveLength(2)
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: false, turnId: null })
+  await turnStart($, 't2', TASK)
+  expect(skillDecisions(w)).toHaveLength(1)
+})
+
+test('记那条没有轮来取的判断时写不进去：新的判断照样放下，由它的轮记', { options: KEYS }, async ($, on) => {
+  // The first write of the log is refused, so the mod's $.store.set rejects for the stale Decision.
+  const refusals = { left: 1 }
+  const w = world(on, {
+    answer: answering(ONLY_PDF),
+    refuseStoreSet: (e) => {
+      if (e.key !== 'log' || refusals.left === 0) return false
+      refusals.left -= 1
+      return true
+    },
+  })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+
+  const OTHER = 'Merge the two PDF files in ~/Downloads into one'
+  await submit($, OTHER)
+  expect(refusals.left).toBe(0)
+  expect(skillDecisions(w)).toHaveLength(0)
+  await turnStart($, 't2', OTHER)
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, turnId: 't2' })
+})
+
+test('锁定时只问 skill 题', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 } }) })
+  await start($)
+  await dp($, 'lock high')
+  await sendWithListing($, w)
+
+  expect(Object.keys(w.fetched[0]!.body.questions)).toEqual(['skill_0', ...GATE_IDS])
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(efforts(w)).toEqual(['high'])
+  expect(submitDecisions(w)).toHaveLength(0)
+})
+
+// Final review I4.
+
+test('find-skill 没查成时的回答：照实说，再列出候选和说明；太长时截短说明，再长只列名字，总在预算之内', () => {
+  const small = searchFailedReply('pdf form', 'timeout', FIVE)
+  expect(small.split('\n')[0]).toContain('The skill search for "pdf form" did not run: the decision model did not answer in time.')
+  expect(small).toContain('- pdf: ' + PDF.description)
+  expect(small).toContain('- gsap-core')
+  // 169 skills with long descriptions: each description cut to a share, the whole within the budget.
+  const many = Array.from({ length: 169 }, (_, i) => ({ name: 'plugin-' + i + ':skill-' + i, description: 'Use this when the work needs ' + 'a very particular procedure '.repeat(12) + i }))
+  const cut = searchFailedReply('pdf form', 'http', many)
+  expect(estimateTokens(cut)).toBeLessThanOrEqual(SEARCH_FAILED_BUDGET)
+  expect(cut).toContain('descriptions shortened')
+  for (const s of many) expect(cut).toContain('- ' + s.name + ': Use this when')
+  // So many that even a short share does not fit: names only, and still within the budget.
+  const huge = Array.from({ length: 900 }, (_, i) => ({ name: 'some-plugin:skill-number-' + i, description: 'Does a thing.' }))
+  const names = searchFailedReply('pdf form', 'network', huge)
+  expect(estimateTokens(names)).toBeLessThanOrEqual(SEARCH_FAILED_BUDGET)
+  expect(names).toContain('names only')
+  expect(names).toContain('- some-plugin:skill-number-0\n')
+  expect(names).not.toContain('Does a thing.')
+  // No candidate recorded: the reply says the search did not run, and lists nothing.
+  expect(searchFailedReply('pdf form', 'network', [])).toBe(findSkillReply('pdf form', [], 'network'))
+})
+
+/** The session's first message, sent before any listing came (measured: the listing follows the first prompt.submit). */
+async function firstMessageThenListing($: Engine) {
+  await start($)
+  await submit($, TASK)
+  return attach($, listingOf(FIVE))
 }
 
-test("what a ranking suggests: the Choice's pick when the best fit of its kind reaches the guide's bar (TypeSafe's ≥ 0.30, Liquid's > 0.5), one of each kind at most", () => {
-  const read = ranking(
-    [
-      { name: 'pr', fit: 0.73 },
-      { name: 'code-review', fit: 0.38 },
-      { name: 'grill-me', fit: 0.5, by: 'person' },
-    ],
-    'code-review',
-    'grill-me',
-  )
-  expect(pickSkills(read, OPTIONS, TYPESAFE_GUIDE.skills)).toEqual({
-    suggest: [{ ...(OPTIONS[1] as SkillOption), relevance: 0.38 }],
-    hint: [{ ...(OPTIONS[2] as SkillOption), relevance: 0.5 }],
-  })
-  // Liquid's bar must be passed: the person's best fit of 0.5 is not enough.
-  expect(pickSkills(read, OPTIONS, LIQUID_GUIDE.skills).hint).toEqual([])
-  expect(pickSkills(read, OPTIONS, LIQUID_GUIDE.skills).suggest.map((skill) => skill.name)).toEqual(['code-review'])
-  // On the bar: TypeSafe's counts it, Liquid's does not.
-  const onBar = ranking([{ name: 'pr', fit: 0.3 }], 'pr')
-  expect(pickSkills(onBar, OPTIONS, TYPESAFE_GUIDE.skills).suggest.map((skill) => skill.name)).toEqual(['pr'])
-  expect(pickSkills(ranking([{ name: 'pr', fit: 0.5 }], 'pr'), OPTIONS, LIQUID_GUIDE.skills).suggest).toEqual([])
-  expect(pickSkills(ranking([{ name: 'pr', fit: 0.29 }], 'pr'), OPTIONS, TYPESAFE_GUIDE.skills).suggest).toEqual([])
-  // Stopped by the gate, or stage two failed: nothing.
-  expect(pickSkills({ ...read, stopped: 'gate' }, OPTIONS, TYPESAFE_GUIDE.skills)).toEqual({ suggest: [], hint: [] })
-  expect(pickSkills({ ...read, failed: { kind: 'timeout', detail: 'late' } }, OPTIONS, TYPESAFE_GUIDE.skills)).toEqual({ suggest: [], hint: [] })
+const SUGGESTS_PDF = { gates: WANTED, first: { pdf: 0.6, 'anthropic-skills:xlsx': 0.2, 'cloudflare:wrangler': 0.1 }, which: 'pdf', fits: { pdf: 0.9 } }
+
+test('会话的第一份列表在第一条消息之后才到：到时判断这条消息，推荐接在收起的那句话后面，记在这一轮上', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering(SUGGESTS_PDF) })
+  const r = await firstMessageThenListing($)
+
+  // At submit no candidate was recorded: the message's request asked the effort questions only.
+  expect(Object.keys(w.fetched[0]!.body.questions)).toEqual(['open', 'mechanical', 'unknown_cause'])
+  expect(w.submitted[0]!.context).toBeUndefined()
+  // At the listing: the two skill requests on that turn's message, as at submit.
+  expect(w.fetched).toHaveLength(3)
+  expect(Object.keys(w.fetched[1]!.body.questions)).toEqual(['skill_0', ...GATE_IDS])
+  expect(w.fetched[1]!.body.state.request).toBe(TASK)
+  expect(Object.keys(w.fetched[2]!.body.questions)).toEqual(['which', 'fits_0', 'fits_1', 'fits_2'])
+  expect(r.text).toBe(LISTING_NOTE + '\n\n' + suggestionBlock(PDF))
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ kind: 'skill', to: 'pdf', applied: true, turnId: 't1', failure: null })
+
+  // Once per turn: a later listing in the same turn (a skill added) only folds.
+  const again = await attach($, listingOf([{ name: 'new-skill', description: 'Added mid-session.' }]))
+  expect([again.text, w.fetched.length, skillDecisions(w).length]).toEqual([LISTING_NOTE, 3, 1])
 })
 
-test('what find_skill returns: every candidate the main agent can load whose fit reaches the bar, the best first, at most its most', () => {
-  const read = { ...ranking([{ name: 'code-review', fit: 0.38 }, { name: 'pr', fit: 0.73 }, { name: 'grill-me', fit: 0.99, by: 'person' }], 'pr'), shares: { pr: 0.5, 'code-review': 0.5 } }
-  expect(findSkills(read, OPTIONS, TYPESAFE_GUIDE.skills, 5).map((skill) => [skill.name, skill.relevance])).toEqual([
-    ['pr', 0.73],
-    ['code-review', 0.38],
-  ])
-  expect(findSkills(read, OPTIONS, LIQUID_GUIDE.skills, 5).map((skill) => skill.name)).toEqual(['pr'])
-  expect(findSkills(read, OPTIONS, TYPESAFE_GUIDE.skills, 1).map((skill) => skill.name)).toEqual(['pr'])
+test('到时判断：不推荐时只有收起的那句话；下一轮的消息在发出时判断，之后的列表只收起', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: NOT_WANTED }) })
+  const r = await firstMessageThenListing($)
+  expect([r.text, skillDecisions(w).length, skillDecisions(w)[0]?.to]).toEqual([LISTING_NOTE, 1, null])
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+  await complete($, 't1')
+  // The next turn's message is judged at its own submit (candidates are there now): no second look at a listing.
+  await submit($, 'And the second form too')
+  expect(Object.keys(w.fetched.at(-1)!.body.questions)).toEqual(['open', 'mechanical', 'unknown_cause', 'continues', 'skill_0', ...GATE_IDS])
+  const n = w.fetched.length
+  expect((await attach($, listingOf([PDF]))).text).toBe(LISTING_NOTE)
+  expect(w.fetched).toHaveLength(n)
 })
 
-test("the block beside a message is the cookbook's suggestion_block: the one skill, described the first time, or that none appears relevant", () => {
-  const pick = { ...(OPTIONS[0] as SkillOption), relevance: 0.8 }
-  expect(relevanceBlock(pick)).toBe(suggested('pr', 'Use when writing a PR body.'))
-  expect(relevanceBlock(pick, new Set(['pr']))).toBe(suggested('pr'))
-  expect(relevanceBlock(null)).toBe(NONE_BLOCK)
+test('到时判断的请求失败：照常收起，记下一条失败的 skill 决定', { options: KEYS }, async ($, on) => {
+  const answer = answering({ gates: WANTED })
+  const w = world(on, { onSubmit: turns($), answer: (req) => ('open' in req.body.questions ? answer(req) : null) })
+  const r = await firstMessageThenListing($)
+  expect(r.text).toBe(LISTING_NOTE)
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: null, failure: 'network', turnId: 't1', applied: false })
 })
 
-test("stage two reads the opening of a SKILL.md as the cookbook's body[:700]: the frontmatter off, whitespace collapsed, 700 characters", () => {
-  const body = 'word '.repeat(400)
-  const opening = skillOpening(`---\nname: x\ndescription: y\n---\n\n# Title\n\n${body}`)
-  expect(opening.startsWith('# Title word word')).toBe(true)
-  expect(Array.from(opening)).toHaveLength(EXCERPT_CHARS)
-  expect(skillOpening('---\nname: x\n---\n')).toBe('')
+test('到时判断：shadow 不做（列表原样、候选记下，不发 skill 请求）', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering(SUGGESTS_PDF) })
+  const r = await firstMessageThenListing($)
+  expect(r.text).toBe(listingOf(FIVE))
+  expect(skillWrites(w)).toEqual([FIVE])
+  expect(w.fetched).toHaveLength(1)
+  expect(skillDecisions(w)).toHaveLength(0)
 })
 
-test('the gate and `named` below their bars stop the ranking before stage two: nothing more is sent; find_skill asks neither and re-reads as many as it may return', async () => {
-  let sent = 0
-  const io = { ask: async () => ((sent += 1), { ok: false as const, failure: { kind: 'timeout' as const, detail: 'not sent' } }), opening: async () => null }
-  const noul = (p: number) => ({ type: 'noul' as const, noul: p })
-  const message = modRanker(io, { gate: true, shortlist: 3, timeoutMs: 1000, bars: TYPESAFE_GUIDE.skills })
-  const low = { 'gate.acts_on_user_system': noul(0.1), 'gate.would_follow_documented_procedure': noul(0.2), 'gate.prose_suffices': noul(0.9) }
-  // `named` missing (an answer from before ADR 0021, or one left out) is no reason: the mean decides alone.
-  const stopped = await message.rank(low, OPTIONS, { state: {} })
-  expect(stopped?.stopped).toBe('gate')
-  expect(stopped?.gate?.named).toBeNull()
-  expect((await message.rank({ ...low, named: noul(0.3) }, OPTIONS, { state: {} }))?.stopped).toBe('gate')
-  expect(sent).toBe(0)
-  // A named method is enough on its own: stage two is asked.
-  const which = { type: 'choice' as const, choice: 'pr', probabilities: { pr: 0.9, 'code-review': 0.1 }, confidence: 0.9 }
-  const hint = { type: 'choice' as const, choice: 'ship', probabilities: { 'grill-me': 0.4, ship: 0.6 }, confidence: 0.2 }
-  expect((await message.rank({ ...low, named: noul(0.8), which, hint }, OPTIONS, { state: {} }))?.stopped).toBeUndefined()
-  expect(sent).toBe(1)
-  // No gate answered where it was asked: no ranking.
-  expect(await message.rank({ which: { type: 'choice', choice: 'pr', probabilities: { pr: 1, 'code-review': 0 }, confidence: 1 } }, OPTIONS, { state: {} })).toBeNull()
-  const find = modRanker(io, { gate: false, shortlist: 5, timeoutMs: 1000, bars: TYPESAFE_GUIDE.skills })
-  expect(Object.keys(find.part(OPTIONS)?.questions ?? {})).toEqual(['which', 'hint'])
-  const failed = await find.rank({ which: { type: 'choice', choice: 'pr', probabilities: { pr: 0.9, 'code-review': 0.1 }, confidence: 0.9 }, hint: { type: 'choice', choice: 'ship', probabilities: { 'grill-me': 0.4, ship: 0.6 }, confidence: 0.2 } }, OPTIONS, { state: {} })
-  expect(failed?.shortlist.map((entry) => entry.name)).toEqual(['pr', 'code-review'])
-  expect(failed?.failed?.kind).toBe('timeout')
-  expect(sent).toBe(2)
+test('到时判断只给人发的消息：别的来源开始的一轮，列表到时只收起', { options: KEYS }, async ($, on) => {
+  const w = world(on, { answer: answering(SUGGESTS_PDF) })
+  await start($)
+  await submit($, 'A background task finished.', { kind: 'task-notification' })
+  await turnStart($, 't1', 'A background task finished.')
+  const r = await attach($, listingOf(FIVE))
+  expect([r.text, w.fetched.length, skillDecisions(w).length]).toEqual([LISTING_NOTE, 0, 0])
+})
+
+// Final review G2: a skill Decision keeps what a person can read: the yes-or-no answers, and of each choice the picked
+// option and the five likeliest (a real listing has 169 options per choice).
+test('skill 决定的 raw：是非题全留，每道选择题只留选中的和概率最高的五个（G2）', { options: KEYS }, async ($, on) => {
+  const many = Array.from({ length: 40 }, (_, i) => ({ name: 'skill-' + i, description: 'Does thing ' + i }))
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates: WANTED, first: { 'skill-3': 0.5, 'skill-7': 0.2, 'skill-9': 0.1 }, which: 'skill-3', fits: { 'skill-3': 0.9 } }) })
+  await sendWithListing($, w, many)
+  const raw = skillDecisions(w)[0]!.raw as Record<string, { type: string; choice?: string; probabilities?: Record<string, number> }>
+  expect(Object.keys(raw)).toEqual(['skill_0', ...GATE_IDS, 'which', 'fits_0', 'fits_1', 'fits_2'])
+  expect(raw.skill_0!.choice).toBe('skill-3')
+  expect(Object.keys(raw.skill_0!.probabilities!)).toHaveLength(5)
+  expect(Object.keys(raw.skill_0!.probabilities!).slice(0, 3)).toEqual(['skill-3', 'skill-7', 'skill-9'])
+  for (const id of [...GATE_IDS, 'fits_0']) expect(raw[id]!.type).toBe('noul')
+  // A pick outside the five likeliest is kept beside them.
+  const probabilities = { a: 0.3, b: 0.2, c: 0.2, d: 0.1, e: 0.1, z: 0.05, y: 0.05 }
+  const first = { ok: true as const, answers: { skill_0: { type: 'choice' as const, choice: 'z', probabilities } }, model: 'drex-max-v1.1', backend: 'drex' as const, ms: 10 }
+  const d = skillDecision({ first, asked: ['skill_0'], second: null, skill: null, detail: '' }, { id: 'x', at: 0, turnId: null, applied: false })
+  expect(d.raw).toEqual({ skill_0: { type: 'choice', choice: 'z', probabilities: { a: 0.3, b: 0.2, c: 0.2, d: 0.1, e: 0.1, z: 0.05 } } })
 })

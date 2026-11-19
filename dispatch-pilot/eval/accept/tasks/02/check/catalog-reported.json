@@ -1,0 +1,38 @@
+{
+  "P-100": {
+    "name": "Pallet wrap, 500 m roll",
+    "tiers": [
+      { "minQty": 1, "unitCents": 800 },
+      { "minQty": 50, "unitCents": 720 },
+      { "minQty": 200, "unitCents": 655 }
+    ]
+  },
+  "T-220": {
+    "name": "Packing tape, 48 mm",
+    "tiers": [
+      { "minQty": 1, "unitCents": 185 },
+      { "minQty": 36, "unitCents": 160 }
+    ]
+  },
+  "C-310": {
+    "name": "Carton 400 x 300 x 200",
+    "tiers": [
+      { "minQty": 1, "unitCents": 95 },
+      { "minQty": 100, "unitCents": 82 },
+      { "minQty": 500, "unitCents": 74 }
+    ]
+  },
+  "L-015": {
+    "name": "Shipping label roll",
+    "tiers": [
+      { "minQty": 1, "unitCents": 1250 }
+    ]
+  },
+  "F-402": {
+    "name": "Foam corner, bag of 40",
+    "tiers": [
+      { "minQty": 1, "unitCents": 640 },
+      { "minQty": 12, "unitCents": 590 }
+    ]
+  }
+}

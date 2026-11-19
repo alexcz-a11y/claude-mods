@@ -1,0 +1,9 @@
+Can you bring our league table script (`python3 -m standings data/results-2031.txt`) in line with what the committee agreed for this season? Five things:
+
+1. Show goals: GF, GA and GD columns (goals for, goals against, goal difference), between L and Pts.
+2. Teams level on points should be separated by goal difference, then by goals scored, and only then by name. At the moment it goes straight to alphabetical.
+3. Walkovers. When a side doesn't turn up, the fixtures secretary wants to enter the line as `Harbour Rovers w/o Millbrook Athletic`, meaning the first-named team is awarded the match. It should go into the table as a 3-0 win for them. She has been leaving those matches out so far because the script won't take the line.
+4. Points deductions. A line `deduct Millbrook Athletic 3` inside a division takes 3 points off that team's total there; the Pts column just shows what is left.
+5. A way to print a single division, e.g. `--division "Division Two"`.
+
+Everything else about the output should stay as it is.

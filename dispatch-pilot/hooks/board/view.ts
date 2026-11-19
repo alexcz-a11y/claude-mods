@@ -1,446 +1,649 @@
-// What the screens show of the board, worked out once (spec #22 「Band」「脚部」):
-// which turn, its agents in the order they started (each with its number for
-// the digit keys, its time on the turn's ribbon and what its status cell
-// says), the turn's events in order, and the one-line summary of a finished
-// turn. The band, the footer and the rationale pane (#30) all draw from a
-// `ScreenView`; none of them reads the board itself.
-//
-// Pure: the board, the log, the time and the switches come in as data and
-// closures (`ScreenInput`). A feature that is off owns nothing here: its
-// decisions, notes and board parts are left out (spec story 34). The log
-// entries of the decision model's fallback are left off the band (#33); the
-// pane shows them.
-//
-// The words are the screens' own (Chinese, GLOSSARY terms); `why` on a node
-// comes in the decision report's words (Chinese too, #32).
+// The board as rows and sections (design 5.14): the timeline above the prompt and the pane beside it, built from a
+// BoardModel alone, and the characters each part is drawn with. Pure: nothing here reads state or touches $, and
+// nothing the model has said is worked out again. board.tsx draws these; each Tone becomes a theme key there.
+import { LEVELS } from '../levels.ts'
+import type { Level } from '../levels.ts'
+import type { BoardModel, Mark, Readout, TrackCell } from './model.ts'
 
-import { failureWords } from '../decision/backend.ts'
-import { isEffort, type Effort } from '../decision/effort.ts'
-import { callWorkflowOf, ENDED_WORDS, type Board, type BoardNode, type BoardNote, type LogEntry, type Model, type Reading, type ReadingChange, type RuleStep } from '../core/report.ts'
-import type { BoardPart } from '../core/switches.ts'
-import { tallyText } from '../decision/visual-check-record.ts'
-import { mmss, pct, pctText, SPIN } from './kit.tsx'
+/** How a stretch of text looks. Only theme keys stand behind them, so the board follows the person's theme. */
+export type Tone = 'plain' | 'dim' | 'ok' | 'warn' | 'err' | 'info' | 'accent' | Level
 
-/** What the screens are drawn from. */
-export type ScreenInput = {
-  board: Board
-  log: readonly LogEntry[]
-  /** `$.clock.now()`, ms. */
-  now: number
-  /** The agent the person picked (`selected` in $.state). */
-  selected: { turn: number; id: string } | null
-  /** Whether Dispatch Pilot as a whole is on. */
-  master: boolean
-  /** Whether a feature is on (its switch name). */
-  isOn: (feature: string) => boolean
-  /** Whether a board part is shown (every feature that owns it is on). */
-  isShown: (part: BoardPart) => boolean
-  /** The engine says a model turn is running (`isWorking` of the band's props). */
-  isWorking: boolean
-  /** Drawn for a surface that redraws every `SLOW_TICK_MS` (all but the terminal): no spinner, ribbons that look ahead. Absent: false. */
-  slow?: boolean
-}
-
-/** How an agent's status cell reads: its tone picks the colour (kit.tsx `STATUS_COLOR`). Not a log entry's `Tone`. */
-export type StatusTone = 'run' | 'done' | 'fail' | 'warn' | 'muted'
-
-/** One agent of the turn, as a row of the band. */
-export type AgentRow = {
-  node: BoardNode
-  /** Its digit key: 0 the main agent, 1-9 the agents in the order they started; null past 9. */
-  key: number | null
-  /** When it started and ended on the turn's time axis, seconds from the turn's start; `to` null: queued, not begun. */
-  from: number
-  to: number | null
-  /** What its status cell says. */
-  status: { tone: StatusTone; text: string }
-  /** The person picked it (`selected`). */
-  selected: boolean
-  /** Its visual_check count for the loop (`核对 3：1 过 · 1 不过 · 1 没把握`); empty while it made none, or the feature is off. */
-  checks: string
-}
-
-/** Something that happened in the turn, at `at` seconds from its start. */
-export type BandEvent = { at: number } & (
-  | { kind: 'decided'; who: string; main: boolean; model?: Model; effort?: Effort; reason: string; ok: boolean }
-  | { kind: 'workflow'; name: string; calls: number; models: Partial<Record<Model, number>>; sentBack: boolean; byLabel: boolean }
-  | { kind: 'raise'; who: string; what: 'model' | 'effort'; from: string; to: string; failed: number; blocked: number }
-  | { kind: 'change'; who: string; from: Reading; to: Reading }
-  | { kind: 'skills'; suggest: { name: string; relevance: number }[]; tried: { name: string; relevance: number }[] }
-  | { kind: 'find'; query: string; found: { name: string; relevance: number }[] }
-  | { kind: 'note'; who: string; feature: string; note: BoardNote['kind']; why: string }
-)
-
-/** The screens' view of the board. */
-export type ScreenView = {
-  /** Dispatch Pilot is switched off: the band shows nothing of it, the footer says so. */
-  off: boolean
-  /** The turn shown (`board.turn`); 0 before the first. */
-  turn: number
-  /** Seconds since that turn started (0 when its start is not known). */
-  elapsed: number
-  /** The turn, or an agent of it, is still going: the full band; else the one-line summary. */
-  live: boolean
-  /** The main agent first, then the agents in the order they started (queued last). */
-  rows: AgentRow[]
-  /** The turn's events, oldest first. */
-  events: BandEvent[]
-  /** How many agents (the main agent left out) run, are done, failed, wait. A Workflow call never started is not counted. */
-  counts: { running: number; done: number; failed: number; queued: number }
-  /** The Workflow agents of the turn: done of all its calls and agents. */
-  workflow: { done: number; total: number } | null
-  /** A finished turn in one line: why the main agent's effort, the skills for the person to try. */
-  summary: { reason: string; tried: string[] }
-  /** A spinner frame for this moment; -1 on a surface that redraws seldom, where a spinner would stand still (`spin`). */
-  frame: number
-  /** Seconds until the next redraw while an agent runs, which a running ribbon grows through by itself: 0 on the terminal, which redraws every frame. */
-  ahead: number
-}
-
-/** The spinner turns one frame each `TICK_MS`; the terminal's screens redraw at that pace while an agent runs. */
-export const TICK_MS = 200
+export type Part =
+  | { t: 'text'; text: string; tone?: Tone; bold?: boolean }
+  | { t: 'pips'; level: Level }
+  | { t: 'track'; cells: readonly TrackCell[]; ahead: number; per?: number }
+  | { t: 'marks'; cells: readonly TrackCell[] }
+  | { t: 'bar'; value: number; tone: Tone; isStrong: boolean }
 
 /**
- * How often the screens redraw on the other surfaces while an agent runs. A redraw gives every Button a new handle,
- * and Desktop sends a press with the handle of the tree it shows: one drawn over meanwhile is lost (`ui_press not
- * handled`, measured on 2.1.299). So no spinner there, and a running ribbon grows by itself up to the next redraw.
+ * One line. Its parts go in groups: a text part that begins with a space begins a group, and the parts after it, up
+ * to the next such part, go with it (a label and its value, one item of a list). A line too wide for its columns
+ * loses its last groups whole (fitRow), never its first, and never half a word or half a wide character.
  */
-export const SLOW_TICK_MS = 5000
+export type Row = { id: string; parts: Part[] }
 
-/**
- * A Workflow call's node, standing for an agent that has not started (`callNodeId`). One written as a template
- * stays once its agents start, marked started, for the agents after them: the screens show those agents, not it.
- */
-function isCallNode(node: BoardNode): boolean {
-  return callWorkflowOf(node.id) !== null
-}
+export type Section = { id: 'now' | 'shifts' | 'last' | 'next' | 'features' | 'agents' | 'skill'; title: string; rows: Row[] }
 
-/** A Workflow not routed as a whole (given by path, an error): one node for all its agents, neither an agent's nor a call's. */
-export function isWholeWorkflow(node: BoardNode): boolean {
-  return node.kind === 'wf' && node.workflow === undefined && !isCallNode(node)
-}
+/** One stretch of a part as drawn: its characters and its look. */
+export type Run = { text: string; tone: Tone; bold?: boolean }
 
-/** A node of the turn still going: running, or waiting to start (a dispatched agent spawned, a decision for a turn about to begin). */
-function active(node: BoardNode): boolean {
-  return node.state === 'running' || (node.state === 'queued' && !isCallNode(node))
-}
+// Two columns: the East Asian Wide and Fullwidth ranges, as terminals draw them. Ambiguous characters (·, →, █, ┄, ◇,
+// ▲, ×, ▮ and the rest the board draws with) are one, as Ink measures them; marks that combine take none.
+const WIDE: readonly (readonly [number, number])[] = [
+  [0x1100, 0x115f],
+  [0x2e80, 0x303e],
+  [0x3041, 0x33ff],
+  [0x3400, 0x4dbf],
+  [0x4e00, 0x9fff],
+  [0xa000, 0xa4cf],
+  [0xa960, 0xa97f],
+  [0xac00, 0xd7a3],
+  [0xf900, 0xfaff],
+  [0xfe10, 0xfe19],
+  [0xfe30, 0xfe6f],
+  [0xff00, 0xff60],
+  [0xffe0, 0xffe6],
+  [0x1f300, 0x1f64f],
+  [0x1f900, 0x1f9ff],
+  [0x20000, 0x3fffd],
+]
+const ZERO: readonly (readonly [number, number])[] = [
+  [0x0000, 0x001f],
+  [0x007f, 0x009f],
+  [0x0300, 0x036f],
+  [0x200b, 0x200f],
+  [0x20d0, 0x20ff],
+  [0xfe00, 0xfe0f],
+]
 
-/**
- * The words a person reads for each feature (an entry's, a note's), the band's and the pane's alike: the GLOSSARY's
- * terms (失败升模型, 兜底, skill 推荐, skill 查询, skill 画像). A feature it lacks is called by its switch name.
- */
-export const FEATURE_WORDS: Readonly<Record<string, string>> = {
-  'main-effort': '主 agent 的 effort',
-  unresolved: '未解决次数',
-  summary: '问题摘要',
-  'dispatched-agents': '派出 agent',
-  'workflow-agents': 'Workflow 里的 agent',
-  'workflow-labels': 'Workflow 兜底',
-  escalation: '失败升模型',
-  'midrun-effort': '中途换档',
-  'midrun-down': '中途降档',
-  'midrun-steps': '按步数再看',
-  'script-results': '脚本返回值',
-  skills: 'skill 推荐',
-  'find-skill': 'skill 查询',
-  'decision-model': '决策模型',
-  'visual-check': '看图核对',
-  'screenshot-takeover': '截图接管',
-  'image-routing': '带图路由',
-}
+const within = (c: number, ranges: readonly (readonly [number, number])[]): boolean => ranges.some(([lo, hi]) => c >= lo && c <= hi)
 
-/** The feature an entry or a note is of: its switch name (`main-effort (agent report)` is main-effort's). */
-export function featureOf(feature: string): string {
-  return feature.split(' ')[0] ?? feature
-}
-
-/** The agent an entry is about: the main agent when it names none. */
-export function agentOf(entry: LogEntry): string {
-  return entry.agent ?? 'main'
-}
-
-export function screenView(input: ScreenInput): ScreenView {
-  const { board, now } = input
-  const frame = input.slow === true ? -1 : Math.floor(now / TICK_MS) % SPIN.length
-  const ahead = input.slow === true ? SLOW_TICK_MS / 1000 : 0
-  const turn = board.turn
-  const startOf = (of: number) => board.starts?.find((start) => start.turn === of)?.at
-  const start = startOf(turn)
-  const elapsed = start === undefined ? 0 : Math.max(0, (now - start) / 1000)
-  const empty = { off: !input.master, turn, elapsed, live: false, rows: [], events: [], counts: { running: 0, done: 0, failed: 0, queued: 0 }, workflow: null, summary: { reason: '', tried: [] }, frame, ahead }
-  if (!input.master) return empty
-  // The turn's agents, and those of earlier turns that still run (a Workflow's outlive the turn that launched it; a
-  // main agent's turn is over when the next starts, whatever its node says); not a call whose agents started (a
-  // template's, kept for its later agents).
-  const nodes = board.nodes.filter((node) => !(isCallNode(node) && node.state !== 'queued') && (node.turn === turn || (node.turn < turn && node.id !== 'main' && active(node))))
-  const main = nodes.find((node) => node.turn === turn && node.id === 'main')
-  const log = input.log.filter((entry) => entry.turn === turn && entry.feature !== 'decision-model')
-  const mainEntries = log.filter((entry) => agentOf(entry) === 'main')
-  // Where a node sits on this turn's time axis: its own turn's start may be earlier.
-  const shift = (node: BoardNode) => {
-    const own = startOf(node.turn)
-    return own === undefined || start === undefined ? 0 : (own - start) / 1000
+/** The columns a string takes on a terminal. */
+export function displayWidth(s: string): number {
+  let w = 0
+  for (const ch of s) {
+    const c = ch.codePointAt(0) ?? 0
+    if (within(c, ZERO)) continue
+    w += within(c, WIDE) ? 2 : 1
   }
-  const placed = nodes.map((node) => {
-    const began = node.t0 + shift(node)
-    const from = Math.max(0, began)
-    const to = node.state === 'queued' ? null : node.dur !== undefined ? Math.max(from, began + node.dur) : node.state === 'running' ? Math.max(from, elapsed) : from
-    // How long a running agent has run: from its own start, which an earlier turn's agent has before this turn's axis begins.
-    const ran = Math.max(0, elapsed - began)
-    return { node, from, to, ran }
-  })
-  const others = placed
-    .filter(({ node }) => node.id !== 'main')
-    .sort((a, b) => Number(a.node.state === 'queued') - Number(b.node.state === 'queued') || Number(isCallNode(a.node)) - Number(isCallNode(b.node)) || a.from - b.from || (a.node.id < b.node.id ? -1 : 1))
-  const ordered = [...placed.filter(({ node }) => node.id === 'main'), ...others]
-  const isPicked = (node: BoardNode) => input.selected !== null && input.selected.turn === node.turn && input.selected.id === node.id
-  const counts = input.isShown('counts')
-  const shownChecks = input.isShown('checks')
-  const rows: AgentRow[] = ordered.map(({ node, from, to, ran }, i) => ({
-    node,
-    key: node.id === 'main' ? 0 : main === undefined ? (i + 1 <= 9 ? i + 1 : null) : i <= 9 ? i : null,
-    from,
-    to,
-    status: node.id === 'main' ? mainStatus(node, mainEntries, input) : agentStatus(node, ran, counts, input),
-    selected: isPicked(node),
-    checks: shownChecks && node.visualChecks !== undefined ? tallyText(node.visualChecks) : '',
-  }))
-  const agents = nodes.filter((node) => node.id !== 'main')
-  const counted = agents.filter((node) => !(isCallNode(node) && node.state === 'queued'))
-  const flows = agents.filter((node) => node.workflow !== undefined)
-  return {
-    off: false,
-    turn,
-    elapsed,
-    live: input.isWorking || nodes.some(active),
-    rows,
-    events: eventsOf(board, log, nodes, input),
-    counts: {
-      running: counted.filter((node) => node.state === 'running').length,
-      done: counted.filter((node) => node.state === 'done').length,
-      failed: counted.filter((node) => node.state === 'failed').length,
-      queued: counted.filter((node) => node.state === 'queued').length,
-    },
-    workflow: flows.length === 0 ? null : { done: flows.filter((node) => node.state === 'done' || node.state === 'failed').length, total: flows.length },
-    summary: summaryOf(main, mainEntries, log, input),
-    frame,
-    ahead,
+  return w
+}
+
+/** A probability bar's length at 1. */
+const BAR_CELLS = 18
+/** The most dashes drawn before the next evaluation's mark. */
+const AHEAD_MAX = 6
+const MARK_GLYPH: Record<Mark, string> = { up: '▲', down: '▼', fail: '×', hold: '·' }
+
+const cellTone = (c: TrackCell): Tone => c.sent ?? c.level
+
+// Neighbours that look alike are drawn as one stretch.
+function joined(runs: Run[]): Run[] {
+  const out: Run[] = []
+  for (const r of runs) {
+    if (r.text === '') continue
+    const last = out.at(-1)
+    if (last !== undefined && last.tone === r.tone && last.bold === r.bold) out[out.length - 1] = { ...last, text: last.text + r.text }
+    else out.push(r)
+  }
+  return out
+}
+
+/** The characters a part is drawn with on the terminal, and how each stretch looks (the brief's table). */
+export function runsOf(p: Part): Run[] {
+  switch (p.t) {
+    case 'text':
+      return p.text === '' ? [] : [{ text: p.text, tone: p.tone ?? 'plain', ...(p.bold === true ? { bold: true } : {}) }]
+    case 'pips': {
+      const n = LEVELS.indexOf(p.level) + 1
+      return joined([
+        { text: '▮'.repeat(n), tone: p.level },
+        { text: '▯'.repeat(LEVELS.length - n), tone: 'dim' },
+      ])
+    }
+    case 'track': {
+      const ahead: Run[] = p.ahead > 0 ? [{ text: '┄'.repeat(Math.min(p.ahead, AHEAD_MAX)), tone: 'dim' }, { text: '◇', tone: 'accent' }] : []
+      return joined([...p.cells.map((c): Run => ({ text: '█', tone: cellTone(c) })), ...ahead])
+    }
+    case 'marks':
+      return joined(
+        p.cells.map((c): Run => {
+          if (c.mark === null) return { text: ' ', tone: 'plain' }
+          if (c.mark === 'hold') return { text: MARK_GLYPH.hold, tone: 'dim' }
+          if (c.mark === 'fail') return { text: MARK_GLYPH.fail, tone: 'err' }
+          return { text: MARK_GLYPH[c.mark], tone: cellTone(c) }
+        }),
+      )
+    case 'bar':
+      return [{ text: barText(p.value), tone: p.tone, ...(p.isStrong ? { bold: true } : {}) }]
   }
 }
 
-// ---- status cells ---------------------------------------------------------------
-
-/** How a loop's turn ended, in the board's words (`ENDED_WORDS`, a failed loop's `why`), as the band says it. */
-const ENDED = new Set<string>(Object.values(ENDED_WORDS))
-
-/**
- * Why an agent runs as the engine made it, in a few words: the failed request's kind (the details are the card's),
- * the board's own reason, else a feature that is off or nothing decided for it.
- */
-function notRoutedWhy(node: BoardNode, input: ScreenInput): string {
-  if (node.failure !== undefined) return failureWords(node.failure)
-  if (node.why !== undefined && node.why !== '') return node.why
-  if (node.id === 'main') return input.isOn('main-effort') ? '这一轮没有判断' : '功能已关'
-  if (node.kind === 'wf') return input.isOn('workflow-agents') || input.isOn('workflow-labels') ? '照脚本运行' : '功能已关'
-  return input.isOn('dispatched-agents') ? '没有判断' : '功能已关'
+function barText(value: number): string {
+  const n = Math.round(value * BAR_CELLS)
+  return n >= 1 ? '█'.repeat(n) : '▏'
 }
 
-/** The main agent's cell: how its effort was come to (the latest decision about it), or why it is not routed. */
-function mainStatus(node: BoardNode, entries: readonly LogEntry[], input: ScreenInput): AgentRow['status'] {
-  if (node.locked === true) return { tone: 'run', text: '已锁定' }
-  if (!node.routed) return { tone: 'warn', text: `未路由 · ${notRoutedWhy(node, input)}` }
-  return { tone: 'muted', text: `已决定 · ${mainReason(entries, input) || '照计划'}` }
-}
-
-/** An agent's cell: failed and why, not routed and why, how long it has run (`ran`, seconds) or ran, queued; its failed calls and step-ups after. */
-function agentStatus(node: BoardNode, ran: number, showCounts: boolean, input: ScreenInput): AgentRow['status'] {
-  const extra = showCounts && node.counts !== undefined ? countsText(node.counts) : ''
-  if (node.state === 'failed') return { tone: 'fail', text: node.why !== undefined && ENDED.has(node.why) ? `失败 · ${node.why}` : '失败' }
-  if (!node.routed && node.state !== 'queued') return { tone: 'warn', text: `未路由 · ${notRoutedWhy(node, input)}${extra}` }
-  if (node.state === 'queued') return { tone: 'muted', text: node.routed || (node.why === undefined && node.failure === undefined) ? '排队' : `排队 · 未路由 · ${notRoutedWhy(node, input)}` }
-  if (node.state === 'running') return { tone: 'run', text: `运行 ${mmss(ran)}${extra}` }
-  return { tone: 'done', text: `完成 ${mmss(node.dur ?? 0)}${extra}` }
-}
-
-/** A loop's counts in a few words: ` · 失败 2 · 拦截 1 · 升模型 1`, the zero ones left out. */
-function countsText(counts: NonNullable<BoardNode['counts']>): string {
-  return [counts.failed > 0 ? `失败 ${counts.failed}` : '', counts.blocked > 0 ? `拦截 ${counts.blocked}` : '', counts.raised > 0 ? `升模型 ${counts.raised}` : '']
-    .filter((part) => part !== '')
-    .map((part) => ` · ${part}`)
+/** A row's characters, its parts' runs joined (what the tests read). */
+export function rowText(row: Row): string {
+  return row.parts
+    .flatMap(runsOf)
+    .map((r) => r.text)
     .join('')
 }
 
-/** How the main agent's effort was come to, from the latest decision that set it this turn (a feature that is off is left out). */
-function mainReason(entries: readonly LogEntry[], input: ScreenInput): string {
-  for (const entry of [...entries].reverse()) {
-    const feature = featureOf(entry.feature)
-    if (!input.isOn(feature)) continue
-    if (feature === 'main-effort') return traceReason(entry.trace)
+const partWidth = (p: Part): number => runsOf(p).reduce((w, r) => w + displayWidth(r.text), 0)
+
+/**
+ * The row in its columns: its last groups dropped whole until it fits; the first group stays, whatever its width.
+ * widthOf measures a part in columns: the terminal's characters by default, the Desktop's drawings by their pixels.
+ */
+export function fitRow(row: Row, columns: number, widthOf: (p: Part) => number = partWidth): Row {
+  const groups: Part[][] = []
+  for (const p of row.parts) {
+    const last = groups.at(-1)
+    if (last === undefined || (p.t === 'text' && p.text.startsWith(' '))) groups.push([p])
+    else last.push(p)
   }
-  return ''
+  const kept: Part[] = []
+  let width = 0
+  for (const g of groups) {
+    const w = g.reduce((sum, p) => sum + widthOf(p), 0)
+    if (kept.length > 0 && width + w > columns) break
+    kept.push(...g)
+    width += w
+  }
+  return kept.length === row.parts.length ? row : { ...row, parts: kept }
 }
 
-/** What the board calls each floor of a message's decision (decision/message-effort.ts). */
-const FLOOR_WORDS: Readonly<Record<string, string>> = {
-  ultrathink: 'ultrathink',
-  escalate: '要求多想',
-  confirm: '确认',
-  stakes: '出错代价',
-  'cause-unknown': '原因未知',
-  'stuck-again': '上一轮卡住',
-  'unresolved-count': '未解决次数',
-  unsure: '拿不准',
-  'model-floor': '模型下限',
-}
+// Which of a group's marks is drawn: a failure first, then a shift (the later of an up and a down), then a hold.
+const MARK_RANK: Record<Mark, number> = { fail: 3, up: 2, down: 2, hold: 1 }
 
-/** The rule that settled the level, from the rules' own working (never recomputed): the last floor that lifted it, two peaks, else the position. */
-function traceReason(trace: readonly RuleStep[] | undefined): string {
-  if (trace === undefined) return ''
-  const lift = [...trace].reverse().find((one) => one.applied && one.rule in FLOOR_WORDS)
-  if (lift !== undefined) return `${FLOOR_WORDS[lift.rule]}：至少 ${String(lift.level)}`
-  const peaks = trace.find((one) => one.rule === 'two-peaked')
-  if (peaks?.applied === true) return `双峰（${String(peaks.peak)} ${pctText(peaks.p)}），上取一档`
-  const position = trace.find((one) => one.rule === 'position')
-  return position === undefined || typeof position.position !== 'number' ? '' : `位置 ${position.position.toFixed(1)} → ${String(position.level)}`
-}
-
-// ---- events -------------------------------------------------------------------
-
-/** The name a person reads for the agent an entry or a note is about. */
-function whoOf(id: string | undefined, nodes: readonly BoardNode[], fallback: string): string {
-  if (id === undefined || id === 'main') return '主 agent'
-  return nodes.find((node) => node.id === id)?.name ?? fallback
-}
-
-/** The Workflow an entry belongs to: its call's tool call id, or its agent's Workflow. */
-function workflowOf(entry: LogEntry, nodes: readonly BoardNode[]): { id: string; name: string } | null {
-  const agent = agentOf(entry)
-  const node = nodes.find((one) => one.id === agent)
-  if (node?.workflow !== undefined) return node.workflow
-  const id = callWorkflowOf(agent)
-  if (id === null) return null
-  const name = /（Workflow ([^）]*)）$/.exec(entry.subject)?.[1] ?? 'Workflow'
-  return { id, name }
-}
-
-/** Whether an entry moved what it is about without being its route: a model step-up. */
-function moved(entry: LogEntry): boolean {
-  return entry.forced !== undefined
-}
-
-function eventsOf(board: Board, log: readonly LogEntry[], nodes: readonly BoardNode[], input: ScreenInput): BandEvent[] {
-  const turn = board.turn
-  const on = (feature: string) => input.isOn(featureOf(feature))
-  const shown = log.filter((entry) => on(entry.feature))
-  // Each event with its place: when it happened, then the log's order (a change or a note goes after the entry it followed).
-  const placed: { event: BandEvent; order: number }[] = []
-  const add = (event: BandEvent, order: number) => placed.push({ event, order })
-  let group: { key: string; first: LogEntry; entries: LogEntry[] } | null = null
-  const flush = () => {
-    if (group === null) return
-    const { first, entries } = group
-    const flow = workflowOf(first, nodes)
-    if (entries.length === 1) add(decidedOf(first, nodes), first.n)
-    else {
-      const models: Partial<Record<Model, number>> = {}
-      for (const entry of entries) if (entry.model !== undefined) models[entry.model] = (models[entry.model] ?? 0) + 1
-      add({ at: first.at ?? 0, kind: 'workflow', name: flow?.name ?? 'Workflow', calls: entries.length, models, sentBack: entries.some((entry) => entry.sentBack === true), byLabel: featureOf(first.feature) === 'workflow-labels' }, first.n)
+/**
+ * The cells in at most maxCells columns: every per cells become one, which takes the level and the sent of its last
+ * cell and the weightiest mark among them.
+ */
+export function fitTrack(cells: readonly TrackCell[], maxCells: number): { cells: TrackCell[]; per: number } {
+  const per = Math.max(1, Math.ceil(cells.length / Math.max(1, maxCells)))
+  if (per === 1) return { cells: [...cells], per }
+  const out: TrackCell[] = []
+  for (let i = 0; i < cells.length; i += per) {
+    const group = cells.slice(i, i + per)
+    let mark: Mark | null = null
+    for (const c of group) {
+      if (c.mark !== null && (mark === null || MARK_RANK[c.mark] >= MARK_RANK[mark])) mark = c.mark
     }
-    group = null
+    const last = group[group.length - 1]
+    if (last !== undefined) out.push({ level: last.level, sent: last.sent, mark })
   }
-  for (const entry of shown) {
-    const feature = featureOf(entry.feature)
-    const at = entry.at ?? 0
-    // The decisions of one Workflow's calls, one after another: one event.
-    if (feature === 'workflow-agents' || feature === 'workflow-labels') {
-      const flow = workflowOf(entry, nodes)
-      const key = `${feature}:${flow?.id ?? entry.n}`
-      if (group !== null && group.key === key) group.entries.push(entry)
-      else {
-        flush()
-        group = { key, first: entry, entries: [entry] }
-      }
-      continue
-    }
-    flush()
-    if (feature === 'main-effort' || feature === 'dispatched-agents') add(decidedOf(entry, nodes), entry.n)
-    else if (feature === 'escalation' && entry.forced !== undefined) {
-      add({ at, kind: 'raise', who: whoOf(entry.agent, nodes, entry.subject), what: entry.forced.kind, from: entry.forced.from, to: entry.forced.to, failed: entry.counts?.failed ?? 0, blocked: entry.counts?.blocked ?? 0 }, entry.n)
-    } else if (feature === 'skills' && entry.skills !== undefined && (entry.skills.suggest.length > 0 || entry.skills.try.length > 0)) {
-      add({ at, kind: 'skills', suggest: entry.skills.suggest, tried: entry.skills.try }, entry.n)
-    } else if (feature === 'find-skill') {
-      add({ at, kind: 'find', query: entry.subject, found: entry.skills?.suggest ?? [] }, entry.n)
-    }
-  }
-  flush()
-  // A reading that changed, unless the decision just before it says so already (a model step-up).
-  const changes = (board.changes ?? []).filter((change) => change.turn === turn)
-  for (const change of changes) {
-    if (explained(change, changes, log)) continue
-    add({ at: change.at, kind: 'change', who: whoOf(change.id, nodes, change.id), from: change.from, to: change.to }, change.after + 0.5)
-  }
-  for (const note of board.notes ?? []) {
-    if (note.turn !== turn || !on(note.feature)) continue
-    add({ at: note.at, kind: 'note', who: whoOf(note.id, nodes, note.id), feature: featureOf(note.feature), note: note.kind, why: note.why }, note.after + 0.5)
-  }
-  return placed.sort((a, b) => a.event.at - b.event.at || a.order - b.order).map(({ event }) => event)
+  return { cells: out, per }
 }
 
-/** A change a decision logged just before it accounts for: one about the same agent that moved its level, since that agent's previous change. */
-function explained(change: ReadingChange, changes: readonly ReadingChange[], log: readonly LogEntry[]): boolean {
-  const before = changes.filter((other) => other.id === change.id && other.after < change.after).reduce((latest, other) => Math.max(latest, other.after), 0)
-  return log.some((entry) => agentOf(entry) === change.id && entry.n <= change.after && entry.n > before && moved(entry))
+const text = (s: string, tone?: Tone, bold?: boolean): Part => ({ t: 'text', text: s, ...(tone === undefined ? {} : { tone }), ...(bold === true ? { bold } : {}) })
+
+/** The text padded with spaces to a width, one space at least. */
+function padded(s: string, width: number): string {
+  return s + ' '.repeat(Math.max(1, width - displayWidth(s)))
 }
 
-/** A decision about one agent's route: who, what it got, why in a few words. */
-/** How an agent's model was come to, from its rules' own working (decision/dispatched-agent.ts): the table's row, and the main agent's pick kept or raised. */
-function agentReason(trace: readonly RuleStep[] | undefined): string {
-  const table = trace?.find((one) => one.rule === 'model-table')
-  const route = trace?.find((one) => one.rule === 'route')
-  const named = trace?.some((one) => one.rule === 'named-model') === true
-  if (table === undefined && route === undefined && !named) return ''
-  const pick = trace?.find((one) => one.rule === 'main-pick')
-  const rules =
-    named || table?.row === '1'
-      ? '你点名'
-      : route !== undefined
-        ? route.fellBack === true
-          ? `路由拿不准 → ${String(route.wanted)}`
-          : `路由 ${String(route.tier)} ${typeof route.p === 'number' ? pctText(route.p) : ''}`.trim()
-        : `模型表 ${String(table?.row)}`
-  return pick === undefined ? rules : `${rules} · ${pick.outcome === 'upgraded' ? '升级' : pick.outcome === 'lowered' ? '降级' : '保留'} ${String(pick.requested)}`
+const STATUS: Record<BoardModel['status']['kind'], { mark: string; tone: Tone }> = {
+  sent: { mark: '✓', tone: 'ok' },
+  mismatch: { mark: '!', tone: 'warn' },
+  unverified: { mark: '–', tone: 'dim' },
+  locked: { mark: '■', tone: 'info' },
+  idle: { mark: '–', tone: 'dim' },
+  starting: { mark: '–', tone: 'dim' },
+  none: { mark: '–', tone: 'dim' },
 }
 
-function decidedOf(entry: LogEntry, nodes: readonly BoardNode[]): BandEvent {
-  const main = agentOf(entry) === 'main'
-  const level = main ? levelOf(entry) : entry.effort
+const statusText = (m: BoardModel): string => `${STATUS[m.status.kind].mark} ${m.status.text}`
+
+/** The pips and the level's name; a dash when no level is known. */
+function levelParts(m: BoardModel): Part[] {
+  if (m.level === null) return [text('—', 'dim')]
+  return [{ t: 'pips', level: m.level }, text(` ${m.level}`, m.level, true)]
+}
+
+const RESULT: Record<Mark, { arrow: string; tone: Tone }> = {
+  up: { arrow: '↑ ', tone: 'accent' },
+  down: { arrow: '↓ ', tone: 'info' },
+  fail: { arrow: '× ', tone: 'err' },
+  hold: { arrow: '', tone: 'plain' },
+}
+
+function resultPart(last: NonNullable<BoardModel['last']>): Part {
+  const r = RESULT[last.mark]
+  return text(r.arrow + last.text, r.tone)
+}
+
+// Why there is no last evaluation: a lock judges nothing; between turns none was ever recorded; else none came yet.
+function noEvaluation(m: BoardModel): string {
+  if (m.status.kind === 'locked') return '锁定期间不评估'
+  return m.isIdle ? '还没有评估' : '本轮还没有评估'
+}
+
+/** The track's room: the brief's columns less 34, and never under 10 cells; at most maxCells where a surface sets one. */
+const trackRoom = (columns: number, maxCells = Infinity): number => Math.min(maxCells, Math.max(10, columns - 34))
+
+// The session's kind closes the first row, a group of its own: a row too narrow drops it first.
+const kindPart = (m: BoardModel): Part => text(` · ${m.sessionKind}`, 'dim')
+
+function nowRow(m: BoardModel): Row {
+  return { id: 'now', parts: [...levelParts(m), text(`  ${statusText(m)}`, STATUS[m.status.kind].tone), text(`   ${m.where}`, 'dim'), kindPart(m)] }
+}
+
+function nextParts(m: BoardModel): Part[] {
+  return [text('   下次评估 ', 'dim'), text(m.next.main)]
+}
+
+// A reading's words (design 5.12), wherever the board prints one; only a reading that differs warns.
+const READOUT: Record<Readout, { word: string; tone: Tone }> = {
+  sent: { word: '已发出', tone: 'ok' },
+  'not-sent': { word: '没发出', tone: 'warn' },
+  unverified: { word: '未核对', tone: 'dim' },
+}
+// A queued note is no reading: the shift waits for a row that can carry it (it warns of nothing).
+const QUEUED = '（还没发出）'
+
+/** A shift's or an agent's reading in brackets, after its levels (the pane). */
+function readingPart(reading: Readout | 'queued'): Part {
+  if (reading === 'queued') return text(QUEUED, 'dim')
+  return text(`（${READOUT[reading].word}）`, READOUT[reading].tone)
+}
+
+// The scale goes right after the track: a row too narrow for everything keeps it before the next evaluation, since
+// the cells cannot be read without it.
+function trackRows(m: BoardModel, columns: number, maxCells?: number): Row[] {
+  // No cell yet (the first step has not come, or the model takes no effort): no row with an empty 步 label.
+  if (m.track.length === 0) return []
+  const fit = fitTrack(m.track, trackRoom(columns, maxCells))
+  const scale = fit.per > 1 ? [text(`  每格 ${fit.per} 步`, 'dim')] : []
+  const shift = m.shifts.at(-1)
+  const shiftParts: Part[] =
+    shift === undefined
+      ? []
+      : [
+          text(`   ${shift.at} ${shift.from} → ${shift.to}`),
+          // A reading is a group of its own, dropped before the shift itself; a queued note stays with it.
+          shift.reading === 'queued' ? text(QUEUED, 'dim') : text(` · ${READOUT[shift.reading].word}`, READOUT[shift.reading].tone),
+          ...(shift.why === '' ? [] : [text(` · ${shift.why}`, 'dim')]),
+        ]
+  // When no evaluation is ahead, why, where there is room (a group of its own, dropped first), as the idle row does.
+  const why = m.next.ahead === 0 && m.next.sub !== '' ? [text(` · ${m.next.sub}`, 'dim')] : []
+  const track: Row = { id: 'track', parts: [text('步 ', 'dim'), { t: 'track', cells: fit.cells, ahead: m.next.ahead, per: fit.per }, ...scale, ...nextParts(m), ...why] }
+  // A turn with no evaluation marked and no shift to tell (a locked one) has nothing for the marks row to say.
+  if (shift === undefined && fit.cells.every((c) => c.mark === null)) return [track]
+  return [track, { id: 'marks', parts: [text('评 ', 'dim'), { t: 'marks', cells: fit.cells }, ...shiftParts] }]
+}
+
+// The result first, so it is what a narrow row keeps; then each answer, then when and by whom.
+function lastRow(m: BoardModel): Row {
+  const last = m.last
+  if (last === null) return { id: 'last', parts: [text('上次评估 ', 'dim'), text(noEvaluation(m), 'dim')] }
   return {
-    at: entry.at ?? 0,
-    kind: 'decided',
-    who: main ? '主 agent' : whoOf(entry.agent, nodes, entry.subject),
-    main,
-    ...(entry.model === undefined ? {} : { model: entry.model }),
-    ...(level === undefined ? {} : { effort: level }),
-    reason: main ? traceReason(entry.trace) : agentReason(entry.trace),
-    ok: entry.tone !== 'fail' && entry.tone !== 'warn',
+    id: 'last',
+    parts: [text('上次评估 ', 'dim'), resultPart(last), ...last.nouls.map((n) => text(` · ${n.label} ${n.value.toFixed(2)}`, 'dim')), text(`    ${last.at} · ${last.by}`, 'dim')],
+  }
+}
+
+const FEATURE_GROUPS: { state: BoardModel['features'][number]['state']; label: string; tone: Tone }[] = [
+  { state: 'active', label: '生效', tone: 'ok' },
+  { state: 'inactive', label: '未生效', tone: 'warn' },
+  { state: 'locked', label: '锁定', tone: 'info' },
+  { state: 'off', label: '关', tone: 'dim' },
+]
+
+function featuresRow(m: BoardModel): Row {
+  const parts: Part[] = []
+  for (const g of FEATURE_GROUPS) {
+    const names = m.features.filter((f) => f.state === g.state).map((f) => f.label)
+    if (names.length === 0) continue
+    const itemTone: Tone | undefined = g.state === 'off' ? 'dim' : undefined
+    parts.push(text(`${parts.length === 0 ? '' : '   '}${g.label} `, g.tone))
+    names.forEach((name, i) => parts.push(text(i === 0 ? name : ` · ${name}`, itemTone)))
+  }
+  if (!m.backend.isOk) parts.push(text(`   ! ${m.backend.text}`, 'warn'))
+  return { id: 'features', parts }
+}
+
+// Between turns, one row: the level the session is set at, the one the last turn ended at, and the next evaluation.
+function idleRow(m: BoardModel): Row {
+  const ended = m.sent === null ? [] : [text(`   上一轮结束在 ${m.sent}`, 'dim')]
+  // Why, where there is room: between turns the row is all the timeline shows (a group of its own, dropped first).
+  const why = m.next.sub === '' ? [] : [text(` · ${m.next.sub}`, 'dim')]
+  return { id: 'idle', parts: [...levelParts(m), text(`  ${statusText(m)}`, STATUS[m.status.kind].tone), ...ended, ...nextParts(m), ...why, kindPart(m)] }
+}
+
+// The timeline's rows before they are fitted to their columns; maxCells caps the track's cells (the Desktop's).
+function timelineParts(m: BoardModel, o: { columns: number; isPaneOpen: boolean; maxCells?: number }): Row[] {
+  return m.isIdle ? [idleRow(m)] : [nowRow(m), ...trackRows(m, o.columns, o.maxCells), ...(o.isPaneOpen ? [] : [lastRow(m), featuresRow(m)])]
+}
+
+/**
+ * The timeline's rows in their columns (design 5.14). With the pane open, only the rows up to the track's: the pane
+ * shows the rest.
+ */
+export function timelineRows(m: BoardModel, o: { columns: number; isPaneOpen: boolean }): Row[] {
+  return timelineParts(m, o).map((r) => fitRow(r, o.columns))
+}
+
+// The pane's rows: a sentence is one group, which the pane wraps; only rows of columns (bars, answers) are cut.
+
+function nowRows(m: BoardModel): Row[] {
+  const rows: Row[] = [
+    { id: 'level', parts: levelParts(m) },
+    { id: 'status', parts: [text(statusText(m), STATUS[m.status.kind].tone)] },
+  ]
+  if (m.isIdle) {
+    if (m.sent !== null) rows.push({ id: 'ended', parts: [text(`上一轮结束在 ${m.sent}`, 'dim')] })
+    rows.push({ id: 'kind', parts: [text(m.sessionKind, 'dim')] })
+  } else rows.push({ id: 'where', parts: [text(`${m.where} · ${m.sessionKind}`, 'dim')] })
+  const shift = m.shifts.at(-1)
+  if (shift !== undefined) {
+    rows.push({ id: 'shift', parts: [text(`${shift.at} ${shift.from} → ${shift.to}`), readingPart(shift.reading)] })
+    if (shift.why !== '') rows.push({ id: 'why', parts: [text(shift.why, 'dim')] })
+  }
+  return rows
+}
+
+function shiftRows(m: BoardModel): Row[] {
+  if (m.shifts.length === 0) return [{ id: 'none', parts: [text('这一轮没有换挡', 'dim')] }]
+  const at = Math.max(...m.shifts.map((s) => displayWidth(s.at))) + 2
+  return m.shifts.flatMap((s, i): Row[] => [
+    { id: `shift-${i}`, parts: [text(padded(s.at, at), 'dim'), text(`${s.from} → ${s.to}`), readingPart(s.reading)] },
+    ...(s.why === '' ? [] : [{ id: `why-${i}`, parts: [text(`  ${s.why}`, 'dim')] }]),
+  ])
+}
+
+const READING: Record<NonNullable<BoardModel['last']>['nouls'][number]['reading'], { text: string; tone: Tone }> = {
+  yes: { text: '是', tone: 'accent' },
+  no: { text: '否', tone: 'dim' },
+  unsure: { text: '拿不准', tone: 'warn' },
+}
+
+const barWidth = (value: number): number => Math.max(1, Math.round(value * BAR_CELLS))
+
+function lastRows(m: BoardModel): Row[] {
+  const last = m.last
+  if (last === null) return [{ id: 'none', parts: [text(noEvaluation(m), 'dim')] }]
+  const rows: Row[] = [{ id: 'result', parts: [resultPart(last)] }]
+  const probs = last.probs
+  if (probs !== null) {
+    // The figures stand in one column, just past the longest bar.
+    const longest = Math.max(...LEVELS.map((_, i) => barWidth(probs[i] ?? 0)))
+    for (const level of [...LEVELS].reverse()) {
+      const p = probs[LEVELS.indexOf(level)] ?? 0
+      const isNow = level === m.level
+      rows.push({
+        id: `bar-${level}`,
+        parts: [
+          text(padded(level, 8), isNow ? level : 'dim', isNow),
+          { t: 'bar', value: p, tone: level, isStrong: isNow },
+          text(`${' '.repeat(longest - barWidth(p) + 1)}${p.toFixed(2)}`, 'dim'),
+          ...(isNow ? [text('  ◂ 现在', 'dim')] : []),
+        ],
+      })
+    }
+  }
+  const label = Math.max(0, ...last.nouls.map((n) => displayWidth(n.label))) + 2
+  last.nouls.forEach((n, i) => {
+    const reading = READING[n.reading]
+    rows.push({ id: `noul-${i}`, parts: [text(padded(n.label, label)), text(n.value.toFixed(2), 'dim'), text(`  ${reading.text}`, reading.tone)] })
+  })
+  last.rules.forEach((rule, i) => rows.push({ id: `rule-${i}`, parts: [text(rule, 'dim')] }))
+  rows.push({ id: 'by', parts: [text(`${last.at} · ${last.by}`, 'dim')] })
+  return rows
+}
+
+function nextRows(m: BoardModel): Row[] {
+  return [{ id: 'main', parts: [text(m.next.main)] }, ...(m.next.sub === '' ? [] : [{ id: 'sub', parts: [text(m.next.sub, 'dim')] }])]
+}
+
+const FEATURE: Record<BoardModel['features'][number]['state'], { glyph: string; word: string; tone: Tone }> = {
+  active: { glyph: '●', word: '生效', tone: 'ok' },
+  inactive: { glyph: '●', word: '未生效', tone: 'warn' },
+  locked: { glyph: '●', word: '已锁定', tone: 'info' },
+  off: { glyph: '○', word: '关', tone: 'dim' },
+}
+
+function featureRows(m: BoardModel): Row[] {
+  const label = Math.max(0, ...m.features.map((f) => displayWidth(f.label))) + 1
+  const rows = m.features.map((f, i): Row => {
+    const look = FEATURE[f.state]
+    return {
+      id: `feature-${i}`,
+      parts: [text(`${look.glyph} `, look.tone), text(padded(f.label, label), f.state === 'off' ? 'dim' : undefined), text(f.note === '' ? look.word : `${look.word} · ${f.note}`, look.tone)],
+    }
+  })
+  return [...rows, { id: 'backend', parts: [text('后端 ', 'dim'), text(m.backend.text, m.backend.isOk ? 'dim' : 'warn')] }]
+}
+
+const AGENT_MARK: Record<Readout, { mark: string; tone: Tone }> = { sent: { mark: '✓ ', tone: 'ok' }, 'not-sent': { mark: '! ', tone: 'warn' }, unverified: { mark: '– ', tone: 'dim' } }
+
+// An agent the mod left alone has no readout: no mark (its column kept blank) and no words.
+function agentRows(m: BoardModel): Row[] {
+  const type = Math.max(0, ...m.agents.map((a) => displayWidth(a.type))) + 2
+  return m.agents.map((a, i): Row => {
+    const reading = a.reading
+    const mark = reading === null ? text('  ') : text(AGENT_MARK[reading].mark, AGENT_MARK[reading].tone)
+    return { id: `agent-${i}`, parts: [mark, text(padded(a.type, type)), text(a.text), ...(reading === null ? [] : [readingPart(reading)])] }
+  })
+}
+
+/** The pane's sections, in their fixed order (design 5.14); agents and the skill only when there are some. */
+export function paneSections(m: BoardModel): Section[] {
+  const out: Section[] = [
+    { id: 'now', title: '现在', rows: nowRows(m) },
+    { id: 'shifts', title: '换挡记录', rows: shiftRows(m) },
+    { id: 'last', title: '上次评估', rows: lastRows(m) },
+    { id: 'next', title: '下次评估', rows: nextRows(m) },
+    { id: 'features', title: '功能', rows: featureRows(m) },
+  ]
+  if (m.agents.length > 0) out.push({ id: 'agents', title: 'agent', rows: agentRows(m) })
+  if (m.skill !== null) out.push({ id: 'skill', title: '这条消息推荐的 skill', rows: [{ id: 'skill', parts: [text(m.skill)] }] })
+  return out
+}
+
+const footerMark = (m: BoardModel): string => (m.status.kind === 'sent' || m.status.kind === 'mismatch' || m.status.kind === 'locked' ? STATUS[m.status.kind].mark : '–')
+
+/** The footer's label: dp, the level (a dash when none is known), the status's mark. */
+export function footerLabel(m: BoardModel): string {
+  return `dp ${m.level ?? '—'} ${footerMark(m)}`
+}
+
+// The Desktop (design 5.14): the same rows and sections, with three kinds of part drawn as one Svg each instead of
+// characters. Literal colours appear only inside these drawings; text keeps its theme keys (board.tsx).
+
+/** Each level's colour, cold to warm: on drawings only, never on text. */
+export const LEVEL_HEX: Record<Level, string> = { low: '#7c8aa0', medium: '#3fb5b0', high: '#e0b23c', xhigh: '#ee8a3c', max: '#e2557a' }
+/**
+ * The neutral marks inside a drawing (a hold's dot, the dashes to the next evaluation, the unlit pips): one mid grey
+ * that reads on light and dark themes. A drawing is drawn as an image, which does not inherit the text colour, so
+ * currentColor would come out black.
+ */
+export const NEUTRAL_HEX = '#8b8f98'
+// The next evaluation's diamond and a failed evaluation's cross, as the prototype draws them.
+const ACCENT_HEX = '#d97757'
+const FAIL_HEX = '#e8697a'
+
+/** The pixels the Desktop gives one column of the band or the pane: every drawing is measured in columns by it. */
+export const PX_PER_COLUMN = 8
+
+/** An Svg's source and how it is laid out: alt says in words what it shows, since the drawing holds no text. */
+export type Drawing = { source: string; alt: string; width: number; height: number }
+
+/** The most cells a track drawing holds: more steps share a cell (fitTrack), so its size stays bounded. */
+export const TRACK_SVG_CELLS = 60
+const CELL_W = 13
+const CELL_H = 12
+const PITCH = CELL_W + 1
+/** The marks' row under the cells. */
+const MARK_TOP = CELL_H + 3
+const MARK_H = 8
+const TRACK_H = MARK_TOP + MARK_H + 3
+
+const svg = (width: number, height: number, body: string): string =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`
+
+const px = (n: number): string => String(Math.round(n * 10) / 10)
+
+// One evaluation's mark under its cell: a shift is a triangle in the cell's colour, a failure a cross, a hold a grey
+// dot.
+function markSvg(c: TrackCell, i: number): string {
+  const x = i * PITCH
+  const mid = x + CELL_W / 2
+  const top = MARK_TOP
+  const bottom = MARK_TOP + MARK_H
+  switch (c.mark) {
+    case 'up':
+      return `<polygon class="mark-up" points="${px(mid)},${top} ${px(x + 2)},${bottom} ${px(x + CELL_W - 2)},${bottom}" fill="${LEVEL_HEX[c.sent ?? c.level]}"/>`
+    case 'down':
+      return `<polygon class="mark-down" points="${px(x + 2)},${top} ${px(x + CELL_W - 2)},${top} ${px(mid)},${bottom}" fill="${LEVEL_HEX[c.sent ?? c.level]}"/>`
+    case 'fail':
+      return `<path class="mark-fail" d="M${px(x + 3)} ${top + 1}L${px(x + CELL_W - 3)} ${bottom - 1}M${px(x + CELL_W - 3)} ${top + 1}L${px(x + 3)} ${bottom - 1}" stroke="${FAIL_HEX}" stroke-width="1.6" stroke-linecap="round" fill="none"/>`
+    case 'hold':
+      return `<circle class="mark-hold" cx="${px(mid)}" cy="${top + MARK_H / 2}" r="1.5" fill="${NEUTRAL_HEX}"/>`
+    default:
+      return ''
+  }
+}
+
+// How many cells each level holds, in the order the levels first appear.
+function levelCounts(cells: readonly TrackCell[], unit: string): string {
+  const counts = new Map<Level, number>()
+  for (const c of cells) counts.set(c.sent ?? c.level, (counts.get(c.sent ?? c.level) ?? 0) + 1)
+  return [...counts].map(([level, n]) => `${level} ${n} ${unit}`).join('，')
+}
+
+/**
+ * The timeline's track as one drawing: a cell per step (13 by 12, one apart) in the level its request carried, the
+ * evaluations' marks under them, then a dashed run and a hollow diamond for the next evaluation (none when ahead is
+ * 0). More than TRACK_SVG_CELLS cells are merged first; per says how many steps each cell given here already holds.
+ */
+export function trackSvg(cells: readonly TrackCell[], ahead: number, per = 1): Drawing {
+  const fit = fitTrack(cells, TRACK_SVG_CELLS)
+  const shown = fit.cells
+  const each = per * fit.per
+  const trackW = shown.length === 0 ? 0 : shown.length * PITCH - 1
+  const parts: string[] = []
+  if (shown.length > 0) parts.push(`<clipPath id="ends"><rect width="${trackW}" height="${CELL_H}" rx="${CELL_H / 2}"/></clipPath>`)
+  parts.push(`<g clip-path="url(#ends)">${shown.map((c, i) => `<rect class="cell" x="${i * PITCH}" y="0" width="${CELL_W}" height="${CELL_H}" fill="${LEVEL_HEX[c.sent ?? c.level]}"/>`).join('')}</g>`)
+  parts.push(shown.map(markSvg).join(''))
+  let width = Math.max(1, trackW)
+  if (ahead > 0) {
+    const from = trackW + 3
+    const to = from + Math.min(ahead, AHEAD_MAX) * PITCH
+    const mid = CELL_H / 2
+    const cx = to + 3 + 5
+    parts.push(`<line class="ahead" x1="${from}" y1="${mid}" x2="${to}" y2="${mid}" stroke="${NEUTRAL_HEX}" stroke-width="2" stroke-dasharray="3 3" opacity="0.7"/>`)
+    parts.push(`<polygon class="next" points="${cx},${mid - 5} ${cx + 5},${mid} ${cx},${mid + 5} ${cx - 5},${mid}" fill="none" stroke="${ACCENT_HEX}" stroke-width="2"/>`)
+    width = cx + 5 + 1
+  }
+  const unit = each > 1 ? '格' : '步'
+  const head = shown.length === 0 ? '还没有步' : each > 1 ? `${shown.length} 格，每格 ${each} 步：${levelCounts(shown, unit)}` : `${shown.length} 步：${levelCounts(shown, unit)}`
+  const alt = ahead > 0 ? `${head}；下次评估在 ${ahead} 步后` : head
+  return { source: svg(width, TRACK_H, parts.join('')), alt, width, height: TRACK_H }
+}
+
+const BAR_H = 9
+
+/**
+ * One level's probability bar, width pixels long at 1, never shorter than 2 (a sliver, as the terminal's ▏). The
+ * current level's is drawn full, the others a little faded.
+ */
+export function barSvg(value: number, level: Level, isStrong: boolean, width: number): Drawing {
+  const v = Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
+  const length = Math.min(width, Math.max(2, Math.round(v * width)))
+  const body = `<rect class="bar" x="0" y="0" width="${length}" height="${BAR_H}" rx="3" fill="${LEVEL_HEX[level]}" opacity="${isStrong ? 1 : 0.8}"/>`
+  return { source: svg(width, BAR_H, body), alt: `${level} ${v.toFixed(2)}${isStrong ? '（现在）' : ''}`, width, height: BAR_H }
+}
+
+/** The pane's bar length for its columns: 18 cells' worth at most, as the terminal draws it, less where it is narrow. */
+export function barPixels(columns: number): number {
+  return Math.max(3 * PX_PER_COLUMN, Math.min(BAR_CELLS * PX_PER_COLUMN, (columns - 22) * PX_PER_COLUMN))
+}
+
+const PIP_W = 9
+const PIP_H = 15
+const PIP_GAP = 3
+
+/** The five pips: lit up to the level in its colour, the rest grey and faint. */
+export function pipsSvg(level: Level): Drawing {
+  const n = LEVELS.indexOf(level) + 1
+  const width = LEVELS.length * (PIP_W + PIP_GAP) - PIP_GAP
+  const body = LEVELS.map((_, i) => {
+    const look = i < n ? `fill="${LEVEL_HEX[level]}"` : `fill="${NEUTRAL_HEX}" opacity="0.35"`
+    return `<rect class="pip" x="${i * (PIP_W + PIP_GAP)}" y="0" width="${PIP_W}" height="${PIP_H}" rx="2" ${look}/>`
+  }).join('')
+  return { source: svg(width, PIP_H, body), alt: `档位 ${level}，五档中的第 ${n} 档`, width, height: PIP_H }
+}
+
+/**
+ * The status line the Desktop shows under the prompt: the level and its latest shift, or what holds it (a lock,
+ * the time between turns); a mismatch alone, since it already names both levels.
+ */
+export function desktopStatus(m: BoardModel): string {
+  const lead = m.level === null ? '' : `${m.level} · `
+  if (m.status.kind === 'locked') return `${lead}已锁定`
+  if (m.isIdle) return `${lead}空闲，${m.next.main === '发出下一条消息时' ? '下一条消息时定档' : m.next.main}`
+  if (m.status.kind === 'mismatch') return m.status.text
+  const shift = m.shifts.at(-1)
+  if (shift === undefined) return `${lead}${m.status.text}`
+  const isUp = LEVELS.indexOf(shift.to) > LEVELS.indexOf(shift.from)
+  return `${lead}${isUp ? '↑' : '↓'} ${shift.at}由 ${shift.from} ${isUp ? '升到' : '降到'} ${shift.to}`
+}
+
+/** The Desktop footer's label: as the terminal's, with a separator its proportional type needs. At most 13 characters. */
+export function desktopLabel(m: BoardModel): string {
+  return `dp · ${m.level ?? '—'} ${footerMark(m)}`
+}
+
+/**
+ * A part's width in the Desktop's columns: text by its characters, a drawing by its pixels (PX_PER_COLUMN a column,
+ * rounded up). barWidth is the pane's bar length in pixels.
+ */
+export function desktopWidth(p: Part, barWidth: number): number {
+  const columns = (pixels: number): number => Math.ceil(pixels / PX_PER_COLUMN)
+  switch (p.t) {
+    case 'text':
+      return displayWidth(p.text)
+    case 'pips':
+      return columns(pipsSvg(p.level).width)
+    case 'track':
+      return columns(trackSvg(p.cells, p.ahead, p.per).width)
+    case 'bar':
+      return columns(barWidth)
+    case 'marks':
+      return 0
   }
 }
 
 /**
- * The level a decision ended at, from its own fields (never its words): the effort it decided, else the rules' last
- * step's level (an entry an earlier version wrote).
+ * A row in the Desktop's columns, its drawings measured by their pixels (fitRow: whole groups dropped from the end,
+ * the first kept). Every bar is one width, so the figure after one stands a single space away.
  */
-export function levelOf(entry: LogEntry): Effort | undefined {
-  if (entry.effort !== undefined) return entry.effort
-  const last = entry.trace?.at(-1)?.level
-  return isEffort(last) ? last : undefined
+export function fitDesktopRow(row: Row, columns: number, barWidth: number): Row {
+  const parts = row.parts.map((p, i) => (p.t === 'text' && row.parts[i - 1]?.t === 'bar' ? { ...p, text: p.text.replace(/^ +/, ' ') } : p))
+  return fitRow({ ...row, parts }, columns, (p) => desktopWidth(p, barWidth))
 }
 
-// ---- the summary --------------------------------------------------------------
+/** The track's cells on the Desktop: as many as the terminal's room (columns less 34) holds in pixels, 10 to 60. */
+export function desktopTrackCells(columns: number): number {
+  return Math.min(TRACK_SVG_CELLS, Math.max(10, Math.floor(((columns - 34) * PX_PER_COLUMN + 1) / PITCH)))
+}
 
-/** A finished turn in a few words: how the main agent's effort was come to (or why not routed), and the skills for the person to try. */
-function summaryOf(main: BoardNode | undefined, mainEntries: readonly LogEntry[], log: readonly LogEntry[], input: ScreenInput): ScreenView['summary'] {
-  const reason = main === undefined ? '' : main.locked === true ? '已锁定' : !main.routed ? `未路由 · ${notRoutedWhy(main, input)}` : mainReason(mainEntries, input) || '已决定'
-  const skills = input.isOn('skills') ? log.filter((entry) => featureOf(entry.feature) === 'skills' && entry.skills !== undefined).at(-1)?.skills : undefined
-  return { reason, tried: (skills?.try ?? []).map((skill) => skill.name) }
+/**
+ * The timeline's rows as the Desktop draws them, fitted to its columns: the track's drawing holds the marks, so the
+ * marks row keeps only its words (the shift), under the track; neither keeps the label that named a row of
+ * characters, so the drawing leads its row and is never what a narrow row drops.
+ */
+export function desktopTimelineRows(m: BoardModel, o: { columns: number; isPaneOpen: boolean }): Row[] {
+  const rows = timelineParts(m, { ...o, maxCells: desktopTrackCells(o.columns) }).flatMap((row): Row[] => {
+    if (row.id !== 'track' && row.id !== 'marks') return [row]
+    const parts = row.parts.slice(1).filter((p) => p.t !== 'marks')
+    const [first, ...rest] = parts
+    if (first === undefined) return []
+    return [{ ...row, parts: first.t === 'text' ? [{ ...first, text: first.text.trimStart() }, ...rest] : parts }]
+  })
+  return rows.map((row) => fitDesktopRow(row, o.columns, barPixels(o.columns)))
 }

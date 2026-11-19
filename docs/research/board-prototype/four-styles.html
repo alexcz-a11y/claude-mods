@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>Dispatch Pilot 看板 · 风格原型（一次性）</title>
+<style>
+:root{--bg:#f3f1ea;--ink:#22201c;--sub:#5f5a50;--line:#ddd8cb;--card:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 -apple-system,"PingFang SC","Helvetica Neue",sans-serif;padding:26px 28px 120px}
+.wrap{max-width:1200px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+.lead{color:var(--sub);margin:0 0 6px;max-width:940px}
+.vhead{display:flex;align-items:baseline;gap:12px;margin:20px 0 4px}
+.vhead .k{font:700 28px/1 ui-monospace,Menlo,monospace;color:#c96442}
+.vhead .n{font-size:19px;font-weight:650}
+.vhead .t{color:var(--sub)}
+.lab{font-size:11px;letter-spacing:.08em;color:var(--sub);margin:16px 0 6px}
+.notes{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:18px}
+.note{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.note h4{margin:0 0 6px;font-size:13px}
+.note ul{margin:0;padding-left:18px;color:#3d3a34}
+.note table{border-collapse:collapse;width:100%;font-size:13px}
+.note td{padding:2px 0;vertical-align:top}.note td:first-child{color:var(--sub);width:92px}
+.fine{color:var(--sub);font-size:12px;margin-top:14px}
+.term{--dim:#939aa8;--mute:#717887;--ok:#57c08a;--warn:#e0b23c;--err:#e8697a;--info:#6aa9f0;--acc:#d97757;background:#14161b;color:#cdd2da;border-radius:10px;font:13px/1.55 "Hack","SF Mono",Menlo,Consolas,monospace;padding:12px 0 10px;display:flex;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.18)}
+.term .main{flex:1;min-width:0;padding:0 16px;display:flex;flex-direction:column;justify-content:flex-end}
+.term .tx{color:var(--dim);white-space:pre;overflow:hidden}
+.term .band{position:relative;margin:8px 0 6px;overflow:hidden}
+.term .band .fold{position:absolute;right:0;top:0;color:var(--mute)}
+.term .ln{white-space:pre;min-height:1.55em}
+.term .pane .ln{white-space:pre-wrap}
+.term .pbox{border:1px solid #3a3f4a;border-radius:6px;padding:4px 10px}
+.term .foot{display:flex;justify-content:space-between;color:var(--dim);padding:2px 2px 0}
+.term .pane{width:49ch;border-left:1px solid #2b2f38;padding:0 14px;flex:none}
+.term .row{display:flex;white-space:pre;min-height:1.55em}
+.term .row>span{flex:none}
+.desk{--dim:#625d53;--mute:#d9d4c7;--ok:#23764a;--warn:#8a6208;--err:#b23645;--info:#2b5fa8;--acc:#a84e2e;background:#faf9f5;border:1px solid #e2ddd0;border-radius:12px;display:flex;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.08);font:13.5px/1.5 -apple-system,"PingFang SC",sans-serif;color:#23211d}
+.desk .main{flex:1;min-width:0;padding:14px 18px 12px;display:flex;flex-direction:column;justify-content:flex-end;gap:8px}
+.desk .msg{color:#625d53;font-size:13px}
+.desk .dband{border:1px solid #e6e1d4;background:#fff;border-radius:10px;padding:10px 12px}
+.desk .comp{border:1px solid #d9d4c7;border-radius:14px;padding:10px 14px;color:#6b665c;background:#fff}
+.desk .dfoot{display:flex;gap:8px;align-items:center;color:#625d53;font-size:12px}
+.desk .chip{border:1px solid #e0dbcf;border-radius:999px;padding:1px 9px;background:#fff;color:#4a463f;white-space:nowrap}
+.desk .tile{width:340px;flex:none;border-left:1px solid #e6e1d4;background:#fdfcf9;padding:12px 14px}
+.desk .hiddenband{border:1px dashed #d9d4c7;border-radius:10px;padding:8px 12px;color:#6b665c;font-size:12px}
+.desk .sm{color:#625d53;font-size:12px}
+.dim{color:var(--dim)}.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}.info{color:var(--info)}.acc{color:var(--acc)}.mute{color:var(--mute)}
+.cell{display:inline-block;width:1ch;text-align:center}
+.pill{display:inline-block;border-radius:999px;padding:0 8px;font-size:12px;line-height:20px;white-space:nowrap}
+.pill.ok{background:#e4f3ea;color:#22764a}.pill.warn{background:#fbf0d4;color:#8a6208}.pill.err{background:#fbe3e6;color:#a8323f}.pill.info{background:#e3edfb;color:#2b5fa8}.pill.dim{background:#efece3;color:#544f46}.pill.acc{background:#fbe9e1;color:#a84e2e}
+.dpips{display:inline-flex;gap:3px;vertical-align:middle}.dpips i{width:9px;height:15px;border-radius:2px;background:#e3dfd3;display:block}
+.sec{font-size:11px;letter-spacing:.06em;color:#625d53;margin:13px 0 4px}.sec.first{margin-top:0}
+.big{font-size:24px;font-weight:700;line-height:1.1}
+.drow{display:flex;align-items:center;gap:8px}
+.bar{height:9px;border-radius:3px;display:block}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.sw{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#1d1c1a;color:#fff;border-radius:999px;padding:8px 10px;display:flex;gap:8px;align-items:center;box-shadow:0 8px 30px rgba(0,0,0,.35);font-size:13px;z-index:10}
+.sw button,.sw select{background:#33312d;color:#fff;border:0;border-radius:999px;padding:6px 12px;font:inherit;cursor:pointer}
+.sw .cur{min-width:140px;text-align:center;font-weight:650}
+.sw .pick{background:#b3532f}.sw .pick.sel{background:#2c7d51}
+.sw .sep{width:1px;height:20px;background:#4a4742}
+</style></head><body><div class="wrap">
+<h1>Dispatch Pilot 看板：四种风格</h1>
+<p class="lead">四种风格显示的是同样五件事：现在的档位（实际发出的）、什么时候换的、下一次评估在什么时候、上次评估的结果、哪些功能开着并且生效。每种风格上面是终端版，下面是 Desktop 版。</p>
+<p class="lead">底部的条可以切换风格（也可以按 ← →）和场景。看完在终端里告诉我选哪一种，也可以混搭，比如「B 的时间轴加 C 的功能列表」。</p>
+<div id="app"></div>
+<p class="fine">这是一次性的静态示意，不是真界面：字符、颜色和行宽以真机为准。Desktop 的 band 在空闲时不显示（引擎的规则），所以空闲时 Desktop 只剩脚部的小标签和状态行。</p>
+</div>
+<div class="sw"><button id="prev">◀</button><span class="cur" id="cur"></span><button id="next">▶</button><span class="sep"></span><select id="scene"></select><span class="sep"></span><button class="pick" id="pick" data-choice="A">选这个风格</button></div>
+<script>
+const LV=['low','medium','high','xhigh','max'];
+const C={low:'#7c8aa0',medium:'#3fb5b0',high:'#e0b23c',xhigh:'#ee8a3c',max:'#e2557a'};
+const CT={low:'#55627a',medium:'#1d7a76',high:'#8a6a00',xhigh:'#b3560f',max:'#b72e55'};
+const rep=(a,n)=>Array(n).fill(a);
+const F=(mid,agent)=>[['发消息定档','on',''],['中途换挡','on',mid],['agent 定档','on',agent],['skill 推荐','on','62 个候选'],['档位核对','on',''],['进展记录','off','']];
+const hold=(a,b)=>Array.from({length:b-a+1},(_,k)=>[a+k,'hold']);
+const MID=[['同一失败又出现',.12],['原因已查明',.22],['只剩照做',.18],['与计划矛盾',.09]];
+const SC={
+ up:{name:'中途升过一次档',session:'Code Mode 会话',cur:'high',wanted:'high',sent:'high',turn:'第 7 轮 · 第 10 步',
+  steps:[...rep('medium',6),...rep('high',4)],evals:[...hold(0,5),[6,'up'],...hold(7,9)],
+  change:{arrow:'↑',text:'第 6 步由 medium 升到 high',why:'同一失败在修改后又出现',ago:'3 步前'},
+  last:{at:'第 9 步后',r:'hold',text:'不变',probs:[.03,.10,.46,.33,.08],nouls:MID,by:'Drex · 312 ms',rules:['再升一档要上方合计 ≥ 0.80，现在 0.41','降一档要下方合计 ≥ 0.70，现在 0.13']},
+  next:{main:'下一份脚本结果到达时',sub:'每 1 份脚本结果评估一次 · 本轮还可换挡 3 次',ahead:1},
+  feats:F('每 1 份脚本结果','本轮 2 个'),backend:['on','Drex drex-max-v1.1 · 可用'],agents:[['Explore','haiku','low'],['general-purpose','sonnet','medium']],skill:null},
+ start:{name:'刚发消息，定了档',session:'Code Mode 会话',cur:'high',wanted:'high',sent:'high',turn:'第 7 轮 · 第 1 步',
+  steps:['high'],evals:[[0,'up']],
+  change:{arrow:'↑',text:'发消息时由 medium 升到 high',why:'要先查明一个原因未知的问题',ago:'刚刚'},
+  last:{at:'发消息时',r:'up',text:'升到 high',probs:[.02,.08,.25,.55,.10],nouls:[['机械重复',.04],['原因未知',.81],['只是续做',.06]],by:'Drex · 412 ms',rules:['再升一档要上方合计 ≥ 0.80，现在 0.65','升到这一档：上方合计 0.90，过了 0.70']},
+  next:{main:'下一份脚本结果到达时',sub:'每 1 份脚本结果评估一次 · 本轮还可换挡 4 次',ahead:1},
+  feats:F('每 1 份脚本结果',''),backend:['on','Drex drex-max-v1.1 · 可用'],agents:[],skill:'superpowers:systematic-debugging'},
+ ord:{name:'普通会话 · 评估失败',session:'普通会话',cur:'high',wanted:'high',sent:'high',turn:'第 3 轮 · 第 14 步',
+  steps:rep('high',14),evals:[[0,'up'],[8,'hold'],[13,'fail']],
+  change:{arrow:'↑',text:'发消息时由 medium 升到 high',why:'有几种可行的设计，要做取舍',ago:'13 步前'},
+  last:{at:'第 13 步后',r:'fail',text:'评估失败，档位不变',probs:null,nouls:null,by:'Drex 超时（2.0 秒）',rules:['决策模型没按时回答，按规则放行','连续两步失败触发了这次评估']},
+  next:{main:'再 8 步',sub:'每 8 步评估一次 · 同一失败复现或连续两步失败会提前',ahead:8},
+  feats:F('每 8 步',''),backend:['warn','Drex drex-max-v1.1 · 最近一次超时'],agents:[],skill:null},
+ miss:{name:'要换的档还没发出',session:'Code Mode 会话',cur:'high',wanted:'xhigh',sent:'high',turn:'第 5 轮 · 第 8 步',
+  steps:[...rep('medium',3),...rep('high',5)],evals:[...hold(0,2),[3,'up'],...hold(4,6),[7,'up']],
+  change:{arrow:'↑',text:'刚决定由 high 升到 xhigh',why:'最新结果和原计划矛盾',ago:'刚刚'},
+  last:{at:'第 7 步后',r:'up',text:'升到 xhigh',probs:[.01,.04,.15,.52,.28],nouls:[['同一失败又出现',.31],['原因已查明',.08],['只剩照做',.03],['与计划矛盾',.88]],by:'Drex · 287 ms',rules:['升：上方合计 0.80，到了 0.80；一轮中途最高到 xhigh','降一档要下方合计 ≥ 0.70，现在 0.05']},
+  next:{main:'下一份脚本结果到达时',sub:'这次结果没经过 Poll，新档要等下一条结果行才发出',ahead:1},
+  feats:F('每 1 份脚本结果',''),backend:['on','Drex drex-max-v1.1 · 可用'],agents:[],skill:null},
+ idle:{name:'空闲（两轮之间）',session:'Code Mode 会话',idle:true,cur:'medium',wanted:'medium',sent:null,turn:'空闲',
+  steps:[...rep('medium',6),...rep('high',8)],evals:[[6,'up']],
+  change:{arrow:'·',text:'上一轮结束在 high（第 6 步升的）',why:'会话设定的档位是 medium',ago:'2 分钟前结束'},
+  last:{at:'上一轮第 13 步后',r:'hold',text:'不变',probs:[.05,.22,.48,.20,.05],nouls:[['同一失败又出现',.05],['原因已查明',.74],['只剩照做',.41],['与计划矛盾',.04]],by:'Drex · 301 ms',rules:['上一轮的最后一次评估','下一条消息会重新定档']},
+  next:{main:'你发出下一条消息时',sub:'说「继续」这类话会从上一轮的 high 起算',ahead:0},
+  feats:F('每 1 份脚本结果',''),backend:['on','Drex drex-max-v1.1 · 可用'],agents:[],skill:null},
+ lock:{name:'已锁定',session:'普通会话',locked:true,cur:'high',wanted:'high',sent:'high',turn:'第 2 轮 · 第 5 步',
+  steps:rep('high',5),evals:[],
+  change:{arrow:'·',text:'用 /dp lock high 锁定',why:'锁定期间三项评估都不做',ago:'本轮开始前'},
+  last:null,
+  next:{main:'不评估',sub:'/dp unlock 解锁后恢复',ahead:0},
+  feats:[['发消息定档','lock',''],['中途换挡','lock',''],['agent 定档','lock',''],['skill 推荐','on','62 个候选'],['档位核对','on',''],['进展记录','off','']],backend:['on','Drex drex-max-v1.1 · 可用'],agents:[],skill:null}
+};
+const ix=l=>LV.indexOf(l);
+const MK={ok:'✓',warn:'!',dim:'–',info:'■',err:'×'};
+function status(S){if(S.locked)return['info','已锁定'];if(S.idle)return['dim','空闲'];if(S.sent==null)return['dim','未核对'];if(S.sent!==S.wanted)return['warn','要 '+S.wanted+'，实际发出 '+S.sent];return['ok','已发出'];}
+function resKind(L){if(!L)return['dim','锁定期间不评估'];if(L.r==='fail')return['err','× '+L.text];if(L.r==='up')return['acc','↑ '+L.text];if(L.r==='down')return['info','↓ '+L.text];return['','不变'];}
+const yn=v=>v>=.7?['acc','是']:v<=.3?['dim','否']:['warn','拿不准'];
+const fOn=S=>S.feats.filter(f=>f[1]==='on').map(f=>f[0]).join(' · ');
+const fOff=S=>S.feats.filter(f=>f[1]==='off').map(f=>f[0]).join(' · ');
+const fLock=S=>S.feats.filter(f=>f[1]==='lock').map(f=>f[0]).join(' · ');
+// ---------- 终端 ----------
+const tp=l=>LV.map((x,k)=>k<=ix(l)?`<span style="color:${C[l]}">▮</span>`:'<span class="mute">▯</span>').join('');
+const tl=l=>`<b style="color:${C[l]}">${l}</b>`;
+const tst=S=>{const[c,t]=status(S);return `<span class="${c}">${MK[c]} ${t}</span>`};
+const tres=L=>{const[c,t]=resKind(L);return `<span class="${c}">${t}</span>`};
+const SHORT={'发消息定档':'定档','中途换挡':'中途','agent 定档':'agent','skill 推荐':'skill','档位核对':'核对','进展记录':'进展'};
+function tfeat(S,short){const nm=k=>S.feats.filter(f=>f[1]===k).map(f=>short?SHORT[f[0]]:f[0]).join(' · ');return `<span class="ok">生效</span> ${nm('on')||'—'}${nm('lock')?`   <span class="info">锁定</span> ${nm('lock')}`:''}   <span class="dim">关 ${nm('off')||'—'}</span>${!short&&S.backend[0]==='warn'?`   <span class="warn">! ${S.backend[1]}</span>`:''}`}
+function tuiA(S){const L=S.last;
+ return{label:`dp ${S.cur} ${MK[status(S)[0]]}`,band:[
+  ` <b class="acc">dp</b>  ${tp(S.cur)} ${tl(S.cur)}  ${tst(S)}    ${S.change.arrow} ${S.change.text}    <span class="dim">下次评估</span> ${S.next.main}`,
+  `     <span class="dim">上次评估${L?' '+L.at:''}</span> ${tres(L)}<span class="dim">${L?' · '+L.by:''}</span>    ${tfeat(S,true)}`]}}
+function ttrack(S){const ev=new Map(S.evals);
+ const cells=S.steps.map(l=>`<span class="cell" style="color:${C[l]}">█</span>`).join('');
+ const n=Math.min(S.next.ahead,6);
+ const ahead=S.next.ahead>0?`<span class="mute">${'<span class="cell">┄</span>'.repeat(n)}</span><span class="cell acc">◇</span>`:'';
+ const marks=S.steps.map((l,k)=>{const r=ev.get(k);const ch=r==='up'?'▲':r==='down'?'▼':r==='fail'?'×':r==='hold'?'·':' ';const st=r==='fail'?'class="cell err"':r==='hold'?'class="cell dim"':`class="cell" style="color:${C[l]}"`;return `<span ${st}>${ch}</span>`}).join('');
+ return[` <span class="dim">步</span> ${cells}${ahead}   <span class="dim">下次评估</span> ${S.next.main}`,` <span class="dim">评</span> ${marks}   ${S.change.arrow} ${S.change.text}<span class="dim">：${S.change.why}</span>`]}
+function tuiB(S){const L=S.last;const tr=ttrack(S);
+ const nl=L&&L.nouls?L.nouls.map(n=>`${n[0]} ${n[1].toFixed(2)}`).join(' · '):(L?L.rules[0]:'');
+ return{label:`dp ${S.cur} ${MK[status(S)[0]]}`,band:[
+  ` ${tp(S.cur)} ${tl(S.cur)}  ${tst(S)}      <span class="dim">${S.turn} · ${S.session}</span>`,
+  tr[0],tr[1],
+  ` <span class="dim">上次评估${L?'（'+L.at+'）':''}</span> ${tres(L)}<span class="dim">${nl?' · '+nl:''}${L?'    '+L.by:''}</span>`,
+  ` ${tfeat(S)}`]}}
+function tbars(S,L,w){return LV.slice().reverse().map(l=>{const k=ix(l),p=L.probs[k],cur=l===S.cur;
+  return `<div class="row"><span style="width:8ch;${cur?'font-weight:700;color:'+C[l]:'color:var(--dim)'}">${l}</span><span style="width:${w+1}ch;color:${C[l]};opacity:${cur?1:.8}">${'█'.repeat(Math.round(p*w))||'▏'}</span><span class="dim">${p.toFixed(2)}${cur?'  ◂ 现在':''}</span></div>`})}
+function tuiC(S){const L=S.last;const o=[];const sec=t=>o.push(`<span class="acc">${t}</span>`);
+ sec('现在');o.push(`${tp(S.cur)}  ${tl(S.cur)}    ${tst(S)}`);o.push(`${S.change.arrow} ${S.change.text}`);o.push(`<span class="dim">${S.change.why} · ${S.change.ago}</span>`);o.push('');
+ sec('上次评估');
+ if(!L)o.push('<span class="dim">锁定期间不评估</span>');
+ else{o.push(`${tres(L)}  <span class="dim">${L.at} · ${L.by}</span>`);
+  if(L.probs)o.push(...tbars(S,L,18));
+  if(L.nouls)L.nouls.forEach(n=>{const[c,t]=yn(n[1]);o.push(`<div class="row"><span style="width:18ch">${n[0]}</span><span style="width:6ch">${n[1].toFixed(2)}</span><span class="${c}">${t}</span></div>`)});
+  L.rules.forEach(r=>o.push(`<span class="dim">${r}</span>`));}
+ o.push('');sec('下次评估');o.push(S.next.main);o.push(`<span class="dim">${S.next.sub}</span>`);o.push('');
+ sec('功能');
+ S.feats.forEach(f=>{const m={on:['ok','●','生效'],off:['mute','○','关'],lock:['info','●','已锁定'],warn:['warn','●','未生效']}[f[1]];o.push(`<div class="row"><span class="${m[0]}" style="width:2ch">${m[1]}</span><span style="width:16ch">${f[0]}</span><span class="${f[1]==='off'?'dim':''}">${m[2]}${f[2]?' · '+f[2]:''}</span></div>`)});
+ o.push(`<span class="${S.backend[0]==='warn'?'warn':'dim'}">后端 ${S.backend[1]}</span>`);
+ if(S.agents.length){o.push('');sec('agent');S.agents.forEach(a=>o.push(`<div class="row"><span style="width:18ch">${a[0]}</span><span>${a[1]} · ${a[2]}  <span class="ok">✓</span></span></div>`))}
+ if(S.skill){o.push('');sec('这条消息推荐的 skill');o.push(S.skill)}
+ return{label:`dp ${S.cur} ${MK[status(S)[0]]}`,band:[` <b class="acc">dp</b>  ${tp(S.cur)} ${tl(S.cur)}  ${tst(S)}      <span class="dim">/dp 打开或关上右边的面板</span>`],pane:o}}
+function tuiD(S){const L=S.last,P=L&&L.probs,rows=[];
+ LV.slice().reverse().forEach(l=>{const k=ix(l),cur=l===S.cur,want=l===S.wanted&&S.wanted!==S.cur,p=P?P[k]:null;
+  const bar=p==null?'<span class="mute">—</span>':`<span style="color:${C[l]};opacity:${cur?1:.8}">${'▮'.repeat(Math.max(1,Math.round(p*24)))}</span> <span class="dim">${p.toFixed(2)}</span>`;
+  let note='';
+  if(cur)note=`${tst(S)}   ${S.change.arrow} ${S.change.text}`;
+  else if(want)note='<span class="warn">已决定升到这里，下一条结果行起发出</span>';
+  else if(L&&k===ix(S.cur)+1)note=`<span class="dim">${L.rules[0]}</span>`;
+  else if(L&&k===ix(S.cur)-1)note=`<span class="dim">${L.rules[1]}</span>`;
+  rows.push(`<div class="row"><span style="width:3ch">${cur?' <b class="acc">▸</b>':want?' <span class="warn">▹</span>':' '}</span><span style="width:8ch;${cur?'font-weight:700;color:'+C[l]:'color:var(--dim)'}">${l}</span><span style="width:32ch">${bar}</span><span>${note}</span></div>`)});
+ rows.push(`   <span class="dim">上次评估${L?' '+L.at:''}</span> ${tres(L)}<span class="dim">${L?' · '+L.by:''}</span>        <span class="dim">下次评估</span> ${S.next.main}`);
+ rows.push(`   ${tfeat(S)}`);
+ return{label:`dp ${S.cur} ${MK[status(S)[0]]}`,band:rows}}
+const lines=a=>a.map(x=>x.startsWith('<div')?x:`<div class="ln">${x||' '}</div>`).join('');
+function term(t,S){const tx=S.idle?['⏺ 三处都改好了，测试全部通过。']:S.session.startsWith('Code')?['⏺ REPL(run the tests again)','  ⎿ (dispatched #9)','⏺ Poll','  ⎿ 1 failed · AssertionError: expected 3 to equal 4']:['⏺ Bash(npm test)','  ⎿ 1 failed · AssertionError: expected 3 to equal 4'];
+ return `<div class="term"><div class="main"><div class="tx">${tx.join('\n')}</div><div class="band"><span class="fold">[-]</span>${lines(t.band)}</div><div class="pbox">&gt; <span class="dim">▏</span></div><div class="foot"><span>⏵⏵ accept edits on</span><span>${t.label}</span></div></div>${t.pane?`<div class="pane">${lines(t.pane)}</div>`:''}</div>`}
+// ---------- Desktop ----------
+const dp=l=>`<span class="dpips">${LV.map((x,k)=>`<i${k<=ix(l)?` style="background:${C[l]}"`:''}></i>`).join('')}</span>`;
+const dl=(l,big)=>`<b${big?' class="big"':''} style="color:${CT[l]}">${l}</b>`;
+const dst=S=>{const[c,t]=status(S);return `<span class="pill ${c}">${MK[c]} ${t}</span>`};
+const dres=L=>{const[c,t]=resKind(L);return `<span class="pill ${c||'dim'}">${t}</span>`};
+function dfeat(S){const dot=(c)=>`<span class="dot" style="background:${c}"></span>`;
+ return `<div class="drow sm" style="flex-wrap:wrap;gap:4px 12px">${S.feats.map(f=>{const c={on:'var(--ok)',off:'var(--mute)',lock:'var(--info)',warn:'var(--warn)'}[f[1]];return `<span class="drow" style="gap:5px">${dot(c)}<span>${f[0]}${f[1]==='lock'?'（锁定）':f[1]==='off'?'（关）':''}</span></span>`}).join('')}${S.backend[0]==='warn'?`<span class="warn">! ${S.backend[1]}</span>`:''}</div>`}
+function deskA(S){const L=S.last;
+ return{chip:`dp · ${S.cur} ${MK[status(S)[0]]}`,band:`<div class="drow">${dp(S.cur)}${dl(S.cur)}${dst(S)}<span>${S.change.arrow} ${S.change.text}</span><span style="flex:1"></span><span class="pill dim">下次评估 · ${S.next.main}</span></div><div class="drow sm" style="margin-top:6px">上次评估${L?' '+L.at:''} ${dres(L)}<span>${L?L.by:''}</span><span style="flex:1"></span></div><div style="margin-top:6px">${dfeat(S)}</div>`}}
+function dtrack(S){const ev=new Map(S.evals),N=S.steps.length;
+ const segs=S.steps.map((l,k)=>`<i style="width:13px;height:12px;background:${C[l]};display:block;border-radius:${k===0?'6px 0 0 6px':''}${k===N-1&&k>0?'0 6px 6px 0':''}${N===1?'6px':''}"></i>`).join('');
+ const n=Math.min(S.next.ahead,6);
+ const ahead=S.next.ahead>0?`<span style="width:${n*14}px;border-top:2px dashed #cfc9ba;margin:0 3px"></span><span style="width:10px;height:10px;border:2px solid var(--acc);transform:rotate(45deg);display:block"></span>`:'';
+ const marks=S.steps.map((l,k)=>{const r=ev.get(k);const ch=r==='up'?'▲':r==='down'?'▼':r==='fail'?'×':r==='hold'?'·':'';const col=r==='fail'?'var(--err)':r==='hold'?'#6b665c':CT[l];return `<span style="width:13px;text-align:center;color:${col};font-size:11px;display:block">${ch}</span>`}).join('');
+ return `<div style="display:flex;align-items:center;gap:1px;margin-top:10px">${segs}${ahead}<span class="sm" style="margin-left:12px">下次评估：<b style="color:#23211d">${S.next.main}</b></span></div><div style="display:flex;gap:1px;height:15px">${marks}</div>`}
+function deskB(S){const L=S.last;
+ const nl=L&&L.nouls?L.nouls.map(n=>`${n[0]} ${n[1].toFixed(2)}`).join(' · '):(L?L.rules[0]:'');
+ return{chip:`dp · ${S.cur} ${MK[status(S)[0]]}`,band:`<div class="drow">${dp(S.cur)}${dl(S.cur)}${dst(S)}<span style="flex:1"></span><span class="sm">${S.turn} · ${S.session}</span></div>${dtrack(S)}<div>${S.change.arrow} ${S.change.text}<span class="sm">：${S.change.why}</span></div><div class="drow sm" style="margin-top:6px">上次评估${L?'（'+L.at+'）':''} ${dres(L)}<span>${nl}</span><span style="flex:1"></span><span>${L?L.by:''}</span></div><div style="margin-top:6px">${dfeat(S)}</div>`}}
+function dbars(S,L,w){return LV.slice().reverse().map(l=>{const k=ix(l),p=L.probs[k],cur=l===S.cur;
+  return `<div class="drow" style="gap:6px;${cur?'font-weight:650':'color:#625d53'}"><span style="width:54px">${l}</span><span style="width:${w}px"><i class="bar" style="width:${Math.max(2,Math.round(p*w))}px;background:${C[l]};opacity:${cur?1:.8}"></i></span><span style="font-variant-numeric:tabular-nums">${p.toFixed(2)}</span>${cur?'<span class="sm">◂ 现在</span>':''}</div>`}).join('')}
+function deskC(S){const L=S.last;let h='';const sec=(t,f)=>h+=`<div class="sec${f?' first':''}">${t}</div>`;
+ sec('现在',1);h+=`<div class="drow">${dp(S.cur)}${dl(S.cur,1)}${dst(S)}</div><div style="margin-top:4px">${S.change.arrow} ${S.change.text}</div><div class="sm">${S.change.why} · ${S.change.ago}</div>`;
+ sec('上次评估');
+ if(!L)h+='<div class="sm">锁定期间不评估</div>';
+ else{h+=`<div class="drow">${dres(L)}<span class="sm">${L.at} · ${L.by}</span></div>`;
+  if(L.probs)h+=`<div style="margin-top:6px">${dbars(S,L,150)}</div>`;
+  if(L.nouls)h+=`<div style="margin-top:6px">${L.nouls.map(n=>{const[c,t]=yn(n[1]);return `<div class="drow" style="gap:6px"><span style="width:112px">${n[0]}</span><span style="width:60px;background:#efece3;border-radius:3px"><i class="bar" style="width:${Math.round(n[1]*60)}px;background:#b5af9f"></i></span><span style="width:34px;font-variant-numeric:tabular-nums">${n[1].toFixed(2)}</span><span class="${c}">${t}</span></div>`}).join('')}</div>`;
+  h+=`<div class="sm" style="margin-top:4px">${L.rules.join('<br>')}</div>`;}
+ sec('下次评估');h+=`<div style="font-weight:650">${S.next.main}</div><div class="sm">${S.next.sub}</div>`;
+ sec('功能');
+ h+=S.feats.map(f=>{const m={on:['var(--ok)','生效'],off:['var(--mute)','关'],lock:['var(--info)','已锁定'],warn:['var(--warn)','未生效']}[f[1]];return `<div class="drow" style="gap:7px"><span class="dot" style="background:${m[0]}"></span><span style="width:96px">${f[0]}</span><span class="sm">${m[1]}${f[2]?' · '+f[2]:''}</span></div>`}).join('');
+ h+=`<div class="sm ${S.backend[0]==='warn'?'warn':''}" style="margin-top:4px">后端 ${S.backend[1]}</div>`;
+ if(S.agents.length){sec('agent');h+=S.agents.map(a=>`<div class="drow" style="gap:7px"><span style="width:130px">${a[0]}</span><span class="sm">${a[1]} · ${a[2]} <span class="ok">✓</span></span></div>`).join('')}
+ if(S.skill){sec('这条消息推荐的 skill');h+=`<div>${S.skill}</div>`}
+ return{chip:`dp · ${S.cur} ${MK[status(S)[0]]}`,band:`<div class="drow">${dp(S.cur)}${dl(S.cur)}${dst(S)}<span style="flex:1"></span><span class="sm">细节在右边的面板</span></div>`,tile:h}}
+function deskD(S){const L=S.last,P=L&&L.probs;
+ const rows=LV.slice().reverse().map(l=>{const k=ix(l),cur=l===S.cur,want=l===S.wanted&&S.wanted!==S.cur,p=P?P[k]:null;
+  let note='';
+  if(cur)note=`${dst(S)} <span>${S.change.arrow} ${S.change.text}</span>`;
+  else if(want)note='<span class="pill warn">已决定升到这里，下一条结果行起发出</span>';
+  else if(L&&k===ix(S.cur)+1)note=`<span class="sm">${L.rules[0]}</span>`;
+  else if(L&&k===ix(S.cur)-1)note=`<span class="sm">${L.rules[1]}</span>`;
+  return `<div class="drow" style="gap:8px;padding:3px 8px;border-radius:7px;${cur?'background:#f6f1e3;font-weight:650':''}"><span style="width:10px;color:var(--acc)">${cur?'▸':want?'▹':''}</span><span style="width:56px;${cur?'color:'+CT[l]:'color:#625d53'}">${l}</span><span style="width:220px">${p==null?'<span class="sm">—</span>':`<i class="bar" style="height:11px;width:${Math.max(2,Math.round(p*220))}px;background:${C[l]};opacity:${cur?1:.8}"></i>`}</span><span style="width:36px;font-variant-numeric:tabular-nums;font-weight:400" class="sm">${p==null?'':p.toFixed(2)}</span><span class="drow" style="font-weight:400">${note}</span></div>`}).join('');
+ return{chip:`dp · ${S.cur} ${MK[status(S)[0]]}`,band:`${rows}<div class="drow sm" style="margin-top:8px;padding:0 8px">上次评估${L?' '+L.at:''} ${dres(L)}<span>${L?L.by:''}</span><span style="flex:1"></span><span>下次评估：<b style="color:#23211d">${S.next.main}</b></span></div><div style="margin-top:6px;padding:0 8px">${dfeat(S)}</div>`}}
+function desk(d,S){const st=S.locked?'已锁定':S.idle?'空闲 · 下一条消息时定档':`${S.change.arrow} ${S.change.text}`;
+ const band=S.idle?'<div class="hiddenband">空闲时 Desktop 不显示这一块，只剩下面的小标签和状态行</div>':`<div class="dband">${d.band}</div>`;
+ return `<div class="desk"><div class="main"><div class="msg">Claude：${S.idle?'三处都改好了，测试全部通过。':'又跑了一遍测试，还是同一个断言失败，我换个方向查。'}</div>${band}<div class="comp">Reply to Claude…</div><div class="dfoot"><span class="chip">Fable 5.2</span><span class="chip">${d.chip}</span><span style="flex:1"></span><span>dispatch-pilot　${st}</span></div></div>${d.tile?`<div class="tile">${d.tile}</div>`:''}</div>`}
+// ---------- 页面 ----------
+const VAR={
+ A:{name:'一行',tag:'最省地方，一眼看档位',tui:tuiA,desk:deskA,pros:['常驻只占两行（Desktop 三行），不挡对话','档位、上次换挡、下次评估在同一行，从左读到右'],cons:['评估结果只有结论，没有五档概率和各条件题的值；要看得用 /dp log','一轮里换过几次挡，只看得到最近一次']},
+ B:{name:'时间轴',tag:'这一轮的每一步都画出来',tui:tuiB,desk:deskB,pros:['什么时候换的、每次评估的结果、下一次在哪，都在一条轴上','一眼看得出评估做得密不密、有没有失败'],cons:['常驻五行','一轮很长时一格要代表好几步','概率细节不在常驻界面里']},
+ C:{name:'分区面板',tag:'右边一栏，信息最全',tui:tuiC,desk:deskC,pros:['每个问题有固定的位置：现在、上次评估、下次评估、功能','五档概率、每道条件题、agent、推荐的 skill 都放得下','prompt 上方只留一行'],cons:['要占右边一栏：终端要全屏并且够宽（约 110 列以上），不够宽时只能挤在 prompt 上方','面板关着的时候只剩那一行']},
+ D:{name:'档位梯',tag:'把这次评估为什么是这个结果画出来',tui:tuiD,desk:deskD,pros:['五档排成梯子，当前档和决策模型给的概率对在一起，为什么升、为什么不动一看就懂','「要的档」和「实际发出的档」不一样时，在梯子上是两个位置，很显眼'],cons:['常驻七行，是四种里最高的','历史只有最近一次换挡','没有评估结果时（失败、锁定）梯子是空的']}
+};
+const KEYS=Object.keys(VAR),q=new URLSearchParams(location.search);
+const cur={v:VAR[q.get('variant')]?q.get('variant'):'A',s:SC[q.get('scene')]?q.get('scene'):'up'};
+let picked=null;
+const $=id=>document.getElementById(id);
+function notes(V,S){const L=S.last;const st=status(S)[1];
+ const rows=[['会话',S.session+' · '+S.turn],['现在的档位',`mod 要的 ${S.wanted} · ${S.sent==null?'还没有读到实际发出的档位':'实际发出的 '+S.sent} · ${st}`],['上次换挡',`${S.change.text}（${S.change.why}，${S.change.ago}）`],['上次评估',L?`${L.at}：${L.text} · ${L.by}`:'锁定期间不评估'],['下次评估',`${S.next.main}（${S.next.sub}）`],['功能',`生效：${fOn(S)||'无'}；关：${fOff(S)||'无'}${fLock(S)?'；锁定：'+fLock(S):''}`],['后端',S.backend[1]]];
+ return `<div class="notes"><div class="note"><h4>这种风格的取舍</h4><ul>${V.pros.map(x=>'<li>'+x+'</li>').join('')}${V.cons.map(x=>'<li style="color:#8a4b33">'+x+'</li>').join('')}</ul></div><div class="note"><h4>这个场景里看板要显示的数据</h4><table>${rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table></div></div>`}
+function render(){const V=VAR[cur.v],S=SC[cur.s];
+ $('app').innerHTML=`<div class="vhead"><span class="k">${cur.v}</span><span class="n">${V.name}</span><span class="t">${V.tag} · 场景：${S.name}</span></div><div class="lab">终端 · ${S.session}</div>${term(V.tui(S),S)}<div class="lab">DESKTOP · ${S.session}</div>${desk(V.desk(S),S)}${notes(V,S)}`;
+ $('cur').textContent=cur.v+' · '+V.name;
+ const p=$('pick');p.dataset.choice=cur.v;p.textContent=picked===cur.v?'已选 '+cur.v+' ✓':'选这个风格';p.classList.toggle('sel',picked===cur.v);
+ $('scene').value=cur.s;
+ q.set('variant',cur.v);q.set('scene',cur.s);try{history.replaceState(null,'','?'+q.toString())}catch(e){}}
+function step(d){cur.v=KEYS[(KEYS.indexOf(cur.v)+d+KEYS.length)%KEYS.length];render()}
+$('scene').innerHTML=Object.keys(SC).map(k=>`<option value="${k}">场景：${SC[k].name}</option>`).join('');
+$('scene').onchange=e=>{cur.s=e.target.value;render()};
+$('prev').onclick=()=>step(-1);$('next').onclick=()=>step(1);
+$('pick').onclick=()=>{picked=cur.v;render()};
+document.addEventListener('keydown',e=>{if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;if(e.key==='ArrowLeft')step(-1);if(e.key==='ArrowRight')step(1)});
+render();
+</script></body></html>
