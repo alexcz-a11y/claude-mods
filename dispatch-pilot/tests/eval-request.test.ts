@@ -117,7 +117,9 @@ test('midrun 的 default（修订 A16）：只有 mod 的题，state 是 midrunS
 test('midrun 的 with-controls：原来的 default，带 stated_next，对照题只问 direct', () => {
   const b = build(midrunCase, variant('midrun', 'with-controls'), ctx)
   const i = midrunCase.input
-  expect(b.state).toEqual({ ...midrunState({ ...i, progress: null }), stated_next: i.statedNext })
+  const plain = midrunState({ ...i, progress: null })
+  expect(b.state).toEqual({ ...plain, note: b.state.note, stated_next: i.statedNext })
+  expect(b.state.note === plain.note).toBe(false)
   for (const [id, q] of Object.entries(midrunQuestions())) expect(b.questions[id]).toEqual(q)
   expect(b.questions.direct).toEqual(DIRECT_LEVEL)
   expect(b.questions.long_unattended).toBe(undefined)
@@ -133,6 +135,18 @@ test('midrunState 不再放 stated_next；statedNext: true 的给法照原来的
   // Where midrunState used to put it: after latest, before progress.
   expect(Object.keys(withIt.state)).toEqual(['note', 'request', 'current_level', 'steps_so_far', 'failed_steps', 'recent', 'latest', 'stated_next', 'progress'])
   expect('stated_next' in build(midrunCase, { name: 'x' }, ctx).state).toBe(false)
+})
+
+test('中途 state 的 note：新 default 一类不再提 stated_next；原来问过的给法（带 statedNext 的和 no-stated-next-with-controls）照旧用原来的 note', () => {
+  const OLD_NOTE = 'Entries in "recent" are oldest first. Judge by the results, not by what the assistant says it achieved; "stated_next" is the assistant\'s own account, and "progress" is another model\'s paraphrase of the turn so far, not a result.'
+  const legacy = ['with-controls', 'recent-1-with-controls', 'recent-3-with-controls', 'no-stated-next-with-controls', 'direct-shuffled']
+  for (const v of VARIANTS.midrun) {
+    const note = String(build(midrunCase, v, ctx).state.note)
+    if (legacy.includes(v.name)) expect([v.name, note]).toEqual([v.name, OLD_NOTE])
+    else expect([v.name, note.includes('stated_next')]).toEqual([v.name, false])
+  }
+  // Every variant that puts stated_next back is one of those asked with the old note.
+  for (const v of VARIANTS.midrun) if (v.statedNext === true) expect(legacy).toContain(v.name)
 })
 
 test('midrun 的 recent-1、recent-3 是新 default 少给几条；带 -with-controls 的是原来的请求', () => {

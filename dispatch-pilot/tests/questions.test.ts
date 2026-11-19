@@ -68,7 +68,8 @@ test('recent 最多 5 条，从早到晚；字段形状和 latest 一致', () =>
 })
 test('中途 state 的 note：progress 是另一个模型的转述，仍按结果判断', () => {
   const s = midrunState({ request: 'r', current: 'medium', stepsSoFar: 1, failedSteps: 0, recent: [], latest: step(1), progress: { done: 'a', remaining: 'b', cause_known: false } })
-  expect(s.note).toBe('Entries in "recent" are oldest first. Judge by the results, not by what the assistant says it achieved; "stated_next" is the assistant\'s own account, and "progress" is another model\'s paraphrase of the turn so far, not a result.')
+  expect(s.note).toBe('Entries in "recent" are oldest first. Judge by the results, not by what the assistant says it achieved; "progress" is another model\'s paraphrase of the turn so far, not a result.')
+  expect(String(s.note).includes('stated_next')).toBe(false)
 })
 test('progress 为 null 时不放，有就放；助手写的下一步打算（stated_next）不放', () => {
   const base = { request: 'r', current: 'medium' as const, stepsSoFar: 1, failedSteps: 0, recent: [], latest: step(1) }

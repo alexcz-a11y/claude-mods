@@ -15,7 +15,8 @@ import { DIRECT_LEVEL, LONG_UNATTENDED, OPEN_LEVELS_B } from './controls.ts'
  * as the mod asks both of a message in one request. statedNext: the assistant's stated plan, which the mod no longer
  * sends, put back as midrunState used to put it, so the requests asked with it keep their hash. partial: when skill
  * questions ride along, the request is asked as hooks/flows/submit.ts asks it (ask's partial). openLevels 'b': the open
- * question's criteria are OPEN_LEVELS_B (controls.ts), nothing else changed.
+ * question's criteria are OPEN_LEVELS_B (controls.ts), nothing else changed. oldNote: the mid-run note as it read
+ * before it stopped naming stated_next, for the requests asked with it.
  */
 export type Variant = {
   name: string
@@ -28,6 +29,7 @@ export type Variant = {
   levels?: boolean
   partial?: boolean
   openLevels?: 'b'
+  oldNote?: boolean
   shuffle?: number
   stage?: 1 | 2
 }
@@ -53,15 +55,16 @@ export const VARIANTS: Record<Category, readonly Variant[]> = {
   ],
   midrun: [
     { name: 'default', recent: 5, progress: 'none' },
-    { name: 'with-controls', recent: 5, statedNext: true, progress: 'none', controls: true },
+    { name: 'with-controls', recent: 5, statedNext: true, oldNote: true, progress: 'none', controls: true },
     { name: 'recent-1', recent: 1 },
     { name: 'recent-3', recent: 3 },
     { name: 'progress-before', progress: 'before' },
     { name: 'progress-after', progress: 'after' },
-    { name: 'recent-1-with-controls', recent: 1, statedNext: true, controls: true },
-    { name: 'recent-3-with-controls', recent: 3, statedNext: true, controls: true },
-    { name: 'no-stated-next-with-controls', controls: true },
-    { name: 'direct-shuffled', recent: 5, statedNext: true, progress: 'none', controls: true, shuffle: 1 },
+    { name: 'recent-1-with-controls', recent: 1, statedNext: true, oldNote: true, controls: true },
+    { name: 'recent-3-with-controls', recent: 3, statedNext: true, oldNote: true, controls: true },
+    // Asked without the field, but with the note that still named it.
+    { name: 'no-stated-next-with-controls', oldNote: true, controls: true },
+    { name: 'direct-shuffled', recent: 5, statedNext: true, oldNote: true, progress: 'none', controls: true, shuffle: 1 },
     { name: 'open-b', recent: 5, progress: 'none', openLevels: 'b' },
   ],
   agent: [
@@ -115,6 +118,8 @@ export function build(c: Case, v: Variant, ctx: { skills: readonly Skill[]; shor
       progress,
     })
     if (v.statedNext === true) state = withStatedNext(state, i.statedNext)
+    // The note is the state's first key; replacing it keeps its place.
+    if (v.oldNote === true) state = { ...state, note: OLD_MIDRUN_NOTE }
     questions = midrunQuestions()
     // The long-unattended flag is about a whole job handed over, which a check in mid-run is not.
     if (v.controls) questions = { ...questions, direct: DIRECT_LEVEL }
@@ -152,6 +157,10 @@ function withStatedNext(state: Record<string, unknown>, text: string): Record<st
   if ('progress' in state) out.progress = progress
   return out
 }
+
+// The note midrunState wrote while the state could carry stated_next.
+const OLD_MIDRUN_NOTE =
+  'Entries in "recent" are oldest first. Judge by the results, not by what the assistant says it achieved; "stated_next" is the assistant\'s own account, and "progress" is another model\'s paraphrase of the turn so far, not a result.'
 
 // The clip midrunState gave stated_next.
 const STATED_NEXT_TOKENS = 200
