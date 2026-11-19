@@ -1,6 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Answer } from '../hooks/backend.ts'
 import { START, submitLevel } from '../hooks/decide.ts'
+import { settleSubmit } from '../hooks/submit.ts'
 import { START_BARS, mark, outcomeOf, shortlistOf } from '../eval/lib/read.ts'
 import type { Bars, Stored } from '../eval/lib/read.ts'
 import { conservativeFor, gridFor, plateau, sweep } from '../eval/lib/sweep.ts'
@@ -45,6 +46,26 @@ test('上一轮说「接着做」：从上一轮的档位起算，和 mod 一样
   const flat = [0.2, 0.2, 0.2, 0.2, 0.2]
   expect(outcomeOf(c, ok({ open: score(flat), mechanical: n(0.1), unknown_cause: n(0.1), continues: n(0.9) }), START_BARS)?.level).toBe('xhigh')
   expect(outcomeOf(c, ok({ open: score(flat), mechanical: n(0.1), unknown_cause: n(0.1), continues: n(0.1) }), START_BARS)?.level).toBe('medium')
+})
+
+test('只说接着做（裁定 C38）：outcomeOf 的档位和 mod 的 settleSubmit 一样，沿用上一轮的档位', () => {
+  const down = score([0.8, 0.14, 0.03, 0.02, 0.01])
+  const up = score([0, 0.05, 0.1, 0.8, 0.05])
+  const quiet = { mechanical: n(0.1), unknown_cause: n(0.1) }
+  const rows: { previous: 'low' | 'xhigh' | null; answers: Record<string, Answer>; want: string }[] = [
+    { previous: 'xhigh', answers: { open: down, ...quiet, continues: n(0.9) }, want: 'xhigh' },
+    { previous: 'low', answers: { open: up, ...quiet, continues: n(0.9) }, want: 'low' },
+    { previous: 'xhigh', answers: { open: down, ...quiet, continues: n(0.5) }, want: 'low' },
+    { previous: null, answers: { open: down, ...quiet }, want: 'low' },
+  ]
+  for (const r of rows) {
+    const previous = r.previous === null ? null : { request: 'migrate the store', lastReply: 'Shall I go on?', ended: 'answered' as const, level: r.previous }
+    const c: SubmitCase = { ...submitCase, input: { ...submitCase.input, previous } }
+    const mod = settleSubmit({ ok: true, answers: r.answers, model: 'drex-max-v1.1', backend: 'drex', ms: 1 }, { effort: c.input.base, previousLevel: r.previous, writes: true, turnId: 't', id: 'd', at: 0 })
+    const level = outcomeOf(c, ok(r.answers), START_BARS)?.level
+    expect([r.previous, level]).toEqual([r.previous, r.want])
+    expect([r.previous, level]).toEqual([r.previous, mod.wanted])
+  }
 })
 
 test("form 'direct'：取 readDirect 的档位", () => {

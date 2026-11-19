@@ -75,10 +75,9 @@ test('progress 为 null 时不放，有就放；助手写的下一步打算（st
   const base = { request: 'r', current: 'medium' as const, stepsSoFar: 1, failedSteps: 0, recent: [], latest: step(1) }
   const bare = midrunState({ ...base, progress: null })
   expect('progress' in bare).toBe(false)
-  // A caller that still hands over a stated plan gets no stated_next.
-  const said = { statedNext: 'run tests' }
-  const full = midrunState({ ...base, ...said, progress: { done: 'a', remaining: 'b', cause_known: true } })
-  expect('stated_next' in full).toBe(false)
+  const full = midrunState({ ...base, progress: { done: 'a', remaining: 'b', cause_known: true } })
+  // Every field the state carries, in order: stated_next is not among them.
+  expect(Object.keys(full)).toEqual(['note', 'request', 'current_level', 'steps_so_far', 'failed_steps', 'recent', 'latest', 'progress'])
   expect(full.progress).toEqual({ done: 'a', remaining: 'b', cause_known: true })
 })
 test('clip：中间放 …，头尾各一半，截断后不超预算', () => {

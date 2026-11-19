@@ -6,6 +6,7 @@ import { START } from '../hooks/decide.ts'
 import type { Decision } from '../hooks/log.ts'
 import type { SessionState, TurnState } from '../hooks/state.ts'
 import { estimateTokens } from '../hooks/statebuild.ts'
+import { settleSubmit } from '../hooks/submit.ts'
 import { KEYS, NO_BACKEND, complete, dp, drexOk, noul, score, start, step, submit, turnStart, turns, world } from './support/world.ts'
 
 type World = ReturnType<typeof world>
@@ -31,6 +32,31 @@ const answering =
     drexOk('continues' in body.questions ? { ...a, continues: noul(continues) } : a)
 
 const TASK = 'Fix the flaky retry in the uploader'
+
+// Ruling C38: a message that only says to go on keeps the previous turn's level; open, mechanical and unknown_cause do
+// not move it. The engine's own level for the turn is medium in each.
+const goOn = (a: Record<string, unknown>, previousLevel: 'low' | 'xhigh' | null) =>
+  settleSubmit({ ok: true, answers: a as never, model: 'drex-max-v1.1', backend: 'drex', ms: 5 }, { effort: 'medium', previousLevel, writes: true, turnId: 't2', id: 'd2', at: 2 })
+const DOWN = score([0.8, 0.14, 0.03, 0.02, 0.01])
+
+test('只说接着做：上一轮 xhigh，open 指向最低档也沿用 xhigh；按引擎的 medium 记为升档', () => {
+  const s = goOn({ open: DOWN, mechanical: noul(0.9), unknown_cause: noul(0.1), continues: noul(0.9) }, 'xhigh')
+  expect([s.base, s.wanted]).toEqual(['xhigh', 'xhigh'])
+  expect(s.decision).toMatchObject({ from: 'medium', to: 'xhigh', reason: 'continues', applied: true })
+})
+
+test('只说接着做：上一轮 low，open 指向 xhigh、原因未知为是，也沿用 low', () => {
+  const s = goOn({ open: TO_XHIGH.open, mechanical: noul(0.1), unknown_cause: noul(0.9), continues: noul(0.9) }, 'low')
+  expect([s.base, s.wanted]).toEqual(['low', 'low'])
+  expect(s.decision).toMatchObject({ from: 'medium', to: 'low', reason: 'continues' })
+})
+
+test('continues 不确定（0.5）或没有上一轮的档位：照旧从会话的档位起算，由 open 移动', () => {
+  const unsure = goOn({ open: DOWN, mechanical: noul(0.1), unknown_cause: noul(0.1), continues: noul(0.5) }, 'xhigh')
+  expect([unsure.base, unsure.wanted, unsure.decision.from, unsure.decision.reason]).toEqual(['medium', 'low', 'medium', 'less-open'])
+  const none = goOn({ open: DOWN, mechanical: noul(0.1), unknown_cause: noul(0.1), continues: noul(0.9) }, null)
+  expect([none.base, none.wanted, none.decision.from, none.decision.reason]).toEqual(['medium', 'low', 'medium', 'less-open'])
+})
 const OPUS = 'claude-opus-5-5'
 
 // The brief's nine.
@@ -191,7 +217,7 @@ test('shadow：发请求、记一条，但 effort 不变', { options: { ...KEYS,
   expect(logged(w)[0]).toMatchObject({ from: 'medium', to: 'high', reason: 'more-open', applied: false, failure: null })
 })
 
-test('续做：上一轮定在 xhigh，这一条 continues 为是，从 xhigh 起算', { options: KEYS }, async ($, on) => {
+test('续做：上一轮定在 xhigh，这一条 continues 为是，沿用 xhigh，按引擎自己的 medium 记为升档', { options: KEYS }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: ({ body }) => drexOk('continues' in body.questions ? { ...HOLD, continues: noul(0.9) } : TO_XHIGH) })
   await start($)
   await submit($, TASK)
@@ -214,7 +240,7 @@ test('续做：上一轮定在 xhigh，这一条 continues 为是，从 xhigh �
   expect(efforts(w)).toEqual(['xhigh', 'xhigh', 'xhigh'])
   expect(logged(w).map((d) => [d.turnId, d.from, d.to, d.reason])).toEqual([
     ['t1', 'medium', 'xhigh', 'more-open'],
-    ['t2', 'xhigh', 'xhigh', 'hold'],
+    ['t2', 'medium', 'xhigh', 'continues'],
   ])
 })
 
@@ -543,8 +569,8 @@ test('续做：上一轮没有判断过（task-notification），它的档就是
 
   expect(w.fetched).toHaveLength(1)
   expect(w.fetched[0]!.body.state.previous_turn).toMatchObject({ level: 'high' })
-  // Continuing starts from the previous turn's level, which is the session's: HOLD keeps it.
-  expect(logged(w).map((d) => [d.turnId, d.from, d.to, d.reason])).toEqual([['t2', 'high', 'high', 'hold']])
+  // Continuing keeps the previous turn's level, which is the session's: no shift, and the reason says why.
+  expect(logged(w).map((d) => [d.turnId, d.from, d.to, d.reason])).toEqual([['t2', 'high', 'high', 'continues']])
   expect(efforts(w)).toEqual(['high', 'high', 'high'])
 })
 

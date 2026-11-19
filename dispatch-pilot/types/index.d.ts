@@ -31,6 +31,7 @@ export type DpReason =
   | 'contradicts-plan'
   | 'cause-found'
   | 'carrying-out'
+  | 'continues'
   | 'hold'
 export type DpThresholds = { up: number; upHigh: number; down: number; yes: number; no: number; modelDown: number }
 

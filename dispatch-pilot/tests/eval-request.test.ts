@@ -209,6 +209,16 @@ test('skill 的 stage-1（修订 A16）：mod 一条消息两件事都问时的�
   expect([s.state, s.questions, s.partial]).toEqual([b.state, b.questions, b.partial])
 })
 
+test('skill 的 stage-1 没有候选时：和 submit default 一样不带 skill 的题、不按 partial 发，仍是同一个请求', () => {
+  const none = { skills: [] }
+  const b = build(skillCase, variant('skill', 'stage-1'), none)
+  expect(b.questions).toEqual(submitQuestions(false))
+  expect(b.partial).toBe(false)
+  const asSubmit: SubmitCase = { ...submitCase, input: { request: skillCase.input.request, previous: null, base: 'medium' } }
+  const s = build(asSubmit, variant('submit', 'default'), none)
+  expect([s.hash, s.state, s.questions, s.partial]).toEqual([b.hash, b.state, b.questions, b.partial])
+})
+
 test('skill 的 stage-1-alone 是原来的 stage-1，只有 skill 第一次请求的题；stage-2 要给 short', () => {
   const b = build(skillCase, variant('skill', 'stage-1-alone'), ctx)
   expect(b.questions).toEqual(stageOne(skills, 'drex', true))

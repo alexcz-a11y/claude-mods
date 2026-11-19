@@ -77,12 +77,13 @@ test('thresholdsFor 现在都返回 START', () => {
   expect(thresholdsFor('drex', 'drex-max-v1.1', 'submit')).toEqual(START)
   expect(thresholdsFor('jev', 'jev-latest', 'agent')).toEqual(START)
 })
-test('REASON_EN：九个原因都有固定文字', () => {
+test('REASON_EN：十个原因都有固定文字', () => {
   expect(Object.keys(REASON_EN).sort()).toEqual(
-    ['carrying-out', 'cause-found', 'contradicts-plan', 'hold', 'less-open', 'mechanical', 'more-open', 'same-failure', 'unknown-cause'],
+    ['carrying-out', 'cause-found', 'continues', 'contradicts-plan', 'hold', 'less-open', 'mechanical', 'more-open', 'same-failure', 'unknown-cause'],
   )
   expect(REASON_EN.hold).toBe('no change')
   expect(REASON_EN['unknown-cause']).toBe('a cause has to be found first')
+  expect(REASON_EN.continues).toBe("the message only says to go on, so the level is the previous turn's")
 })
 test('发消息的 reason：降档、机械、原因未知', () => {
   const flat = [0.2, 0.2, 0.2, 0.2, 0.2]

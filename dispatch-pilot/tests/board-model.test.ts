@@ -373,6 +373,21 @@ test('换挡之后的规则：从新档再走一档要多少，再写为什么�
   expect(rules({ ...moreOpen, from: 'high', to: 'high', reason: 'hold' })).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.50', '降一档要下方合计 ≥ 0.70，现在 0.10'])
 })
 
+test('只说接着做（裁定 C38）：换挡记录和上次评估都写出沿用上一轮的档位，不列 open 的余量', () => {
+  const s = scenes.up
+  const cfg = readConfig({ drexApiKey: 'k' })
+  const open = { type: 'score' as const, score: 0.4, probabilities: [0.8, 0.14, 0.03, 0.02, 0.01] }
+  const up: Decision = { ...s.recent.at(-1)!, kind: 'submit', step: 0, applied: true, from: 'medium', to: 'xhigh', reason: 'continues', raw: { open } }
+  const why = '消息只是让接着做，沿用上一轮的档位'
+  const m = boardModel(cfg, judging(s, [up]))
+  expect(m.last).toMatchObject({ at: '发消息时', mark: 'up', text: '升到 xhigh', rules: [`升到这一档：${why}`] })
+  expect(m.shifts).toEqual([{ at: '发消息时', from: 'medium', to: 'xhigh', why, reading: 'unverified' }])
+  // The session already at the previous turn's level: no shift, and still why the level stays.
+  const kept = boardModel(cfg, judging(s, [{ ...up, from: 'xhigh' }]))
+  expect(kept.last).toMatchObject({ mark: 'hold', text: '不变', rules: [`档位不变：${why}`] })
+  expect(kept.shifts).toEqual([])
+})
+
 test('会话种类：照 session.codeMode 写 Code Mode 会话或普通会话，空闲时也有；六个场景和原型一致', () => {
   const kinds = Object.fromEntries((Object.keys(scenes) as (keyof typeof SCENES)[]).map((k) => [k, of(k).sessionKind]))
   // The prototype's session field of each scene (docs/research/board-prototype/timeline-and-pane.html).

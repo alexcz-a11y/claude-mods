@@ -5,7 +5,7 @@
 
 type Level = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 type Mark = 'hold' | 'up' | 'down' | 'fail'
-type Reason = 'more-open' | 'less-open' | 'mechanical' | 'unknown-cause' | 'same-failure' | 'contradicts-plan' | 'cause-found' | 'carrying-out' | 'hold'
+type Reason = 'more-open' | 'less-open' | 'mechanical' | 'unknown-cause' | 'same-failure' | 'contradicts-plan' | 'cause-found' | 'carrying-out' | 'continues' | 'hold'
 type Failure = 'no-key' | 'timeout' | 'http' | 'network' | 'bad-answer' | 'model-mismatch'
 type Answer = { type: 'noul'; noul: number } | { type: 'score'; score: number; probabilities: number[] }
 type Sent = Level | 'not-sent' | 'unverified' | null

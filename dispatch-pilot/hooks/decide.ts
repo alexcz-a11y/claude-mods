@@ -24,6 +24,7 @@ export type Reason =
   | 'contradicts-plan'
   | 'cause-found'
   | 'carrying-out'
+  | 'continues'
   | 'hold'
 
 export const REASON_EN: Record<Reason, string> = {
@@ -35,6 +36,7 @@ export const REASON_EN: Record<Reason, string> = {
   'contradicts-plan': 'a result contradicts the plan',
   'cause-found': 'the cause is found and what remains is routine',
   'carrying-out': 'what remains is carrying out decided steps',
+  continues: "the message only says to go on, so the level is the previous turn's",
   hold: 'no change',
 }
 
@@ -115,6 +117,22 @@ export function submitLevel(
   if (rank(decided) > rank(base)) return { level, reason: 'more-open' }
   if (rank(decided) < rank(base)) return { level, reason: 'less-open' }
   return { level, reason: 'hold' }
+}
+
+/**
+ * The level of the turn a person's message starts (Ruling C38). A message that only says to go on (continues read as
+ * yes) keeps the previous turn's level when one is known: the message says nothing about the work, and the decision
+ * model reads a bare go-ahead as the lowest level of open, so open, mechanical and unknown_cause do not move it. Any
+ * other message is submitLevel from the session's own level.
+ */
+export function messageLevel(
+  own: Level,
+  previous: Level | null,
+  a: { open: readonly number[]; mechanical?: number; unknownCause?: number; continues?: number },
+  t: Thresholds,
+): Verdict {
+  if (previous !== null && isYes(a.continues, t)) return { level: previous, reason: 'continues' }
+  return submitLevel(own, a, t)
 }
 
 export function midrunLevel(

@@ -3,7 +3,7 @@
 import { noulOf, scoreOf } from '../../hooks/backend.ts'
 import type { Answer } from '../../hooks/backend.ts'
 import { readConfig } from '../../hooks/config.ts'
-import { START, agentPlan, midrunLevel, readNoul, submitLevel } from '../../hooks/decide.ts'
+import { START, agentPlan, messageLevel, midrunLevel, readNoul } from '../../hooks/decide.ts'
 import type { Thresholds } from '../../hooks/decide.ts'
 import { LEVELS } from '../../hooks/levels.ts'
 import type { Level, Tier } from '../../hooks/levels.ts'
@@ -48,11 +48,14 @@ function submitOutcome(c: SubmitCase, a: Answers, t: Thresholds, opt: Opt): Outc
   if (opt.form === 'direct') level = readDirect(a.direct)
   else {
     if (!has(a, 'score', 'open') || !has(a, 'noul', 'mechanical', 'unknown_cause')) return null
-    // As settleSubmit: "go on" starts from the last turn's level. continues is asked only with a previous turn
-    // (the no-previous variant asks none), so its absence reads as not going on.
-    const previousLevel = c.input.previous?.level ?? null
-    const base = readNoul(noulOf(a.continues), t) === 'yes' && previousLevel !== null ? previousLevel : c.input.base
-    level = submitLevel(base, { open: scoreOf(a.open), mechanical: noulOf(a.mechanical), unknownCause: noulOf(a.unknown_cause) }, t).level
+    // The mod's own reading (settleSubmit's): "go on" keeps the last turn's level. continues is asked only with a
+    // previous turn (the no-previous variant asks none), so its absence reads as not going on.
+    level = messageLevel(
+      c.input.base,
+      c.input.previous?.level ?? null,
+      { open: scoreOf(a.open), mechanical: noulOf(a.mechanical), unknownCause: noulOf(a.unknown_cause), continues: noulOf(a.continues) },
+      t,
+    ).level
   }
   const out = floored(level, a, t, opt)
   return out === null ? null : { level: out, model: null, skill: null }

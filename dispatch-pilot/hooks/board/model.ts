@@ -69,6 +69,7 @@ export const REASON_ZH: Record<Reason, string> = {
   'contradicts-plan': '最新结果和原计划矛盾',
   'cause-found': '原因已查明，剩下的是常规工作',
   'carrying-out': '剩下的只是把已定的做法做完',
+  continues: '消息只是让接着做，沿用上一轮的档位',
   hold: '不变',
 }
 
@@ -218,6 +219,8 @@ function rulesOf(d: Decision, mark: Mark, probs: number[] | null, bars: Threshol
   const cap: Level = d.kind === 'midrun' ? 'xhigh' : 'max'
   const byOpen = d.reason === 'more-open' || d.reason === 'less-open'
   const why = d.reason === null ? null : (REASON_ZH[d.reason] ?? d.reason)
+  // A "go on" message keeps the last turn's level whatever the open question says: its margins explain nothing.
+  if (d.reason === 'continues') return [`${mark === 'up' ? '升到这一档' : mark === 'down' ? '降到这一档' : '档位不变'}：${why}`]
   const out: string[] = []
   if (mark === 'up' && isLevel(d.to)) {
     const further = margins(d.to, probs, bars, cap).up

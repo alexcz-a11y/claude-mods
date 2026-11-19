@@ -4,7 +4,7 @@
 import { noulOf, scoreOf } from './backend.ts'
 import type { AskResult } from './backend.ts'
 import type { Config } from './config.ts'
-import { readNoul, submitLevel, thresholdsFor } from './decide.ts'
+import { messageLevel, thresholdsFor } from './decide.ts'
 import { isLevel } from './levels.ts'
 import type { Level } from './levels.ts'
 import { failureText } from './log.ts'
@@ -56,10 +56,15 @@ export function settleSubmit(
     return { base: null, wanted: null, decision }
   }
   const bars = thresholdsFor(r.backend, r.model, 'submit')
-  // "Go on" carries the last turn's level; anything else starts from the session's.
-  const continues = readNoul(noulOf(r.answers.continues), bars) === 'yes'
-  const base = continues && c.previousLevel !== null ? c.previousLevel : own
-  const v = submitLevel(base, { open: scoreOf(r.answers.open), mechanical: noulOf(r.answers.mechanical), unknownCause: noulOf(r.answers.unknown_cause) }, bars)
-  const decision: Decision = { ...common, model: r.model, raw: r.answers, from: base, to: v.level, reason: v.reason, detail: '', bars, failure: null, requestId: null, applied: c.writes }
+  const v = messageLevel(
+    own,
+    c.previousLevel,
+    { open: scoreOf(r.answers.open), mechanical: noulOf(r.answers.mechanical), unknownCause: noulOf(r.answers.unknown_cause), continues: noulOf(r.answers.continues) },
+    bars,
+  )
+  // A "go on" turn starts at the last turn's level (design 5.3); the shift is still measured from the engine's own
+  // level, as for any other decided level, so a go-ahead that restores xhigh over a medium session reads as a rise.
+  const base = v.reason === 'continues' ? v.level : own
+  const decision: Decision = { ...common, model: r.model, raw: r.answers, from: own, to: v.level, reason: v.reason, detail: '', bars, failure: null, requestId: null, applied: c.writes }
   return { base, wanted: v.level, decision }
 }

@@ -134,9 +134,12 @@ export function build(c: Case, v: Variant, ctx: { skills: readonly Skill[]; shor
       if (ctx.short === undefined) throw new Error(`${c.id}: the second skill request needs the shortlist from the first`)
       questions = stageTwo([...ctx.short], BACKEND)
     } else {
-      // levels: the request the mod sends for a message when it asks both things.
-      questions = { ...(v.levels ? submitQuestions(c.input.previous !== null) : {}), ...stageOne([...ctx.skills], BACKEND, true) }
-      rideAlong = v.levels === true
+      // levels: the request the mod sends for a message when it asks both things. As in the submit branch, with no
+      // candidate the mod asks no skill question, so the two stay one request.
+      if (v.levels) {
+        rideAlong = ctx.skills.length > 0
+        questions = { ...submitQuestions(c.input.previous !== null), ...(rideAlong ? stageOne([...ctx.skills], BACKEND, true) : {}) }
+      } else questions = stageOne([...ctx.skills], BACKEND, true)
     }
   }
   // Same id, same instructions, same place in the request: only the levels' wording differs.
