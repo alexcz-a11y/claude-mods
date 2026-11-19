@@ -6,7 +6,7 @@ import { canAsk, noulOf } from '../backend.ts'
 import type { Failure } from '../backend.ts'
 import { MAX_NOTES } from '../config.ts'
 import type { Config } from '../config.ts'
-import { START, midrunLevel, readNoul, submitLevel } from '../decide.ts'
+import { START, margins, midrunLevel, readNoul, submitLevel } from '../decide.ts'
 import type { Reason, Thresholds, TraceStep } from '../decide.ts'
 import { LEVELS, isLevel } from '../levels.ts'
 import type { Level } from '../levels.ts'
@@ -39,6 +39,11 @@ export function readoutOf(sent: Decision['sent'], level: string | null): Readout
   return 'unverified'
 }
 
+/** One line of the pane's small tables: what the decision model gave (p) against the bar, and what came of it. */
+export type TableRow = { label: string; p: number; bar: number; mark: string; tone: 'ok' | 'dim' | 'accent' | 'warn' | 'medium' }
+export type Basis = { at: string; dir: 'up' | 'down'; from: Level; to: Level; reading: Readout | 'queued'; rows: TableRow[]; notes: string[]; since: string | null }
+export type Forecast = { rows: TableRow[]; notes: string[] }
+
 export type BoardModel = {
   isIdle: boolean
   where: string
@@ -54,7 +59,12 @@ export type BoardModel = {
   track: readonly TrackCell[]
   /** queued: the shift's note waits for a row that can carry it, so no request could carry the level yet. */
   shifts: { at: string; from: Level; to: Level; why: string; reading: Readout | 'queued' }[]
-  last: { at: string; mark: Mark; text: string; probs: number[] | null; nouls: { label: string; value: number; reading: 'yes' | 'no' | 'unsure' }[]; rules: string[]; by: string } | null
+  /** note: a line that stands for the rules when there are none to show (a failure; a "go on" message's level). */
+  last: { at: string; mark: Mark; text: string; probs: number[] | null; nouls: { label: string; value: number; reading: 'yes' | 'no' | 'unsure' }[]; note: string | null; by: string } | null
+  /** This turn's last shift and how its level came out, kept until the next shift (the pane's 换挡依据 box). */
+  basis: Basis | null
+  /** What each way would take from the level now, by the turn's last evaluation (the pane's 下次怎样会换档 box). */
+  forecast: Forecast | null
   next: { main: string; sub: string; ahead: number }
   features: { label: string; state: 'active' | 'inactive' | 'off' | 'locked'; note: string }[]
   backend: { isOk: boolean; text: string }
@@ -202,7 +212,7 @@ function lastOf(cfg: Config, d: Decision, prefix: string): NonNullable<BoardMode
   const at = prefix + atStep(d.step)
   if (d.failure !== null) {
     const why = FAILURE_ZH[d.failure] ?? d.failure
-    return { at, mark, text: '评估失败，档位不变', probs: null, nouls: [], rules: [`评估失败：${why}，按规则放行`], by: `${name} ${why}` }
+    return { at, mark, text: '评估失败，档位不变', probs: null, nouls: [], note: `评估失败：${why}，按规则放行`, by: `${name} ${why}` }
   }
   const bars = d.bars ?? START
   const probs = probsOf(d)
@@ -211,56 +221,102 @@ function lastOf(cfg: Config, d: Decision, prefix: string): NonNullable<BoardMode
   for (const [id, a] of Object.entries(d.raw ?? {})) {
     if (a?.type === 'noul') nouls.push({ label: NOUL_ZH[id] ?? id, value: a.noul, reading: readNoul(a.noul, bars) })
   }
-  return { at, mark, text: changeText(d, mark), probs, nouls, rules: rulesOf(d, mark, probs, bars), by: `${name} · ${d.ms} ms` }
+  const note = d.reason === 'continues' ? `${mark === 'up' ? '升到这一档' : mark === 'down' ? '降到这一档' : '档位不变'}：${REASON_ZH.continues}` : null
+  return { at, mark, text: changeText(d, mark), probs, nouls, note, by: `${name} · ${d.ms} ms` }
 }
 
-// Why the level came out as it did (design 5.14, after the person's ask on 2026-11-19): the rules run again on the
-// answers and bars the Decision kept, with a trace (decide.ts TraceStep), and each step they took is one line: which sum
-// passed or missed which bar, and which yes/no answer forced, allowed or refused a move. The last line that way says how
-// far the next level is. A rerun that does not reach the Decision's level (a record older than its rules) gives the
-// reason alone.
-function rulesOf(d: Decision, mark: Mark, probs: number[] | null, bars: Thresholds): string[] {
-  const why = d.reason === null ? null : (REASON_ZH[d.reason] ?? d.reason)
-  // A "go on" message keeps the last turn's level whatever the open question says: its margins explain nothing, so it
-  // says why with or without the open probabilities.
-  if (d.reason === 'continues') return [`${mark === 'up' ? '升到这一档' : mark === 'down' ? '降到这一档' : '档位不变'}：${why}`]
-  if (probs === null || !isLevel(d.from) || (d.kind !== 'submit' && d.kind !== 'midrun')) return []
+// The pane's two boxes (design 5.14, after the person's asks on 2026-11-19): why the turn's last shift came out at its
+// level, and what the next evaluation would need either way. The rules run again on what the Decision kept (its
+// answers and bars) with a trace (decide.ts TraceStep), so the table is the path the level took, written as the
+// decision model's own estimates: 「该用 medium 或更低」 is the probability it gave the levels from medium down.
+
+/** The yes/no questions as the tables name them. */
+const FLAG_PLAIN: Record<string, string> = {
+  same_failure: '同一失败又出现',
+  contradicts_plan: '结果和计划矛盾',
+  cause_found: '原因已查明',
+  only_carrying_out: '剩下只是照做',
+  mechanical: '照已知做法重复',
+  unknown_cause: '原因未知',
+}
+const FLAG_DOES: Record<Extract<TraceStep, { k: 'flag' }>['effect'], string> = {
+  'up-one': '直接升一档',
+  'allow-down': '允许降',
+  'at-most-medium': '最高 medium',
+  'at-least-high': '最低 high',
+}
+
+/** 「该用 medium 或更低」, 「该用 xhigh 或更高」; the end levels need no 或更…. */
+function rungLabel(level: Level, dir: 'up' | 'down'): string {
+  if (dir === 'down') return level === 'low' ? '该用 low' : `该用 ${level} 或更低`
+  return level === 'max' ? '该用 max' : `该用 ${level} 或更高`
+}
+
+const near = (l: Level, by: number): Level | null => LEVELS[rank(l) + by] ?? null
+
+function traceOf(d: Decision, probs: number[], from: Level, bars: Thresholds): { level: Level; trace: TraceStep[] } | null {
   const a = d.raw ?? {}
   const trace: TraceStep[] = []
-  const v =
-    d.kind === 'midrun'
-      ? midrunLevel(d.from, { open: probs, sameFailure: noulOf(a.same_failure), causeFound: noulOf(a.cause_found), onlyCarryingOut: noulOf(a.only_carrying_out), contradictsPlan: noulOf(a.contradicts_plan) }, bars, trace)
-      : submitLevel(d.from, { open: probs, mechanical: noulOf(a.mechanical), unknownCause: noulOf(a.unknown_cause) }, bars, trace)
-  if (v.level !== d.to) return why === null ? [] : [`${mark === 'up' ? '升到这一档' : mark === 'down' ? '降到这一档' : '档位不变'}：${why}`]
-  return traceLines(trace, bars)
+  if (d.kind === 'midrun') {
+    const v = midrunLevel(from, { open: probs, sameFailure: noulOf(a.same_failure), causeFound: noulOf(a.cause_found), onlyCarryingOut: noulOf(a.only_carrying_out), contradictsPlan: noulOf(a.contradicts_plan) }, bars, trace)
+    return { level: v.level, trace }
+  }
+  if (d.kind === 'submit') {
+    const v = submitLevel(from, { open: probs, mechanical: noulOf(a.mechanical), unknownCause: noulOf(a.unknown_cause) }, bars, trace)
+    return { level: v.level, trace }
+  }
+  return null
 }
 
-const FLAG_EFFECT: Record<Extract<TraceStep, { k: 'flag' }>['effect'], string> = {
-  'up-one': '至少升一档',
-  'allow-down': '准许降档',
-  'at-most-medium': '最高到 medium',
-  'at-least-high': '最低到 high',
+/** The table of one shift: the checks the way it moved, and every answer read as yes; the rest is said in notes. */
+function basisRows(d: Decision, dir: 'up' | 'down', trace: readonly TraceStep[], bars: Thresholds): { rows: TableRow[]; notes: string[] } {
+  const rows: TableRow[] = []
+  const notes: string[] = []
+  const hopped = trace.some((s) => s.k === 'hop' && s.dir === dir)
+  for (const s of trace) {
+    if (s.k === 'hop' && s.dir === dir) rows.push({ label: rungLabel(s.to, dir), p: s.sum, bar: s.bar, mark: s.to === d.to ? '✓ 到这里' : '✓', tone: 'ok' })
+    else if (s.k === 'stop' && s.dir === dir) {
+      const past = near(s.at, dir === 'up' ? 1 : -1)
+      if (past !== null) rows.push({ label: rungLabel(past, dir), p: s.sum, bar: s.bar, mark: hopped ? '✗ 停' : dir === 'up' ? '✗ 不够升' : '✗ 不够降', tone: 'dim' })
+    } else if (s.k === 'flag') rows.push({ label: FLAG_PLAIN[s.id] ?? s.id, p: s.value, bar: bars.yes, mark: `✓ ${FLAG_DOES[s.effect]}`, tone: 'accent' })
+    else if (s.k === 'cap') notes.push(`${s.at} 是${d.kind === 'midrun' ? '一轮中途' : '这次'}能到的最高档`)
+  }
+  return { rows, notes }
 }
 
-function traceLines(trace: readonly TraceStep[], bars: Thresholds): string[] {
-  return trace.map((s, i) => {
-    const before = trace[i - 1]
-    switch (s.k) {
-      case 'hop':
-        return `比 ${s.from} ${s.dir === 'up' ? '高' : '低'}的各档合计 ${two(s.sum)} ≥ ${two(s.bar)}：${s.from} → ${s.to}`
-      case 'stop': {
-        const after = before?.k === 'hop' && before.dir === s.dir
-        const word = s.dir === 'up' ? (after ? '不再升' : '不升') : after ? '不再降' : '不降'
-        return `比 ${s.at} ${s.dir === 'up' ? '高' : '低'}的各档合计 ${two(s.sum)} < ${two(s.bar)}：${word}`
-      }
-      case 'cap':
-        return `${s.at} 是这次能到的最高档：不再升`
-      case 'flag':
-        return `${NOUL_ZH[s.id] ?? s.id} ${two(s.value)} ≥ ${two(bars.yes)}（是）：${FLAG_EFFECT[s.effect]}`
-      case 'blocked':
-        return `原因已查明、只剩照做都不是「是」：不准降，留在 ${s.at}`
-    }
-  })
+function basisOf(turn: TurnState, recent: readonly Decision[], shifts: BoardModel['shifts']): Basis | null {
+  const d = [...turn.shifts].reverse().find((x) => isJudged(x) && (markOf(x) === 'up' || markOf(x) === 'down'))
+  const shown = shifts.at(-1)
+  if (d === undefined || shown === undefined || !isLevel(d.from) || !isLevel(d.to)) return null
+  const dir = markOf(d) === 'up' ? 'up' : 'down'
+  const later = recent.filter((x) => x.turnId === turn.turnId && (x.kind === 'midrun' || x.kind === 'submit') && x.at > d.at).length
+  const since = later === 0 ? null : `之后又评估了 ${later} 次，都没换档`
+  const base = { at: shown.at, dir, from: d.from, to: d.to, reading: shown.reading, since } as const
+  const why = d.reason === null ? '' : (REASON_ZH[d.reason] ?? d.reason)
+  const probs = probsOf(d)
+  const bars = d.bars ?? START
+  const run = d.reason === 'continues' || probs === null ? null : traceOf(d, probs, d.from, bars)
+  // A "go on" message, a record with no answers, or one its answers no longer give again: the reason alone.
+  if (run === null || run.level !== d.to) return { ...base, rows: [], notes: why === '' ? [] : [why] }
+  return { ...base, ...basisRows(d, dir, run.trace, bars) }
+}
+
+/** From the level now, by the last evaluation's estimates: what a mid-run check would need to move either way. */
+function forecastOf(cfg: Config, from: Level | null, judged: Decision | null): Forecast | null {
+  const probs = judged === null ? null : probsOf(judged)
+  if (from === null || probs === null) return null
+  const bars = cfg.bars.midrun
+  const m = margins(from, probs, bars, 'xhigh')
+  const rows: TableRow[] = []
+  const notes: string[] = []
+  const up = near(from, 1)
+  if (m.up !== null && up !== null) rows.push({ label: rungLabel(up, 'up'), p: m.up.sum, bar: m.up.bar, mark: `→ 升到 ${up}`, tone: 'warn' })
+  const down = near(from, -1)
+  if (m.down !== null && down !== null) rows.push({ label: rungLabel(down, 'down'), p: m.down.sum, bar: m.down.bar, mark: `→ 降到 ${down}`, tone: 'medium' })
+  if (m.down !== null) notes.push('降还要：原因已查明，或剩下只是照做')
+  if (m.up !== null) notes.push('直接升一档：同一失败又出现，或结果和计划矛盾')
+  else notes.push(`一轮中途最高到 xhigh，${from === 'max' ? '不会再升' : '不会升到 max'}`)
+  return { rows, notes }
 }
 
 // What the evaluation did to the level; one that wanted another level but was not applied says so.
@@ -380,6 +436,8 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   const judged = turn === null ? session.lastJudged : turn.lastJudged
   // The turn's first step has not come: its level is not known yet.
   const starting = turn !== null && turn.stepNo === 0
+  const shifts = turn === null ? [] : shiftsOf(turn)
+  const next = nextOf(cfg, { session, turn, locked, ask, wanted, starting })
   return {
     isIdle,
     where: turn === null ? '空闲' : starting ? `第 ${session.turnNo} 轮 · 刚开始` : `第 ${session.turnNo} 轮 · 第 ${turn.stepNo} 步`,
@@ -390,9 +448,11 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
     sent,
     status: statusOf({ locked, idle: isIdle, starting, numeric: session.effortIsNumber }, wanted, sent),
     track: turn === null ? [] : turn.track,
-    shifts: turn === null ? [] : shiftsOf(turn),
+    shifts,
     last: locked || judged === null ? null : lastOf(cfg, judged, turn === null ? '此前 · ' : ''),
-    next: nextOf(cfg, { session, turn, locked, ask, wanted, starting }),
+    basis: turn === null ? null : basisOf(turn, recent, shifts),
+    forecast: turn === null || locked || !cfg.enabled || !cfg.midrunShift || next.ahead === 0 ? null : forecastOf(cfg, wanted ?? sent, turn.lastJudged),
+    next,
     features: featuresOf(cfg, { ...s, locked, ask, agents: agents.length }),
     backend: backendOf(cfg, recent),
     // Read back only what the mod set (a model, an effort): an agent it left alone has nothing to check.
