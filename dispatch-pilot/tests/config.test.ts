@@ -13,6 +13,14 @@ test('空的 options 得到设计里的默认值', () => {
   expect(c.agentModels).toEqual(['haiku', 'sonnet', 'opus'])
   expect([c.submitTimeoutMs, c.midrunTimeoutMs, c.agentTimeoutMs]).toEqual([4000, 2000, 3000])
 })
+test('模型名留空或只有空白时用默认值，前后的空白去掉', () => {
+  for (const blank of ['', '   ', '\t']) {
+    const c = readConfig({ drexModel: blank, jevModel: blank })
+    expect([c.drexModel, c.jevModel]).toEqual(['drex-max-v1.1', 'jev-latest'])
+  }
+  const c = readConfig({ drexModel: ' drex-v2.0 ', jevModel: 'jev-1.14.0' })
+  expect([c.drexModel, c.jevModel]).toEqual(['drex-v2.0', 'jev-1.14.0'])
+})
 test('越界和认不出的值回到范围内', () => {
   const c = readConfig({ midrunEverySteps: 999, mode: 'nonsense', agentModels: 'opus, gpt, haiku' })
   expect(c.midrunEverySteps).toBe(60)

@@ -1,7 +1,7 @@
 // The value each option is set to in tests/options-effect.test.ts, to show that changing it changes what the mod does:
-// a switch flipped, a picker's other choice, a key where there was none. Pure data with no import, so eval/validate.ts
-// holds it to the manifest (every key, no other; each value one of the option's choices) and the test holds its
-// entries to it. null: the option has one choice only, so there is nothing to change it to.
+// a switch flipped, a picker's other choice, a key where there was none, another model name for a free-text option.
+// Pure data with no import, so eval/validate.ts holds it to the manifest (every key, no other; each value one the
+// option can take) and the test holds its entries to it.
 export const CHANGED = {
   enabled: false,
   board: false,
@@ -9,8 +9,8 @@ export const CHANGED = {
   backend: 'jev',
   drexApiKey: 'k-drex-probe',
   jevApiKey: 'k-jev-probe',
-  drexModel: null,
-  jevModel: null,
+  drexModel: 'drex-v2.0',
+  jevModel: 'jev-1.14.0',
   fallback: true,
   submitShift: false,
   midrunShift: false,
@@ -44,4 +44,4 @@ export const CHANGED = {
   skillAction: '0.60',
   skillNamed: '0.80',
   skillFits: '0.50',
-} as const satisfies Record<string, string | boolean | null>
+} as const satisfies Record<string, string | boolean>

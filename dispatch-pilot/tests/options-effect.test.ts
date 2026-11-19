@@ -14,7 +14,7 @@ import { optionKeys } from '../eval/lib/manifest.ts'
 import { CHANGED } from './support/option-changes.ts'
 import { WATCHER, WIRE, viaWire } from './support/plugins.ts'
 import { assistantToolUse, scriptByPoll, toolResult } from './support/rows.ts'
-import { KEYS, appendAll, dp, drexOk, noul, score, spawn, start, step, submit, turnStart, turns, world } from './support/world.ts'
+import { KEYS, appendAll, complete, dp, drexOk, noul, score, spawn, start, step, submit, turnStart, turns, world } from './support/world.ts'
 
 type Key = keyof typeof CHANGED
 type World = ReturnType<typeof world>
@@ -41,7 +41,8 @@ const RAISE = { ...FLAT, open: score([0.02, 0.08, 0.25, 0.55, 0.1]) }
 const SAME_FAILURE = { ...MID_HOLD, same_failure: noul(0.9) }
 
 type Skilled = { gates: { acts: number; procedure: number; prose: number; named: number }; pick: string; fits: number }
-type Plan = { submit?: Answers; midrun?: Answers; agent?: Answers; skill?: Skilled; refuse?: (url: string) => boolean }
+/** models: the model each answer names, request by request (past the list, the one asked). */
+type Plan = { submit?: Answers; midrun?: Answers; agent?: Answers; skill?: Skilled; refuse?: (url: string) => boolean; models?: string[] }
 /** The kind of request a body is: mid-run (same_failure), an agent's (read_only), else a message's. */
 const kindOf = (questions: Answers): 'midrun' | 'agent' | 'submit' => ('same_failure' in questions ? 'midrun' : 'read_only' in questions ? 'agent' : 'submit')
 
@@ -55,15 +56,17 @@ function choiceOf(options: string[], pick: string) {
 
 /** Answers every question a request asks as the plan says; `late` holds one kind of request on the mock clock first. */
 function answering(p: Plan, late?: { clock: MockClock | null; kind: 'submit' | 'midrun' | 'agent'; ms: number }) {
+  let answered = 0
   return async ({ url, body }: { url: string; body: any }) => {
     if (p.refuse?.(url) === true) return null
     // A model request another plugin sends (verifyEffort's scenario): answered as the engine's stream begins.
     if (body?.questions === undefined) return 'event: message_start'
     const q = body.questions as Record<string, any>
     const kind = kindOf(q)
+    const model: string = p.models?.[answered++] ?? body.model
     if (late !== undefined && late.kind === kind) await late.clock!.sleep(late.ms)
-    if (kind === 'midrun') return drexOk(p.midrun ?? MID_HOLD, body.model)
-    if (kind === 'agent') return drexOk(p.agent ?? AGENT_HOLD, body.model)
+    if (kind === 'midrun') return drexOk(p.midrun ?? MID_HOLD, model)
+    if (kind === 'agent') return drexOk(p.agent ?? AGENT_HOLD, model)
     const s = p.skill
     const gate: Record<string, number> = s === undefined ? {} : { acts_on_user_system: s.gates.acts, would_follow_documented_procedure: s.gates.procedure, prose_suffices: s.gates.prose, named: s.gates.named }
     const out: Answers = {}
@@ -73,7 +76,7 @@ function answering(p: Plan, late?: { clock: MockClock | null; kind: 'submit' | '
       else if (id.startsWith('fits_')) out[id] = noul(/Does the skill '([^']+)'/.exec(x.instructions)?.[1] === s?.pick ? (s?.fits ?? 0.1) : 0.1)
       else out[id] = noul(gate[id] ?? 0.1)
     }
-    return drexOk(out, body.model)
+    return drexOk(out, model)
   }
 }
 
@@ -127,8 +130,8 @@ type Entry = {
   plugins?: Plugin[]
   observe: (c: Ctx) => Promise<unknown>
   byDefault: unknown
-  /** What the second run observes; absent for an option with one choice only (CHANGED is null). */
-  changed?: unknown
+  /** What the second run observes. */
+  changed: unknown
 }
 
 /** A world whose answers follow the plan and a scenario on it. */
@@ -165,9 +168,26 @@ const EFFECTS: Record<Key, Entry> = {
     byDefault: { asked: 0, inHeader: false, elsewhere: false },
     changed: { asked: 1, inHeader: true, elsewhere: false },
   },
-  // One choice each: the version sent is the one the thresholds were calibrated for (Drex) or the alias (Jev).
-  drexModel: { observe: run({}, async ($, w) => (await message($), w.fetched.map((f) => f.body.model))), byDefault: ['drex-max-v1.1'] },
-  jevModel: { base: { backend: 'jev', jevApiKey: 'k-jev' }, observe: run({}, async ($, w) => (await message($), w.fetched.map((f) => f.body.model))), byDefault: ['jev-latest'] },
+  // Two messages, answered first by drex-v2.0, then by drex-max-v1.1: the model asked for, and each answer's failure.
+  // The option names the model sent and the one an answer must come from, so the answer accepted moves with it.
+  drexModel: {
+    observe: run({ plan: { models: [CHANGED.drexModel, 'drex-max-v1.1'] } }, async ($, w) => {
+      await message($)
+      await complete($, 't1')
+      await submit($, 'Now the downloader')
+      await step($, { turnId: 't2', index: 0, effort: 'medium' })
+      return [w.fetched.map((f) => f.body.model), ofKind(w, 'submit').map((d) => d.failure)]
+    }),
+    byDefault: [['drex-max-v1.1', 'drex-max-v1.1'], ['model-mismatch', null]],
+    changed: [['drex-v2.0', 'drex-v2.0'], [null, 'model-mismatch']],
+  },
+  // Jev is asked by the name given and answers with the version it resolved to; it is not held to it.
+  jevModel: {
+    base: { backend: 'jev', jevApiKey: 'k-jev' },
+    observe: run({ plan: { models: ['jev-1.13.2'] } }, async ($, w) => (await message($), [w.fetched.map((f) => f.body.model), ofKind(w, 'submit').map((d) => d.failure)])),
+    byDefault: [['jev-latest'], [null]],
+    changed: [['jev-1.14.0'], [null]],
+  },
   fallback: {
     base: { drexApiKey: 'k-drex', jevApiKey: 'k-jev' },
     observe: run({ plan: { submit: RAISE, refuse: (url) => url === DREX_URL } }, async ($, w) => (await message($), [w.fetched.map((f) => f.url), mainEfforts(w)])),
@@ -321,12 +341,6 @@ for (const [key, e] of Object.entries(EFFECTS) as [Key, Entry][]) {
     expect(await e.observe({ $, on })).toEqual(e.byDefault)
   })
   const value = CHANGED[key]
-  if (value === null) {
-    test(`${key}：只有一个可选值，没有别的值可换`, () => {
-      expect(e.changed).toBeUndefined()
-    })
-    continue
-  }
   const changedOptions: PluginOptions = { ...options, [key]: value }
   test(`${key}：改成 ${String(value)}，结果不同`, { options: changedOptions, ...extra }, async ($, on) => {
     expect(e.changed).not.toEqual(e.byDefault)

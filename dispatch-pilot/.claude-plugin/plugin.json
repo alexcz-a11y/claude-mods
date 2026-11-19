@@ -62,19 +62,13 @@
     "drexModel": {
       "type": "string",
       "title": "Drex 的模型",
-      "description": "门槛是在这个版本上校准的。回答的版本对不上时，这次判断不算，照常放行。",
-      "options": [
-        "drex-max-v1.1"
-      ],
+      "description": "Drex 的版本，可以改；留空用 drex-max-v1.1。门槛是在它上面校准的，别的版本沿用。要写固定版本，别写别名。",
       "default": "drex-max-v1.1"
     },
     "jevModel": {
       "type": "string",
       "title": "Jev 的模型",
-      "description": "Jev 用别名，不核对版本。",
-      "options": [
-        "jev-latest"
-      ],
+      "description": "Jev 的版本或别名，可以改；留空用 jev-latest。Jev 没有校准，用同一组门槛。",
       "default": "jev-latest"
     },
     "fallback": {

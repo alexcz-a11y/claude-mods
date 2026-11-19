@@ -31,7 +31,7 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 
 ## 配置
 
-在 `/plugin` → dispatch-pilot → Configure 里改，也可以在 `/config` 里搜 dispatch 改。除了两个密钥，每个选项都是开关，或者从一列值里选一个，两处都显示默认值。
+在 `/plugin` → dispatch-pilot → Configure 里改，也可以在 `/config` 里搜 dispatch 改。除了两个密钥和两个模型名，每个选项都是开关，或者从一列值里选一个，两处都显示默认值。两个模型名直接填写：`/config` 里显示默认值，`/plugin` 里没填时是空的，留空就用默认值。
 
 | 选项 | 默认 | 说明 |
 |---|---|---|
@@ -41,8 +41,8 @@ claude plugin install dispatch-pilot@alex-mods --scope user
 | `backend`（决策模型的后端） | `drex` | drex（Nace）或 jev（TypeSafe，未校准）。要有对应的密钥才能用。 |
 | `drexApiKey`（Drex 的 API 密钥） | 空 | Nace 的密钥，只发给 Nace 的接口。 |
 | `jevApiKey`（Jev 的 API 密钥） | 空 | TypeSafe 的密钥，只发给 TypeSafe 的接口。 |
-| `drexModel`（Drex 的模型） | `drex-max-v1.1` | 门槛是在这个版本上校准的。回答的版本对不上时，这次判断不算，照常放行。 |
-| `jevModel`（Jev 的模型） | `jev-latest` | Jev 用别名，不核对版本。 |
+| `drexModel`（Drex 的模型） | `drex-max-v1.1` | Drex 的版本，可以改；留空用 drex-max-v1.1。门槛是在它上面校准的，别的版本沿用。要写固定版本，别写别名。 |
+| `jevModel`（Jev 的模型） | `jev-latest` | Jev 的版本或别名，可以改；留空用 jev-latest。Jev 没有校准，用同一组门槛。 |
 | `fallback`（失败时改问另一个后端） | 关 | 请求失败或超时时，改问另一个后端一次。需要两个密钥。 |
 | `submitShift`（发消息时定档） | 开 | 你每次发消息时，判断这一轮用哪一档 effort。 |
 | `midrunShift`（中途换档） | 开 | 一轮进行中再判断，需要时升档或降档。 |

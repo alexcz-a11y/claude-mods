@@ -1,8 +1,8 @@
 // The plugin's options as the manifest declares them, held to the code and to what the user reads in the configuration
 // (amendment A17, Ruling C44): every key read by readConfig and every option of Config declared; each option but the
-// keys a switch or a picker, since /plugin's Configure shows a default only for those (measured on 2.1.328); each
-// default and each choice read by the code as written; a short title and description. Pure: eval/validate.ts runs it on
-// the real manifest, the tests on made-up ones.
+// keys and FREE_TEXT a switch or a picker, since /plugin's Configure shows a default only for those (measured on
+// 2.1.328); each default and each choice read by the code as written; a short title and description. Pure:
+// eval/validate.ts runs it on the real manifest, the tests on made-up ones.
 import { OPTION_BARS, optionKey, readConfig } from '../../hooks/config.ts'
 import type { Config } from '../../hooks/config.ts'
 
@@ -12,6 +12,13 @@ export const TITLE_MAX = 14
 export const DESCRIPTION_MAX = 70
 /** The engine's bound on a picker's label. */
 const LABEL_MAX = 64
+
+/**
+ * The options typed as free text (amendment A18, Ruling C46, the user's decision of 2026-11-19): a model name, since a
+ * picker offers only the versions the manifest lists. /plugin's Configure shows them blank while unset (2.1.328).
+ */
+export const FREE_TEXT = ['drexModel', 'jevModel'] as const
+const freeText = (key: string): boolean => (FREE_TEXT as readonly string[]).includes(key)
 
 type Spec = Record<string, unknown>
 
@@ -44,6 +51,12 @@ function specProblems(key: string, spec: Spec, base: Config, baseText: string): 
   let probes: unknown[]
   if (spec.sensitive === true) {
     if (def !== code) out.push(`${key}: the default ${shown(def)} is not readConfig({})'s ${shown(code)}`)
+    probes = ['probe-value']
+  } else if (freeText(key)) {
+    if (spec.type !== 'string') out.push(`${key}: free text whose type is not string`)
+    if ('options' in spec) out.push(`${key}: free text, so no options`)
+    if (typeof def !== 'string' || def.trim() === '') out.push(`${key}: free text needs a default that is not blank`)
+    else if (def !== code) out.push(`${key}: the default ${shown(def)} is not readConfig({})'s ${shown(code)}`)
     probes = ['probe-value']
   } else if (typeof code === 'boolean') {
     if (spec.type !== 'boolean' || typeof def !== 'boolean') out.push(`${key}: a switch whose type or default is not boolean`)
@@ -78,8 +91,8 @@ export function optionKeys(): string[] {
 
 /**
  * What is wrong with the values tests/options-effect.test.ts changes the options to (tests/support/option-changes.ts):
- * every option has one and nothing else does; a switch flipped, a picker's other choice, a key that is one; null only
- * for a picker with a single choice.
+ * every option has one and nothing else does; a switch flipped, a picker's other choice, a key that is one, a free-text
+ * option's other name (not blank: a blank reads as the default).
  */
 export function changeProblems(userConfig: Record<string, unknown>, changed: Record<string, unknown>): string[] {
   const out: string[] = []
@@ -91,8 +104,9 @@ export function changeProblems(userConfig: Record<string, unknown>, changed: Rec
     const spec: Spec = raw !== null && typeof raw === 'object' ? (raw as Spec) : {}
     const v = changed[key]
     const options = Array.isArray(spec.options) ? (spec.options as unknown[]) : null
-    if (v === null) {
-      if (options === null || options.length !== 1) out.push(`${key}: null, but it has other choices`)
+    if (freeText(key)) {
+      if (typeof v !== 'string' || v.trim() === '') out.push(`${key}: the changed value ${shown(v)} is not a model name`)
+      else if (v.trim() === spec.default) out.push(`${key}: the changed value ${shown(v)} is its default`)
     } else if (v === spec.default) out.push(`${key}: the changed value ${shown(v)} is its default`)
     else if (spec.sensitive === true) {
       if (typeof v !== 'string' || v === '') out.push(`${key}: the changed value ${shown(v)} is no key`)

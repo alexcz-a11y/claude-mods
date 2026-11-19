@@ -78,4 +78,4 @@ if (found.length > 0) {
   console.error(found.join('\n'))
   process.exit(1)
 }
-console.log(`dispatch-pilot: ${files.length} hook files, none registers tool.call or its kin; ${atoms.size} atom keys, each declared alike; the probe's scenes are the tests' own; ${Object.keys(manifest.userConfig ?? {}).length} options, each a switch or a picker (but the keys) read with the code's default and changed in tests/options-effect.test.ts`)
+console.log(`dispatch-pilot: ${files.length} hook files, none registers tool.call or its kin; ${atoms.size} atom keys, each declared alike; the probe's scenes are the tests' own; ${Object.keys(manifest.userConfig ?? {}).length} options, each a switch or a picker (but the keys and the two model names, free text) read with the code's default and changed in tests/options-effect.test.ts`)
