@@ -972,7 +972,7 @@ node -e 'const r=require("fs").readFileSync(process.argv[1],"utf8").trim().split
 
 用户在发版之前要求在发布的默认配置下补跑一次验收（2026-11-19）。上面 16 次都关着进展记录；这 8 次开着中途换挡、开着进展记录，其余设置都是选项的默认值。
 
-- 跑了什么：和上面开着的一组同样的 8 格（6 个任务在 Code Mode 会话里各 1 次，01、03 在普通会话里各 1 次），每格 1 次，主模型 Sonnet 5.5，8 个同时跑，2026-11-19 UTC 14:14:18–14:14:39 开始，14:16 之前都跑完，代码是 8ecbd80。命令：`node dispatch-pilot/eval/accept/run.ts --task <编号> --arm on --mode code|ordinary`（不给 `--note` 时取清单的默认值，现在是开）。`accept.jsonl` 里这 8 行带 `"progressNote": true`，之前的 16 行没有这个字段，按关着算（下面的命令写作 `x.progressNote!==true`）。
+- 跑了什么：和上面开着的一组同样的 8 格（6 个任务在 Code Mode 会话里各 1 次，01、03 在普通会话里各 1 次），每格 1 次，主模型 Sonnet 5.5，8 个同时跑，2026-11-19 UTC 开始于 14:14:18–14:14:39，到 14:16:16 都跑完（最早的 14:15:24 结束；结束时间按 `startedAt` 加 `minutes` 算），代码是 8ecbd80。命令：`node dispatch-pilot/eval/accept/run.ts --task <编号> --arm on --mode code|ordinary`（不给 `--note` 时取清单的默认值，现在是开）。`accept.jsonl` 里这 8 行带 `"progressNote": true`，之前的 16 行没有这个字段，按关着算（下面的命令写作 `x.progressNote!==true`）。
 - 和上面两组不是同时跑的：上面两组早约 100 分钟，用的是选项改动之前的代码。门槛和决定的规则相同，清单的写法不同（修订 A17、Ruling C44）。
 
 命令（三组：关着中途换挡；开着、不带记录；开着、带记录）：
