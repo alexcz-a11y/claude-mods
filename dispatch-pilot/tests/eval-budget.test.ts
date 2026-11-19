@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { CAP, mayAskHeldout, pool, spend } from '../eval/lib/budget.ts'
+import { CAP, RATE_WAITS, mayAskHeldout, pool, spend } from '../eval/lib/budget.ts'
 import type { Spent } from '../eval/lib/budget.ts'
 import { checkSessions } from '../eval/lib/case.ts'
 import type { AgentCase, Case, MidrunCase, SkillCase, SubmitCase } from '../eval/lib/case.ts'
@@ -73,13 +73,100 @@ test('最多同时 4 个；--concurrency 1 一次一个', async () => {
   }
 })
 
-test('有一个请求因为限流失败：这次运行剩下的一次一个', async () => {
-  const t = tracker()
-  const out = await pool([0, 1, 2, 3, 4, 5, 6, 7], { concurrency: 4, reserve: () => true, run: (i) => t.run(i === 0), limited: (r) => r })
+// Calls in order: which item, and how many runs were in flight when it started.
+function calls(isLimited: (item: number, nth: number) => boolean) {
+  let active = 0
+  const log: [number, number][] = []
+  const run = (i: number) => {
+    const nth = log.filter(([x]) => x === i).length
+    log.push([i, active])
+    active += 1
+    return Promise.resolve().then(() => {
+      active -= 1
+      return { i, limited: isLimited(i, nth) }
+    })
+  }
+  return { log, run }
+}
+type Got = { i: number; limited: boolean }
+
+test('限流：等 20 秒再发，从第一次限流起一次一个；被限流的那次不算回答', async () => {
+  const t = calls((i, nth) => i === 0 && nth === 0)
+  const waited: number[] = []
+  const kept: number[] = []
+  const out = await pool([0, 1, 2, 3, 4, 5, 6, 7], {
+    concurrency: 4,
+    reserve: () => true,
+    run: t.run,
+    keep: (i) => kept.push(i),
+    rateLimit: { limited: (r: Got) => r.limited, sleep: async (ms) => void waited.push(ms) },
+  })
+  expect(waited).toEqual([20_000])
   expect(out.serial).toBe(true)
+  expect(out.rateLimited).toBe(false)
   expect(out.results.length).toBe(8)
-  expect(t.startedWith.slice(0, 4)).toEqual([0, 1, 2, 3])
-  expect(t.startedWith.slice(4)).toEqual([0, 0, 0, 0])
+  expect(out.results.some((r) => r.limited)).toBe(false)
+  expect([...kept].sort()).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
+  // the items started after the rate limit each went alone
+  for (const [i, inFlight] of t.log) if (i >= 4) expect([i, inFlight]).toEqual([i, 0])
+})
+
+test('重试三次（20、40、80 秒）还被限流：不存、不再开新的请求，告诉调用方', async () => {
+  const t = calls((i) => i === 0)
+  const waited: number[] = []
+  const kept: number[] = []
+  let reserved = 0
+  const out = await pool([0, 1, 2, 3, 4, 5, 6, 7], {
+    concurrency: 4,
+    reserve: () => (reserved += 1) > 0,
+    run: t.run,
+    keep: (i) => kept.push(i),
+    rateLimit: { limited: (r: Got) => r.limited, sleep: async (ms) => void waited.push(ms) },
+  })
+  expect(waited).toEqual(RATE_WAITS)
+  expect(RATE_WAITS).toEqual([20_000, 40_000, 80_000])
+  expect(out.rateLimited).toBe(true)
+  expect(t.log.filter(([i]) => i === 0).length).toBe(4)
+  expect(kept.includes(0)).toBe(false)
+  expect(out.results.some((r) => r.i === 0)).toBe(false)
+  expect(t.log.some(([i]) => i >= 4)).toBe(false)
+  // every retry is a request: its cost is reserved before it goes out
+  expect(reserved).toBe(4 + 3)
+})
+
+test('重试前预算不够：不重试，停下，那次也不存', async () => {
+  const t = calls((i) => i === 0)
+  let left = 2
+  const kept: number[] = []
+  const out = await pool([0, 1], {
+    concurrency: 1,
+    reserve: () => (left -= 1) >= 0,
+    run: t.run,
+    keep: (i) => kept.push(i),
+    rateLimit: { limited: (r: Got) => r.limited, sleep: async () => undefined },
+  })
+  expect(out.stopped).toBe(true)
+  expect(kept).toEqual([])
+  expect(t.log.map(([i]) => i)).toEqual([0, 0])
+})
+
+test('补位时 reserve 抛错：pool 的 promise 拒绝', async () => {
+  const t = calls(() => false)
+  let caught: unknown = null
+  try {
+    await pool([0, 1, 2], {
+      concurrency: 1,
+      reserve: (i) => {
+        if (i === 1) throw new Error('spent.json is not writable')
+        return true
+      },
+      run: t.run,
+    })
+  } catch (error) {
+    caught = error
+  }
+  expect((caught as Error | null)?.message).toBe('spent.json is not writable')
+  expect(t.log.map(([i]) => i)).toEqual([0])
 })
 
 test('重复问（修订 A5）：第 1 遍照原样，第 2 遍起 state 末尾加 16 位十六进制的 request_uid', () => {

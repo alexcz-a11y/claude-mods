@@ -24,6 +24,8 @@ export type Line = {
 
 /** The variant name the smoke request is stored under (amendment A4); no lookup ever reads it. */
 export const SMOKE = 'smoke'
+/** The HTTP status of a rate limit: such a reply is neither an answer nor a failure. */
+export const RATE_LIMITED = 429
 
 const ANSWERS = 'answers.jsonl'
 const SPENT = 'spent.json'
@@ -56,6 +58,8 @@ export class Store {
   private index(line: Line): void {
     // The smoke request repeats a tuning case's default request; it must not stand in for that case's answer.
     if (line.variant === SMOKE) return
+    // A rate limit is neither an answer nor a failure (the runner stores none; a line of one is passed over).
+    if (!line.result.ok && line.result.status === RATE_LIMITED) return
     const k = key(line.hash, line.repeat)
     this.lines.set(k, [...(this.lines.get(k) ?? []), line])
   }

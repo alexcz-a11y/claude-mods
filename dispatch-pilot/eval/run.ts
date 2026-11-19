@@ -33,7 +33,7 @@ import { START_BARS, mark, outcomeOf, shortlistOf } from './lib/read.ts'
 import type { Bars, Outcome, Stored } from './lib/read.ts'
 import { VARIANTS, build } from './lib/request.ts'
 import type { Built, Variant } from './lib/request.ts'
-import { SMOKE, Store } from './lib/store.ts'
+import { RATE_LIMITED, SMOKE, Store } from './lib/store.ts'
 import type { Result } from './lib/store.ts'
 import { conservativeFor, plateau, sweep } from './lib/sweep.ts'
 
@@ -270,11 +270,16 @@ function plan(a: Args, ctx: Ctx, cases: readonly Case[]): void {
   console.log(`total: ${pending} requests to ask, about ${tokens} tokens; ${budgetLine(ctx.store.spent())}`)
 }
 
-type Sent = { w: Want; built: Built; result: Result }
+type Sent = { w: Want; built: Built; result: Result; state: Record<string, unknown>; at: string; ms: number }
 
-/** serial: a rate limit was met, so whatever this run sends next goes one at a time. */
-async function send(ctx: Ctx, items: readonly { w: Want; built: Built }[], concurrency: number): Promise<{ sent: Sent[]; stopped: boolean; serial: boolean }> {
-  let warned = concurrency === 1
+const isRateLimit = (r: Result): boolean => !r.ok && r.status === RATE_LIMITED
+const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * serial: a rate limit was met, so whatever this run sends next goes one at a time. rateLimited: a request was still
+ * rate-limited after its retries; it is not stored, and the run must stop.
+ */
+async function send(ctx: Ctx, items: readonly { w: Want; built: Built }[], concurrency: number): Promise<{ sent: Sent[]; stopped: boolean; serial: boolean; rateLimited: boolean }> {
   const out = await pool(items, {
     concurrency,
     reserve: (it) => {
@@ -291,18 +296,21 @@ async function send(ctx: Ctx, items: readonly { w: Want; built: Built }[], concu
       const state = sentState(it.built.state, it.w.repeat, uid)
       const at = new Date().toISOString()
       const { result, ms } = await askDrex(state, it.built.questions)
-      ctx.store.add({ hash: it.built.hash, repeat: it.w.repeat, caseId: it.w.c.id, category: it.w.c.category, variant: it.w.variant.name, at, ms, request: { state: fitState(state), questions: it.built.questions }, result })
-      const how = result.ok ? 'ok' : `failed: ${result.reason}${result.status !== undefined ? ' ' + result.status : ''}`
-      console.log(`${it.w.c.id} ${it.w.variant.name} #${it.w.repeat}: ${how} (${ms} ms)`)
-      if (!result.ok && result.status === 429 && !warned) {
-        warned = true
-        console.log('rate limited: the rest of this run goes one at a time')
-      }
-      return { w: it.w, built: it.built, result }
+      return { w: it.w, built: it.built, result, state, at, ms }
     },
-    limited: (s) => !s.result.ok && s.result.status === 429,
+    // A rate-limited answer never gets here: it is neither an answer nor a failure, so it is not stored.
+    keep: (_, s) => {
+      ctx.store.add({ hash: s.built.hash, repeat: s.w.repeat, caseId: s.w.c.id, category: s.w.c.category, variant: s.w.variant.name, at: s.at, ms: s.ms, request: { state: fitState(s.state), questions: s.built.questions }, result: s.result })
+      const how = s.result.ok ? 'ok' : `failed: ${s.result.reason}${s.result.status !== undefined ? ' ' + s.result.status : ''}`
+      console.log(`${s.w.c.id} ${s.w.variant.name} #${s.w.repeat}: ${how} (${s.ms} ms)`)
+    },
+    rateLimit: {
+      limited: (s) => isRateLimit(s.result),
+      sleep: wait,
+      onWait: (it, ms) => console.log(`${it.w.c.id} ${it.w.variant.name} #${it.w.repeat}: rate limited; asking again in ${ms / 1000} s, and one at a time from now on`),
+    },
   })
-  return { sent: out.results, stopped: out.stopped, serial: out.serial }
+  return { sent: out.results, stopped: out.stopped, serial: out.serial, rateLimited: out.rateLimited }
 }
 
 function pendingOf(a: Args, ctx: Ctx, ws: readonly Want[]): { w: Want; built: Built }[] {
@@ -331,10 +339,12 @@ async function askCommand(a: Args, ctx: Ctx, cases: readonly Case[]): Promise<vo
   const { first, second } = inOrder(all)
   const one = await send(ctx, pendingOf(a, ctx, first), a.concurrency)
   // Second skill requests are built from the first answers just stored; after a rate limit they too go one at a time.
-  const two = one.stopped ? { sent: [] } : await send(ctx, pendingOf(a, ctx, second), one.serial ? 1 : a.concurrency)
+  const two = one.stopped || one.rateLimited ? { sent: [], rateLimited: false } : await send(ctx, pendingOf(a, ctx, second), one.serial ? 1 : a.concurrency)
   const sent = [...one.sent, ...two.sent]
   const ok = sent.filter((s) => s.result.ok).length
-  console.log(`sent ${sent.length}: ${ok} answered, ${sent.length - ok} failed; ${budgetLine(ctx.store.spent())}`)
+  console.log(`stored ${sent.length}: ${ok} answered, ${sent.length - ok} failed; ${budgetLine(ctx.store.spent())}`)
+  // Still rate-limited after the retries: nothing more is sent, and the held-out pass stays open to be resumed.
+  if (one.rateLimited || two.rateLimited) fail('still rate limited after 3 retries: stopped; that request is not stored, so the same command asks it again later', 3)
   if (a.set !== 'heldout') return
   // Every planned request answered, failed, or blocked by its failed first request: the pass is over.
   const left = all.filter((w) => {
@@ -362,7 +372,7 @@ async function smoke(a: Args, ctx: Ctx, cases: readonly Case[]): Promise<void> {
   let reply: Reply | undefined
   const at = new Date().toISOString()
   const { result, ms } = await askDrex(built.state, built.questions, (r) => (reply = r))
-  ctx.store.add({ hash: built.hash, repeat: 1, caseId: c.id, category: c.category, variant: SMOKE, at, ms, request: { state: built.state, questions: built.questions }, result })
+  ctx.store.add({ hash: built.hash, repeat: 1, caseId: c.id, category: c.category, variant: SMOKE, at, ms, request: { state: fitState(built.state), questions: built.questions }, result })
   const body = (reply?.body ?? {}) as { model?: unknown; answers?: Record<string, { type?: unknown; choice?: unknown; probabilities?: unknown }> }
   const answers = typeof body.answers === 'object' && body.answers !== null ? body.answers : {}
   const ids = Object.keys(built.questions)
@@ -411,7 +421,7 @@ function readBars(path: string | null): Bars {
 
 /** The variant read for a category (the first of a skill pair), or null when the category does not register it. */
 function readVariant(category: Category, names: readonly string[]): Variant | null {
-  if (names.length > 1) fail('score, sweep and stability read one variant at a time', 2)
+  if (names.length > 1 || names.includes('all')) fail(`score and stability read one variant at a time: give one --variant <name>, or none for the default\n${USAGE}`, 2)
   const name = names[0] ?? VARIANTS[category][0]!.name
   return variantNamed(category, category === 'skill' ? stageOneOf(name) : name) ?? null
 }
@@ -510,8 +520,9 @@ function sweepCommand(a: Args, ctx: Ctx, cases: readonly Case[]): void {
   if (!CATEGORIES.includes(category)) fail(`no threshold at ${path}`, 2)
   const base = readBars(a.bars)
   const fit = inSet(cases, 'fit').filter((c) => c.category === category)
-  // Amendment A13: a case whose repeats decide differently under the base bars takes no part in the sweep.
-  const { unstable } = stabilityOf(ctx, fit, [], base, { form: 'default', longUnattended: false })
+  // Amendment A13: stability is judged once under the start values, before any sweep; a case whose repeats decide
+  // differently there takes no part in the sweep, whatever --bars gives.
+  const { unstable } = stabilityOf(ctx, fit, [], START_BARS, { form: 'default', longUnattended: false })
   const out = new Set(unstable.map((u) => u.c.id))
   if (out.size > 0) console.log(`left out (repeats decide differently): ${[...out].join(', ')}`)
   const kept = fit.filter((c) => !out.has(c.id))
