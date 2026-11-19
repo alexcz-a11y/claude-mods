@@ -1,0 +1,548 @@
+[
+ {
+  "id": "midrun-02",
+  "category": "midrun",
+  "source": "written",
+  "difficulty": "hard",
+  "set": "fit",
+  "tags": [
+   "quiet-contradiction",
+   "all-steps-ok"
+  ],
+  "input": {
+   "request": "把 data/orders_2025.csv 和 data/customers.csv 按 customer_id 合并，算出每个大区每个月的复购率（当月下单的客户里，之前下过单的占多少），存成 out/repurchase_by_region.csv，再画一张按大区分线的折线图。",
+   "current": "medium",
+   "stepsSoFar": 8,
+   "failedSteps": 0,
+   "recent": [
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": true,
+     "result": "   48211 data/orders_2025.csv\n    9874 data/customers.csv\n   58085 total\norder_id,customer_id,order_date,amount\nA000001,C03121,2025-01-02,188.00\nA000002,C00417,2025-01-02,59.90\ncustomer_id,region,signup_date\nC00001,华东,2023-04-11\nC00002,华北,2023-04-11"
+    },
+    {
+     "did": "Write",
+     "tools": [
+      "Write"
+     ],
+     "ok": true,
+     "result": "File created successfully at: /Users/user/work/shop-metrics/analysis/repurchase.py"
+    },
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": true,
+     "result": "orders: 48210 rows\ncustomers: 9873 rows\nwrote out/repurchase_by_region.csv (48 rows)"
+    },
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /Users/user/work/shop-metrics/analysis/repurchase.py has been updated successfully."
+    },
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /Users/user/work/shop-metrics/analysis/repurchase.py has been updated successfully."
+    }
+   ],
+   "latest": {
+    "did": "Bash",
+    "tools": [
+     "Bash"
+    ],
+    "ok": true,
+    "result": "orders: 48210 rows\ncustomers: 9873 rows\nmerged: 61877 rows\n\nregion  month    buyers  returning  repurchase_rate\n华东    2025-01    1412        498            0.353\n华东    2025-02    1377       1502            1.091\n华东    2025-03    1460       2001            1.371\n华北    2025-01     986        341            0.346\n华北    2025-02     951        987            1.038\n华北    2025-03    1012       1310            1.294\n华南    2025-01    1105        391            0.354\n华南    2025-02    1068       1093            1.023\n华南    2025-03    1131       1487            1.315\n...\n(48 rows)\n\nsaved out/repurchase_by_region.csv\nsaved out/repurchase_by_region.png"
+   },
+   "statedNext": "汇总打印和画图都加上了，图例的中文字体也设好了。再完整跑一遍，确认表和图都生成，然后把结果交给你。",
+   "codeMode": false,
+   "notes": null
+  },
+  "expect": {
+   "action": "up",
+   "accept": [
+    "high"
+   ]
+  },
+  "label": {
+   "by": "model",
+   "rationale": "表面上一切正常：8 步全是 ok，failed_steps 为 0，最新一步没有报错，表和图都「saved」了，stated_next 说跑完就交结果。但 latest.result 的数字和做法的假设矛盾：orders 是 48210 行，合并后 merged 变成 61877 行（按 customer_id 把客户表并到订单上，行数不该变多）；repurchase_rate 一列出现 1.091、1.371 这样大于 1 的值，returning 比 buyers 还多，而按 request 给的定义复购率不可能超过 1。也就是「customers.csv 里一个 customer_id 只有一行」这个假设不成立，现在的结果不能交。contradicts_plan 读成「是」（\"A result shows an assumption of the approach was wrong, or a new problem appeared.\"），按读法升一档 → high。剩下的工作本身也到了第 2 档：要先弄清是哪一种重复（同一客户的重复记录、换过大区留下的多行、键的写法不一致……），再决定按哪条规则去重或把客户归到哪个大区，符合 \"Several workable designs or several possible causes; a choice has to be made between them.\" → high。不是保持 medium：medium 对应的是「合并、分组、出图」这种小范围里的工作，现在要先找原因、再做取舍。不是 xhigh：数据是静态文件，每次跑结果都一样，没有偶发、并发或依赖状态的现象；改对了没有，用行数（merged 应等于 orders）和复购率不超过 1 立刻就能验证，不属于容易出细微错误的改法。same_failure 为「否」（没有失败过）；cause_found 至多是不确定（看得出行数变多，看不出是哪一种重复）；only_carrying_out 为「否」。检查点：普通会话满 8 个工作步。模型写的用例，比真实请求容易（S4）。服务 S1 hard（每一步都是 ok，矛盾只在数字里）、S4、S7、S10。"
+  }
+ },
+ {
+  "id": "midrun-03",
+  "category": "midrun",
+  "source": "written",
+  "difficulty": "typical",
+  "set": "fit",
+  "tags": [
+   "batch-mechanical"
+  ],
+  "input": {
+   "request": "docs/api/ 下 41 个接口页的「参数」一节写法不统一，有的是列表，有的是表格，有的直接写在正文里。定一个统一的写法，然后把所有页面都改过去。",
+   "current": "high",
+   "stepsSoFar": 16,
+   "failedSteps": 0,
+   "recent": [
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /Users/user/work/harbor-docs/docs/CONTRIBUTING.md has been updated successfully."
+    },
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /Users/user/work/harbor-docs/docs/api/create-order.md has been updated successfully."
+    },
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /Users/user/work/harbor-docs/docs/api/cancel-order.md has been updated successfully."
+    },
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /Users/user/work/harbor-docs/docs/api/list-orders.md has been updated successfully."
+    },
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /Users/user/work/harbor-docs/docs/api/get-invoice.md has been updated successfully."
+    }
+   ],
+   "latest": {
+    "did": "Bash",
+    "tools": [
+     "Bash"
+    ],
+    "ok": true,
+    "result": "params convention: one table, columns 参数 | 类型 | 必填 | 说明 (docs/CONTRIBUTING.md, 「参数」)\nok    docs/api/get-order.md\nok    docs/api/update-order.md\nok    docs/api/create-refund.md\nok    docs/api/get-refund.md\nok    docs/api/create-order.md\nok    docs/api/cancel-order.md\nok    docs/api/list-orders.md\nok    docs/api/get-invoice.md\nold   docs/api/list-refunds.md       bullet list\nold   docs/api/create-customer.md    bullet list\nold   docs/api/get-customer.md       old table\nold   docs/api/webhooks.md           prose\n... 29 more\n\n8 of 41 pages follow the convention; 33 to convert (27 bullet list, 4 old table, 2 prose)"
+   },
+   "statedNext": "写法已经定了：每页的「参数」一节统一成一张四列的表（参数、类型、必填、说明），约定写进了 docs/CONTRIBUTING.md。又按它改完 4 页，跑一下检查脚本看进度。",
+   "codeMode": false,
+   "notes": null
+  },
+  "expect": {
+   "action": "down",
+   "accept": [
+    "low",
+    "medium"
+   ]
+  },
+  "label": {
+   "by": "model",
+   "rationale": "request 有两部分：定一个统一的写法（要在几种写法之间取舍，第 2 档，所以这一轮在 high），再把 41 页都改过去。到这个检查点取舍已经做完并且落了地：latest.result 里检查脚本打印了约定（一张四列的表，写在 docs/CONTRIBUTING.md），8 页按它改完、检查结果是 ok；recent 是连续的 Edit，全部 ok，failed_steps 为 0。剩下 33 页是把同一个改法再做 33 遍：only_carrying_out 读成「是」（\"What is left is applying the same change elsewhere, running checks, or writing the summary.\"），剩下的工作符合第 0 档 \"The way to do it is already given; the work is carrying it out.\" → low。medium 也算对：剩下的里有 2 页的参数写在正文里、4 页是旧表格，转成新表时要多留意一点，属于第 1 档的 \"one small trap to watch for\"。不是保持 high：high 对应的取舍（选哪种写法）已经做完，结果里看得到约定和按它通过检查的页面，不只是助手自己这么说。same_failure、contradicts_plan 为「否」（检查结果正是预期的进度）；cause_found 为「否」（没有要诊断的问题）。检查点：普通会话满 16 个工作步。模型写的用例，比真实请求容易（S4）。服务 S1（有代表性的降档）、S4、S7、S10。"
+  }
+ },
+ {
+  "id": "midrun-04",
+  "category": "midrun",
+  "source": "written",
+  "difficulty": "boundary",
+  "set": "check",
+  "tags": [
+   "stuck",
+   "passes-alone-fails-in-suite"
+  ],
+  "input": {
+   "request": "给设置页的主题开关加一个「跟随系统」选项：浅色、深色、跟随系统三个值存到 localStorage，页面加载时按存的值恢复。测试一起补上。",
+   "current": "medium",
+   "stepsSoFar": 7,
+   "failedSteps": 2,
+   "recent": [
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /Users/user/work/lumen-console/src/settings/ThemeToggle.tsx has been updated successfully."
+    },
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /Users/user/work/lumen-console/src/settings/theme-toggle.test.tsx has been updated successfully."
+    },
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": false,
+     "result": "Exit code 1\n\n ❯ src/settings/theme-toggle.test.tsx (6 tests | 1 failed) 71ms\n   × ThemeToggle > restores \"system\" and follows the OS setting\n\n FAIL  src/settings/theme-toggle.test.tsx > ThemeToggle > restores \"system\" and follows the OS setting\nAssertionError: expected 'light' to be 'dark' // Object.is equality\n ❯ src/settings/theme-toggle.test.tsx:58:52\n\n Test Files  1 failed | 23 passed (24)\n      Tests  1 failed | 187 passed (188)"
+    },
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /Users/user/work/lumen-console/src/settings/theme-toggle.test.tsx has been updated successfully."
+    },
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": true,
+     "result": " ✓ src/settings/theme-toggle.test.tsx (6 tests) 44ms\n\n Test Files  1 passed (1)\n      Tests  6 passed (6)"
+    }
+   ],
+   "latest": {
+    "did": "Bash",
+    "tools": [
+     "Bash"
+    ],
+    "ok": false,
+    "result": "Exit code 1\n\n ❯ src/settings/theme-toggle.test.tsx (6 tests | 1 failed) 68ms\n   × ThemeToggle > restores \"system\" and follows the OS setting\n\n FAIL  src/settings/theme-toggle.test.tsx > ThemeToggle > restores \"system\" and follows the OS setting\nAssertionError: expected 'light' to be 'dark' // Object.is equality\n ❯ src/settings/theme-toggle.test.tsx:58:52\n\n Test Files  1 failed | 23 passed (24)\n      Tests  1 failed | 187 passed (188)"
+   },
+   "statedNext": "matchMedia 的 mock 挪到渲染之前装好了，单独跑这个测试文件 6 个全过。再跑一遍全量确认。",
+   "codeMode": false,
+   "notes": null
+  },
+  "expect": {
+   "action": "up",
+   "accept": [
+    "high",
+    "xhigh"
+   ]
+  },
+  "label": {
+   "by": "model",
+   "rationale": "recent[2] 和 latest 是同一个失败：同一个测试（restores \"system\" and follows the OS setting）、同一句断言（expected 'light' to be 'dark'）、同一行（theme-toggle.test.tsx:58:52），中间有一次针对它的修改（recent[3] 改了测试文件，stated_next 说是把 matchMedia 的 mock 挪到渲染之前）。same_failure 读成「是」，按读法至少升一档 → high。原因仍然不明：cause_found 为「否」，only_carrying_out 为「否」。再看剩下的问题有多开放：recent[4] 单独跑这个文件 6 个全过，全量跑（24 个文件）它又挂，说明失败取决于别的测试留下的状态。读成第 3 档 \"The cause is unknown and the behavior is intermittent, concurrent or state-dependent\" → xhigh 说得通；读成第 2 档 \"Several workable designs or several possible causes; a choice has to be made between them.\" → high 也说得通（全量跑时稳定复现，候选原因就那么几个：别的文件留下的 localStorage、共用的 matchMedia 桩、模块级缓存的主题值，可以逐个排除）。所以 high 和 xhigh 都对。不是保持 medium：同一个失败在修过之后又出现，原因未知，已经不是「小范围内少数几种可能」。contradicts_plan 读成「是」也合理（单独跑通过让助手以为修好了，全量结果推翻了它），不影响答案。升不升很好判断，难在升到哪一档。检查点：普通会话里同一处报错在一次修改之后再次出现。模型写的用例，比真实请求容易（S4）。服务 S1（「卡住」的代表情形）、S6（两档之间）、S4、S7、S10。"
+  }
+ },
+ {
+  "id": "midrun-05",
+  "category": "midrun",
+  "source": "written",
+  "difficulty": "hard",
+  "set": "check",
+  "tags": [
+   "part-done",
+   "surface-looks-finished"
+  ],
+  "input": {
+   "request": "Bump eslint to v9 across the monorepo and get lint green again. After that, work out why the lint job in CI takes about nine minutes when the same command takes forty seconds on my machine, and fix it.",
+   "current": "high",
+   "stepsSoFar": 8,
+   "failedSteps": 1,
+   "recent": [
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": false,
+     "result": "Exit code 2\n\nOops! Something went wrong! :(\n\nESLint: 9.14.0\n\nESLint couldn't find an eslint.config.(js|mjs|cjs) file.\n\nFrom ESLint v9.0.0, the default configuration file is now eslint.config.js.\nIf you are using a .eslintrc.* file, please follow the migration guide\nto update your configuration file to the new format."
+    },
+    {
+     "did": "Write",
+     "tools": [
+      "Write"
+     ],
+     "ok": true,
+     "result": "File created successfully at: /Users/user/work/tidepool/eslint.config.mjs"
+    },
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": true,
+     "result": "Scope: 3 of 4 workspace projects\npackages/core lint$ eslint . --fix\npackages/cli lint$ eslint . --fix\npackages/web lint$ eslint . --fix\npackages/core lint: Done\npackages/cli lint: Done\npackages/web lint: Done"
+    },
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": true,
+     "result": "rm '.eslintrc.cjs'\nOn branch chore/eslint-9\nChanges to be committed:\n\tdeleted:    .eslintrc.cjs\n\tnew file:   eslint.config.mjs\n\tmodified:   package.json\n\tmodified:   packages/cli/src/args.ts\n\tmodified:   packages/web/src/routes.ts\n\tmodified:   pnpm-lock.yaml"
+    },
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": true,
+     "result": "Scope: 3 of 4 workspace projects\npackages/core lint$ eslint .\npackages/cli lint$ eslint .\npackages/web lint$ eslint .\npackages/core lint: Done\npackages/cli lint: Done\npackages/web lint: Done"
+    }
+   ],
+   "latest": {
+    "did": "Bash",
+    "tools": [
+     "Bash"
+    ],
+    "ok": true,
+    "result": "[chore/eslint-9 8c41d07] chore: bump eslint to 9.14 and move to flat config\n 6 files changed, 212 insertions(+), 187 deletions(-)\n create mode 100644 eslint.config.mjs\n delete mode 100644 .eslintrc.cjs"
+   },
+   "statedNext": "Lint is clean in all three packages with the flat config. Committing the bump and the migration.",
+   "codeMode": false,
+   "notes": null
+  },
+  "expect": {
+   "action": "hold",
+   "accept": [
+    "high"
+   ]
+  },
+  "label": {
+   "by": "model",
+   "rationale": "request 有两部分：把 eslint 升到 v9 并让 lint 重新通过；然后查出 CI 里的 lint 任务为什么要九分钟、而同一条命令在本机只要四十秒，并修好。recent 和 latest 全是第一部分：升级后 eslint 找不到配置（v9 改用 flat config，报错里自己写明了原因），新写了 eslint.config.mjs，三个包 lint 通过，latest 是提交成功。表面上像收尾：最新几步全是 ok，刚提交完，stated_next 也只说「lint 干净了，提交」。但 request 的第二部分一步都还没动：state 里没有哪一步碰过 CI 或它的耗时。剩下的是一个原因未知的问题，可能的原因有好几个（CI 上没有缓存、规则要读类型信息、runner 的规格……），符合第 2 档 \"Several workable designs or several possible causes; a choice has to be made between them.\" → high，和 current_level 相同，所以保持。不是降：only_carrying_out 读成「否」（\"A decision about how to proceed is still open.\"），剩下的不是把已定的做法做完；cause_found 问的是还要解决的问题，它还没开始查（recent[0] 那个配置报错的原因是清楚的，但那属于已经做完的第一部分）。不是升：第二部分从一开始就在 request 里，high 已经把它算进去了，最新结果没有带来新情况；CI 慢是稳定现象，不是偶发、并发或依赖状态的问题，也没有不可撤销的操作。same_failure、contradicts_plan 为「否」。检查点：普通会话满 8 个工作步。模型写的用例，比真实请求容易（S4）。服务 S1 hard（看着像做完了，其实剩下的那一半更开放）和 S1 的「保持不变」、S4、S7。"
+  }
+ },
+ {
+  "id": "midrun-10",
+  "category": "midrun",
+  "source": "written",
+  "difficulty": "hard",
+  "set": "fit",
+  "tags": [
+   "intermittent-found",
+   "causes-ruled-out"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "Written (Code Mode; checkpoint: a script's result). current high: a signature check that fails with no cause given and several nameable candidates (the secret, the body, the deployment) is 'Several ... possible causes; a choice has to be made between them'. recent rules the candidates out one by one: the secret is the same on both sides and the verify function is a plain HMAC comparison (recent[0]); the body reaches the app unchanged and both pods run the same image and secret version (recent[1]); the captured request verifies locally (recent[2]). latest replays that one capture twelve times, same bytes and same signature: 8 answers are 200 and 4 are 401, and each pod gives both. The failure comes and goes on identical input: 'The cause is unknown and the behavior is intermittent, concurrent or state-dependent', one level above current. contradicts_plan yes: the work assumed a mismatch that a replay would show every time (stated_next: replay it and see whether the 401 comes back), and the result shows a different kind of problem. same_failure no (nothing was changed to fix anything, and no earlier entry shows a failure). cause_found no; only_carrying_out no. Up to xhigh, the only level above high a turn can reach. Hold is wrong: every cause the current level was weighing has been excluded by a result, and what is left is exactly what the next level describes. Down is wrong: nothing is identified. Hard because nothing on the surface says so: every step's outcome is ok and failed_steps is 0 (a script that returns what it found has not failed), and the last step did what it set out to do, it reproduced the 401; the point, that the same bytes also get 200, is only in the text of latest.result. The one case of the batch whose answer is xhigh and nothing else, so it bears on the stricter bar for moving into xhigh. Serves S1 (hard), S4 (written), S7."
+  },
+  "input": {
+   "request": "staging 上支付回调的签名校验在报 401，对方说他们那边没有改过东西。查出原因并修好。",
+   "current": "high",
+   "stepsSoFar": 4,
+   "failedSteps": 0,
+   "recent": [
+    {
+     "did": "Compare the secret on both sides, read the verify function",
+     "tools": [
+      "REPL"
+     ],
+     "ok": true,
+     "result": "{\n  staging: { secret: 'secret/pay-api', version: 7, sha256: '9f2c41' },\n  provider: { source: 'dashboard export', sha256: '9f2c41' },\n  same: true,\n  verify: '18:def verify(raw_body: bytes, signature: str, secret: bytes) -> bool:\\n' +\n    '19-    expected = hmac.new(secret, raw_body, hashlib.sha256).hexdigest()\\n' +\n    '20-    return hmac.compare_digest(expected, signature)'\n}"
+    },
+    {
+     "did": "Compare the body at ingress and in the app, list the pods",
+     "tools": [
+      "REPL"
+     ],
+     "ok": true,
+     "result": "{\n  ingress: { bytes: 1482, sha256: '3be07a' },\n  app: { bytes: 1482, sha256: '3be07a' },\n  sameBody: true,\n  pods: [\n    'pay-api-7c9d-x2  Running  started 11-16 08:02  image 4c1e9a  secret version 7',\n    'pay-api-7c9d-k8  Running  started 11-16 08:02  image 4c1e9a  secret version 7'\n  ],\n  rotated: 'secret/pay-api last rotated 11-12 10:30'\n}"
+    },
+    {
+     "did": "Verify the captured request locally with the staging secret",
+     "tools": [
+      "REPL"
+     ],
+     "ok": true,
+     "result": "{ capture: 'cb_1117_0914', bytes: 1482, secretVersion: 7, valid: true }"
+    }
+   ],
+   "latest": {
+    "did": "Replay the capture to staging 12 times",
+    "tools": [
+     "REPL"
+    ],
+    "ok": true,
+    "result": "{\n  capture: 'cb_1117_0914',\n  sent: 12,\n  sameBytes: true,\n  sameSignature: true,\n  answers: [\n    ' 1  200  x2', ' 2  401  x2',\n    ' 3  200  k8', ' 4  200  x2',\n    ' 5  401  k8', ' 6  401  x2',\n    ' 7  200  k8', ' 8  200  k8',\n    ' 9  200  x2', '10  200  k8',\n    '11  401  k8', '12  200  x2'\n  ],\n  byStatus: { '200': 8, '401': 4 },\n  byPod: { x2: { '200': 4, '401': 2 }, k8: { '200': 4, '401': 2 } },\n  exit: 1\n}"
+   },
+   "statedNext": "密钥、请求体、镜像两边都对得上，本地拿同一份抓包验签也通过。把这份抓包原样重放到 staging，看能不能复现 401。",
+   "codeMode": true,
+   "notes": null
+  },
+  "expect": {
+   "action": "up",
+   "accept": [
+    "xhigh"
+   ]
+  }
+ },
+ {
+  "id": "midrun-11",
+  "category": "midrun",
+  "source": "written",
+  "difficulty": "typical",
+  "set": "check",
+  "tags": [
+   "batch-mechanical"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "Written (ordinary session; checkpoint: the eighth work step). current high: the first half of the request is a choice between ways to isolate tests, 'Several workable designs ...; a choice has to be made between them'. The results show that half closed: recent[0] measured three ways on one service (the rollback one fastest, 3 tests failing because they commit); recent[2] the fixture with a savepoint for those; recent[3] all 212 pass in 48 s against 6m12s; recent[4] and latest: the fixture moved to a shared module, still 212 passed, the service's own change down to a few lines. recent[1] shows the same fixture pattern in the conftest files of all 10 services. What remains is the second half of the request, the same replacement in the other 9 services and their test runs: only_carrying_out yes ('applying the same change elsewhere, running checks'). cause_found is no (there was no failure to diagnose), so the move rests on only_carrying_out alone. On the open scale that is the lowest level, so the level goes down; medium is accepted as the one-step move (another service may have its own tests that commit: a small trap). Hold is wrong: the choice the level was set for has been made and confirmed by results. Up is wrong: no failure, and latest is what the step expected. The request names both halves, so which half the turn is in has to be read from the results. Serves S1 (representative), S4 (written), S7."
+  },
+  "input": {
+   "request": "集成测试全量要跑 40 多分钟，太慢了。把各服务的集成测试从“每个测试重建一次库”换成更快的隔离方式：先在 payments 上定好做法并验证，再推广到其余 9 个服务。",
+   "current": "high",
+   "stepsSoFar": 8,
+   "failedSteps": 0,
+   "recent": [
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": true,
+     "result": "payments integration suite, 212 tests\nrecreate the database per test (current)   6m12s   212 passed\nclone from a template per test             2m31s   212 passed\none transaction per test, rolled back      0m46s   209 passed, 3 failed (the tests commit themselves)"
+    },
+    {
+     "did": "Grep",
+     "tools": [
+      "Grep"
+     ],
+     "ok": true,
+     "result": "Found 10 files\nservices/auth/tests/integration/conftest.py\nservices/billing/tests/integration/conftest.py\nservices/catalog/tests/integration/conftest.py\nservices/gateway/tests/integration/conftest.py\nservices/inventory/tests/integration/conftest.py\nservices/notify/tests/integration/conftest.py\nservices/orders/tests/integration/conftest.py\nservices/payments/tests/integration/conftest.py\nservices/pricing/tests/integration/conftest.py\nservices/search/tests/integration/conftest.py"
+    },
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /workspace/platform/services/payments/tests/integration/conftest.py has been updated. Here's the result of running `cat -n` on a snippet of the edited file:\n    12→@pytest.fixture\n    13→def db(engine):\n    14→    conn = engine.connect()\n    15→    outer = conn.begin()\n    16→    session = Session(bind=conn, join_transaction_mode=\"create_savepoint\")\n    17→    yield session\n    18→    session.close()\n    19→    outer.rollback()"
+    },
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": true,
+     "result": "212 passed in 48.31s"
+    },
+    {
+     "did": "Write",
+     "tools": [
+      "Write",
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /workspace/platform/services/payments/tests/integration/conftest.py has been updated. Here's the result of running `cat -n` on a snippet of the edited file:\n     8→import pytest\n     9→from testkit.db import db  # noqa: F401  one transaction per test, rolled back"
+    }
+   ],
+   "latest": {
+    "did": "Bash",
+    "tools": [
+     "Bash"
+    ],
+    "ok": true,
+    "result": "212 passed in 47.80s\n\n services/payments/tests/integration/conftest.py | 14 ++------------\n testkit/db.py                                   | 19 +++++++++++++++++++\n 2 files changed, 21 insertions(+), 12 deletions(-)"
+   },
+   "statedNext": "回滚事务的做法最快，三个自己 commit 的测试用 savepoint 就能兜住，payments 上 212 个全过。把 fixture 挪进 testkit，payments 改成从那里导入，再跑一遍确认。",
+   "codeMode": false,
+   "notes": null
+  },
+  "expect": {
+   "action": "down",
+   "accept": [
+    "low",
+    "medium"
+   ]
+  }
+ },
+ {
+  "id": "midrun-13",
+  "category": "midrun",
+  "source": "written",
+  "difficulty": "negative",
+  "set": "fit",
+  "tags": [
+   "cause-found",
+   "open-half-remains"
+  ],
+  "label": {
+   "by": "model",
+   "rationale": "Written (ordinary session; checkpoint: the eighth work step). current high: the request has two halves, find where the time goes and then write a proposal that compares at least two redesigns for three times the data; the second half is 'Several workable designs ...; a choice has to be made between them'. latest answers the first half: store.put is 81% of the wall time, most of it connection setup repeated per account, the SQL 9%. So cause_found is yes. No result has started the proposal, and it is the open half: the work that remains is still the choice between designs (recent[3] adds what any of them must meet: one file per account, all by 06:00), so the open scale stays at high and only_carrying_out is no. Down is wrong although the cause is found: a level is lowered when the work that remains is less open, and here only the diagnostic half is closed. Up is wrong: outcome ok, failed_steps 0, and the result is what the step expected (stated_next already doubted the database), so contradicts_plan no. Negative: the cause is found and the result is clean, so the surface reads as if the difficult part were over, and the right answer is still to change nothing. Hold at high. Serves S1 (answer 'stay'), S6, S4 (written), S7."
+  },
+  "input": {
+   "request": "导出任务 export_ledger 现在每晚要跑 5 个小时，上半年还不到 2 小时。先查清时间花在哪里，再写一份能撑住明年三倍数据量的改造方案，至少比较两种做法，先不用实现。",
+   "current": "high",
+   "stepsSoFar": 8,
+   "failedSteps": 0,
+   "recent": [
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": true,
+     "result": "  month  | avg_duration | accounts\n---------+--------------+----------\n 2026-05 | 01:52:10     |   15,300\n 2026-08 | 03:21:44     |   27,900\n 2026-11 | 05:07:31     |   41,200\n(3 rows)"
+    },
+    {
+     "did": "Read",
+     "tools": [
+      "Read"
+     ],
+     "ok": true,
+     "result": "    37→    for account in accounts:\n    38→        rows = fetch_entries(db, account.id, day)\n    39→        body = to_csv(rows)\n    40→        store = ObjectStore(cfg.bucket)  # a new client for every account\n    41→        store.put(f\"{day}/{account.id}.csv\", body)"
+    },
+    {
+     "did": "Bash",
+     "tools": [
+      "Bash"
+     ],
+     "ok": true,
+     "result": "Index Scan using ledger_entries_account_day_idx on ledger_entries  (actual time=0.031..38.2 rows=2291 loops=1)\n  Index Cond: ((account_id = 'acc_20417') AND (day = '2026-11-16'))\nPlanning Time: 0.2 ms\nExecution Time: 40.6 ms"
+    },
+    {
+     "did": "Grep",
+     "tools": [
+      "Grep"
+     ],
+     "ok": true,
+     "result": "docs/exports.md:12:The finance warehouse loads one file per account, {day}/{account_id}.csv, and expects all of them by 06:00.\ndocs/exports.md:19:The job starts at 00:30, after the ledger closes for the day."
+    },
+    {
+     "did": "Edit",
+     "tools": [
+      "Edit"
+     ],
+     "ok": true,
+     "result": "The file /workspace/ledger-jobs/jobs/export_ledger.py has been updated. Here's the result of running `cat -n` on a snippet of the edited file:\n    37→    for account in accounts:\n    38→        with timed(\"fetch_entries\"):\n    39→            rows = fetch_entries(db, account.id, day)\n    40→        with timed(\"to_csv\"):\n    41→            body = to_csv(rows)\n    42→        with timed(\"store.put\"):"
+    }
+   ],
+   "latest": {
+    "did": "Bash",
+    "tools": [
+     "Bash"
+    ],
+    "ok": true,
+    "result": "sample: 2,000 of 41,200 accounts   wall 14m52s\n\nphase                 calls      total    share\nstore.put             2,000     12m03s    81.1%\n  connect + TLS       2,000      7m41s    51.7%\n  upload              2,000      4m22s    29.4%\nfetch_entries (SQL)   2,000      1m21s     9.1%\nto_csv                2,000      1m14s     8.3%\nother                            0m14s     1.5%"
+   },
+   "statedNext": "单条 SQL 只要 40 毫秒，瓶颈多半不在数据库。给三个阶段加上计时，拿 2000 个账户的样本跑一遍。",
+   "codeMode": false,
+   "notes": null
+  },
+  "expect": {
+   "action": "hold",
+   "accept": [
+    "high"
+   ]
+  }
+ }
+]
