@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { DIRECT_LEVEL, LONG_UNATTENDED, readDirect } from '../eval/lib/controls.ts'
+import { DIRECT_LEVEL, LONG_UNATTENDED, OPEN_LEVELS_B, readDirect } from '../eval/lib/controls.ts'
 import { VARIANTS, build } from '../eval/lib/request.ts'
 import type { Variant } from '../eval/lib/request.ts'
 import type { AgentCase, MidrunCase, SkillCase, SubmitCase } from '../eval/lib/case.ts'
@@ -55,12 +55,12 @@ function variant(category: keyof typeof VARIANTS, name: string): Variant {
 const optionsOf = (q: unknown): string[] => Object.keys((q as { criteria: Record<string, unknown> }).criteria)
 
 test('每一类登记的给法和名字；第一项是 default（skill 是 stage-1）', () => {
-  expect(VARIANTS.submit.map((v) => v.name)).toEqual(['default', 'with-controls', 'no-previous', 'direct-shuffled', 'with-skills'])
+  expect(VARIANTS.submit.map((v) => v.name)).toEqual(['default', 'with-controls', 'no-previous', 'direct-shuffled', 'with-skills', 'open-b'])
   expect(VARIANTS.midrun.map((v) => v.name)).toEqual([
     'default', 'with-controls', 'recent-1', 'recent-3', 'progress-before', 'progress-after',
-    'recent-1-with-controls', 'recent-3-with-controls', 'no-stated-next-with-controls', 'direct-shuffled',
+    'recent-1-with-controls', 'recent-3-with-controls', 'no-stated-next-with-controls', 'direct-shuffled', 'open-b',
   ])
-  expect(VARIANTS.agent.map((v) => v.name)).toEqual(['default', 'with-controls', 'direct-shuffled'])
+  expect(VARIANTS.agent.map((v) => v.name)).toEqual(['default', 'with-controls', 'direct-shuffled', 'open-b'])
   expect(VARIANTS.skill.map((v) => v.name)).toEqual(['stage-1', 'stage-2', 'stage-1-alone', 'stage-2-alone', 'stage-1-shuffled', 'stage-2-shuffled'])
 })
 
@@ -253,6 +253,19 @@ test('submit 的 with-skills：with-controls 的题加上 mod 为 skill 加的�
   expect(b.questions).toEqual({ ...plain.questions, ...stageOne(skills, 'drex', true) })
   expect(b.hash === plain.hash).toBe(false)
   expect(b.partial).toBe(false)
+})
+
+test('open-b：和 default 只差 open 的 criteria，换成 OPEN_LEVELS_B（同一题号、同一说明，其余题和 state 不变）', () => {
+  for (const c of [submitCase, midrunCase, agentCase]) {
+    const plain = build(c, variant(c.category, 'default'), ctx)
+    const b = build(c, variant(c.category, 'open-b'), ctx)
+    expect(b.state).toEqual(plain.state)
+    expect(b.partial).toBe(plain.partial)
+    expect(Object.keys(b.questions)).toEqual(Object.keys(plain.questions))
+    expect(b.questions.open).toEqual({ ...plain.questions.open!, criteria: OPEN_LEVELS_B })
+    expect(b.questions.open!.criteria).toEqual(OPEN_LEVELS_B)
+    for (const id of Object.keys(plain.questions)) if (id !== 'open') expect(b.questions[id]).toEqual(plain.questions[id])
+  }
 })
 
 test('readDirect：选中项不低于 0.5 取它，否则取概率最高两项里较低的一档', () => {

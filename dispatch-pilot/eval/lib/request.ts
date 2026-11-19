@@ -6,7 +6,7 @@ import { stageOne, stageTwo } from '../../hooks/skills.ts'
 import type { Skill } from '../../hooks/skills.ts'
 import { agentState, clip, fitState, midrunState, submitState } from '../../hooks/statebuild.ts'
 import type { Case, Category } from './case.ts'
-import { DIRECT_LEVEL, LONG_UNATTENDED } from './controls.ts'
+import { DIRECT_LEVEL, LONG_UNATTENDED, OPEN_LEVELS_B } from './controls.ts'
 
 /**
  * One way of asking. A field left out is what the mod does (previous on, recent 5, no progress note, stage 1);
@@ -14,7 +14,8 @@ import { DIRECT_LEVEL, LONG_UNATTENDED } from './controls.ts'
  * for the session's skills go into the same request. levels: a first skill request carries the level questions too,
  * as the mod asks both of a message in one request. statedNext: the assistant's stated plan, which the mod no longer
  * sends, put back as midrunState used to put it, so the requests asked with it keep their hash. partial: when skill
- * questions ride along, the request is asked as hooks/flows/submit.ts asks it (ask's partial).
+ * questions ride along, the request is asked as hooks/flows/submit.ts asks it (ask's partial). openLevels 'b': the open
+ * question's criteria are OPEN_LEVELS_B (controls.ts), nothing else changed.
  */
 export type Variant = {
   name: string
@@ -26,6 +27,7 @@ export type Variant = {
   skills?: boolean
   levels?: boolean
   partial?: boolean
+  openLevels?: 'b'
   shuffle?: number
   stage?: 1 | 2
 }
@@ -34,8 +36,9 @@ export type Built = { caseId: string; variant: string; state: Record<string, unk
 
 /**
  * 每一类预先登记的给法；第一项是默认，和 mod 发的请求逐题相同（修订 A16）。The requests asked before A16 keep their build
- * under the names with-controls and stage-1-alone (and the -with-controls ones), so every stored answer is still found:
- * those carry the control questions, and differ from with-controls in the state only (Ruling C18a).
+ * (with-controls, the -with-controls ones, no-previous, direct-shuffled, with-skills, stage-1-alone and stage-2-alone,
+ * the shuffled skill pair), so every stored answer is still found. The level ones among them carry the control
+ * questions and differ from with-controls in the state only (Ruling C18a); with-skills adds the skill questions.
  */
 export const VARIANTS: Record<Category, readonly Variant[]> = {
   submit: [
@@ -46,6 +49,7 @@ export const VARIANTS: Record<Category, readonly Variant[]> = {
     { name: 'direct-shuffled', previous: true, controls: true, shuffle: 1 },
     // Ruling C18b: the skill questions beside the level's and the controls, asked as before A16 (not partial).
     { name: 'with-skills', previous: true, controls: true, skills: true },
+    { name: 'open-b', previous: true, skills: true, partial: true, openLevels: 'b' },
   ],
   midrun: [
     { name: 'default', recent: 5, progress: 'none' },
@@ -58,11 +62,13 @@ export const VARIANTS: Record<Category, readonly Variant[]> = {
     { name: 'recent-3-with-controls', recent: 3, statedNext: true, controls: true },
     { name: 'no-stated-next-with-controls', controls: true },
     { name: 'direct-shuffled', recent: 5, statedNext: true, progress: 'none', controls: true, shuffle: 1 },
+    { name: 'open-b', recent: 5, progress: 'none', openLevels: 'b' },
   ],
   agent: [
     { name: 'default' },
     { name: 'with-controls', controls: true },
     { name: 'direct-shuffled', controls: true, shuffle: 1 },
+    { name: 'open-b', openLevels: 'b' },
   ],
   skill: [
     { name: 'stage-1', stage: 1, levels: true, partial: true },
@@ -128,6 +134,9 @@ export function build(c: Case, v: Variant, ctx: { skills: readonly Skill[]; shor
       rideAlong = v.levels === true
     }
   }
+  // Same id, same instructions, same place in the request: only the levels' wording differs.
+  const open = questions.open
+  if (v.openLevels === 'b' && open?.type === 'score') questions = { ...questions, open: { ...open, criteria: OPEN_LEVELS_B } }
   if (v.shuffle !== undefined) questions = shuffled(questions, v.shuffle)
   // ask() fits the state to its budget before sending; the request recorded is the one sent.
   state = fitState(state)

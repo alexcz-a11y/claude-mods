@@ -25,6 +25,18 @@ export const LONG_UNATTENDED: Question = {
   criteria: { true: 'Many files or stages are to be completed in one go, and no checkpoint with the user is asked for.', false: 'The work is a few steps, or the user is following along and will answer questions.' },
 }
 
+/**
+ * Another wording of the open question's five levels, to be tried in the variant open-b: the mod's own request with
+ * only these criteria changed, asked in a request of its own (amendment A16).
+ */
+export const OPEN_LEVELS_B = [
+  'Every step is stated, and carrying the steps out settles the result; nothing is left to choose.',
+  'The approach is stated, and one or two points along it are left to choose, or one trap has to be avoided.',
+  'A choice between workable designs or between possible causes has to be made, or the problems themselves have to be found and judged.',
+  'The cause is unknown and the behavior is intermittent, concurrent or state-dependent, or the change is easy to get subtly wrong.',
+  'The cause is unknown or the change is easy to get subtly wrong, and in addition it cannot be reproduced, the operation cannot be undone, or it must be switched over while running.',
+] as const
+
 /** 直接选档位那道题的读法：选中项概率不低于 0.5 取它，否则取概率最高两项里较低的一档。 */
 export function readDirect(a: Answer | undefined): Level | null {
   if (a?.type !== 'choice' || !isLevel(a.choice)) return null
