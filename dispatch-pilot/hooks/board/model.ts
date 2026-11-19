@@ -2,12 +2,12 @@
 // and the timeline's cells. No $ calls. The drawings only draw what boardModel returns; flows/submit.ts opens the cells,
 // runtime.ts's record leaves the mark for the next one, and flows/readout.ts writes the level a cell's request carried.
 import { agentTypeOf } from '../agents.ts'
-import { canAsk } from '../backend.ts'
+import { canAsk, noulOf } from '../backend.ts'
 import type { Failure } from '../backend.ts'
 import { MAX_NOTES } from '../config.ts'
 import type { Config } from '../config.ts'
-import { START, margins, readNoul } from '../decide.ts'
-import type { Reason, Thresholds } from '../decide.ts'
+import { START, midrunLevel, readNoul, submitLevel } from '../decide.ts'
+import type { Reason, Thresholds, TraceStep } from '../decide.ts'
 import { LEVELS, isLevel } from '../levels.ts'
 import type { Level } from '../levels.ts'
 import { UNCALIBRATED, answeredBy, backendName } from '../log.ts'
@@ -42,8 +42,11 @@ export function readoutOf(sent: Decision['sent'], level: string | null): Readout
 export type BoardModel = {
   isIdle: boolean
   where: string
-  /** What the mod believes the session is (session.codeMode): shown on the timeline's first row and in the pane. */
-  sessionKind: 'Code Mode 会话' | '普通会话'
+  /**
+   * What the mod believes the session is (session.codeMode): shown on the timeline's first row and in the pane. Known from
+   * the first main-loop request's tools (REPL or not) or a receipt; before either, 尚未判断.
+   */
+  sessionKind: 'Code Mode 会话' | '普通会话' | '尚未判断'
   level: Level | null
   wanted: Level | null
   sent: Level | null
@@ -211,40 +214,53 @@ function lastOf(cfg: Config, d: Decision, prefix: string): NonNullable<BoardMode
   return { at, mark, text: changeText(d, mark), probs, nouls, rules: rulesOf(d, mark, probs, bars), by: `${name} · ${d.ms} ms` }
 }
 
-// How far the rules got (controller ruling, after the prototype). A shift made: the margin for one more level the same
-// way, from the new level, then why this level was reached (the bar the last hop passed, when the open question moved
-// it; else the reason). A hold, or an evaluation not applied: the margins either way from the level it started at.
+// Why the level came out as it did (design 5.14, after the person's ask on 2026-11-19): the rules run again on the
+// answers and bars the Decision kept, with a trace (decide.ts TraceStep), and each step they took is one line: which sum
+// passed or missed which bar, and which yes/no answer forced, allowed or refused a move. The last line that way says how
+// far the next level is. A rerun that does not reach the Decision's level (a record older than its rules) gives the
+// reason alone.
 function rulesOf(d: Decision, mark: Mark, probs: number[] | null, bars: Thresholds): string[] {
   const why = d.reason === null ? null : (REASON_ZH[d.reason] ?? d.reason)
   // A "go on" message keeps the last turn's level whatever the open question says: its margins explain nothing, so it
   // says why with or without the open probabilities.
   if (d.reason === 'continues') return [`${mark === 'up' ? '升到这一档' : mark === 'down' ? '降到这一档' : '档位不变'}：${why}`]
-  if (probs === null || !isLevel(d.from)) return []
-  const cap: Level = d.kind === 'midrun' ? 'xhigh' : 'max'
-  const byOpen = d.reason === 'more-open' || d.reason === 'less-open'
-  const out: string[] = []
-  if (mark === 'up' && isLevel(d.to)) {
-    const further = margins(d.to, probs, bars, cap).up
-    if (further !== null) out.push(`再升一档要上方合计 ≥ ${two(further.bar)}，现在 ${two(further.sum)}`)
-    const below = LEVELS[rank(d.to) - 1]
-    const hop = byOpen && below !== undefined ? margins(below, probs, bars, cap).up : null
-    if (hop !== null) out.push(`升到这一档：上方合计 ${two(hop.sum)}，过了 ${two(hop.bar)}`)
-    else if (why !== null) out.push(`升到这一档：${why}`)
-    return out
-  }
-  if (mark === 'down' && isLevel(d.to)) {
-    const further = margins(d.to, probs, bars, cap).down
-    if (further !== null) out.push(`再降一档要下方合计 ≥ ${two(further.bar)}，现在 ${two(further.sum)}`)
-    const above = LEVELS[rank(d.to) + 1]
-    const hop = byOpen && above !== undefined ? margins(above, probs, bars, cap).down : null
-    if (hop !== null) out.push(`降到这一档：下方合计 ${two(hop.sum)}，过了 ${two(hop.bar)}`)
-    else if (why !== null) out.push(`降到这一档：${why}`)
-    return out
-  }
-  const m = margins(d.from, probs, bars, cap)
-  if (m.up !== null) out.push(`再升一档要上方合计 ≥ ${two(m.up.bar)}，现在 ${two(m.up.sum)}`)
-  if (m.down !== null) out.push(`降一档要下方合计 ≥ ${two(m.down.bar)}，现在 ${two(m.down.sum)}`)
-  return out
+  if (probs === null || !isLevel(d.from) || (d.kind !== 'submit' && d.kind !== 'midrun')) return []
+  const a = d.raw ?? {}
+  const trace: TraceStep[] = []
+  const v =
+    d.kind === 'midrun'
+      ? midrunLevel(d.from, { open: probs, sameFailure: noulOf(a.same_failure), causeFound: noulOf(a.cause_found), onlyCarryingOut: noulOf(a.only_carrying_out), contradictsPlan: noulOf(a.contradicts_plan) }, bars, trace)
+      : submitLevel(d.from, { open: probs, mechanical: noulOf(a.mechanical), unknownCause: noulOf(a.unknown_cause) }, bars, trace)
+  if (v.level !== d.to) return why === null ? [] : [`${mark === 'up' ? '升到这一档' : mark === 'down' ? '降到这一档' : '档位不变'}：${why}`]
+  return traceLines(trace, bars)
+}
+
+const FLAG_EFFECT: Record<Extract<TraceStep, { k: 'flag' }>['effect'], string> = {
+  'up-one': '至少升一档',
+  'allow-down': '准许降档',
+  'at-most-medium': '最高到 medium',
+  'at-least-high': '最低到 high',
+}
+
+function traceLines(trace: readonly TraceStep[], bars: Thresholds): string[] {
+  return trace.map((s, i) => {
+    const before = trace[i - 1]
+    switch (s.k) {
+      case 'hop':
+        return `比 ${s.from} ${s.dir === 'up' ? '高' : '低'}的各档合计 ${two(s.sum)} ≥ ${two(s.bar)}：${s.from} → ${s.to}`
+      case 'stop': {
+        const after = before?.k === 'hop' && before.dir === s.dir
+        const word = s.dir === 'up' ? (after ? '不再升' : '不升') : after ? '不再降' : '不降'
+        return `比 ${s.at} ${s.dir === 'up' ? '高' : '低'}的各档合计 ${two(s.sum)} < ${two(s.bar)}：${word}`
+      }
+      case 'cap':
+        return `${s.at} 是这次能到的最高档：不再升`
+      case 'flag':
+        return `${NOUL_ZH[s.id] ?? s.id} ${two(s.value)} ≥ ${two(bars.yes)}（是）：${FLAG_EFFECT[s.effect]}`
+      case 'blocked':
+        return `原因已查明、只剩照做都不是「是」：不准降，留在 ${s.at}`
+    }
+  })
 }
 
 // What the evaluation did to the level; one that wanted another level but was not applied says so.
@@ -367,7 +383,7 @@ export function boardModel(cfg: Config, s: BoardState): BoardModel {
   return {
     isIdle,
     where: turn === null ? '空闲' : starting ? `第 ${session.turnNo} 轮 · 刚开始` : `第 ${session.turnNo} 轮 · 第 ${turn.stepNo} 步`,
-    sessionKind: session.codeMode ? 'Code Mode 会话' : '普通会话',
+    sessionKind: session.codeMode ? 'Code Mode 会话' : session.codeModeKnown ? '普通会话' : '尚未判断',
     // Before the first step: the level last seen (the lock, else the session's own).
     level: turn === null ? (wanted ?? session.sessionLevel) : starting ? (session.lock ?? session.sessionLevel) : (sent ?? wanted),
     wanted,

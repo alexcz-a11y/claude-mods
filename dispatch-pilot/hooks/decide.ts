@@ -37,6 +37,20 @@ export const REASON_EN: Record<Reason, string> = {
 
 export type Verdict = { level: Level; reason: Reason }
 
+/**
+ * One thing the rules did, in the order they did it, for the board to say why a level came out (board/model.ts). The
+ * rules below push these as they go when given a trace, so what the board says is the path the level took, not a
+ * second reading of the rules. hop: the open question moved one level (the sum over the levels past `from` reached the
+ * bar); stop: it went no further that way (sum below the bar); cap: the highest level this action reaches; flag: a
+ * yes/no answer read as yes, and what it did; blocked: the open question said down but no answer allowed it.
+ */
+export type TraceStep =
+  | { k: 'hop'; dir: 'up' | 'down'; from: Level; to: Level; sum: number; bar: number }
+  | { k: 'stop'; dir: 'up' | 'down'; at: Level; sum: number; bar: number }
+  | { k: 'cap'; at: Level }
+  | { k: 'flag'; id: string; value: number; effect: 'up-one' | 'allow-down' | 'at-most-medium' | 'at-least-high' }
+  | { k: 'blocked'; at: Level }
+
 // Sums of probabilities are compared with a tolerance so that 0.3 + 0.4 still reaches 0.7.
 const EPS = 1e-9
 // Moving up into xhigh or max needs the stricter bar.
@@ -59,16 +73,25 @@ function sum(probs: readonly number[], from: number, to: number): number {
 
 const upBar = (target: number, t: Thresholds): number => (target >= HIGH_FROM ? t.upHigh : t.up)
 
-export function decide(current: Level, probs: readonly number[], t: Thresholds, cap: Level = 'max'): Level {
+export function decide(current: Level, probs: readonly number[], t: Thresholds, cap: Level = 'max', trace?: TraceStep[]): Level {
   let i = rank(current)
   const top = rank(cap)
   let moved = false
   while (i < top && reaches(sum(probs, i + 1, LEVELS.length), upBar(i + 1, t))) {
+    trace?.push({ k: 'hop', dir: 'up', from: LEVELS[i]!, to: LEVELS[i + 1]!, sum: sum(probs, i + 1, LEVELS.length), bar: upBar(i + 1, t) })
     i++
     moved = true
   }
+  if (i < top) trace?.push({ k: 'stop', dir: 'up', at: LEVELS[i]!, sum: sum(probs, i + 1, LEVELS.length), bar: upBar(i + 1, t) })
+  else if (moved) trace?.push({ k: 'cap', at: LEVELS[i]! })
   // Only look down when there was no way up.
-  if (!moved) while (i > 0 && reaches(sum(probs, 0, i), t.down)) i--
+  if (!moved) {
+    while (i > 0 && reaches(sum(probs, 0, i), t.down)) {
+      trace?.push({ k: 'hop', dir: 'down', from: LEVELS[i]!, to: LEVELS[i - 1]!, sum: sum(probs, 0, i), bar: t.down })
+      i--
+    }
+    if (i > 0) trace?.push({ k: 'stop', dir: 'down', at: LEVELS[i]!, sum: sum(probs, 0, i), bar: t.down })
+  }
   return LEVELS[i]!
 }
 
@@ -98,11 +121,16 @@ export function submitLevel(
   base: Level,
   a: { open: readonly number[]; mechanical?: number; unknownCause?: number },
   t: Thresholds,
+  trace?: TraceStep[],
 ): Verdict {
-  const decided = decide(base, a.open, t)
+  const decided = decide(base, a.open, t, 'max', trace)
   let i = rank(decided)
   let floored = false
-  if (isYes(a.mechanical, t)) i = Math.min(i, MEDIUM)
+  if (isYes(a.mechanical, t)) {
+    trace?.push({ k: 'flag', id: 'mechanical', value: a.mechanical!, effect: 'at-most-medium' })
+    i = Math.min(i, MEDIUM)
+  }
+  if (isYes(a.unknownCause, t)) trace?.push({ k: 'flag', id: 'unknown_cause', value: a.unknownCause!, effect: 'at-least-high' })
   if (isYes(a.unknownCause, t) && i < HIGH) {
     i = HIGH
     floored = true
@@ -134,22 +162,33 @@ export function midrunLevel(
   current: Level,
   a: { open: readonly number[]; sameFailure?: number; causeFound?: number; onlyCarryingOut?: number; contradictsPlan?: number },
   t: Thresholds,
+  trace?: TraceStep[],
 ): Verdict {
   const cap = 'xhigh'
-  const decided = decide(current, a.open, t, cap)
+  const decided = decide(current, a.open, t, cap, trace)
   const i = rank(current)
+  if (isYes(a.sameFailure, t)) trace?.push({ k: 'flag', id: 'same_failure', value: a.sameFailure!, effect: 'up-one' })
+  if (isYes(a.contradictsPlan, t)) trace?.push({ k: 'flag', id: 'contradicts_plan', value: a.contradictsPlan!, effect: 'up-one' })
   const flagUp = isYes(a.sameFailure, t) || isYes(a.contradictsPlan, t)
   if (rank(decided) > i || flagUp) {
     // A flag alone moves one step, never past the cap; the open question may move further.
     const step = i < rank(cap) ? i + 1 : i
     const level = LEVELS[Math.max(rank(decided), step)]!
-    if (level === current) return { level: current, reason: 'hold' }
+    if (level === current) {
+      trace?.push({ k: 'cap', at: current })
+      return { level: current, reason: 'hold' }
+    }
     const reason: Reason = isYes(a.sameFailure, t) ? 'same-failure' : isYes(a.contradictsPlan, t) ? 'contradicts-plan' : 'more-open'
     return { level, reason }
+  }
+  if (rank(decided) < i) {
+    if (isYes(a.causeFound, t)) trace?.push({ k: 'flag', id: 'cause_found', value: a.causeFound!, effect: 'allow-down' })
+    if (isYes(a.onlyCarryingOut, t)) trace?.push({ k: 'flag', id: 'only_carrying_out', value: a.onlyCarryingOut!, effect: 'allow-down' })
   }
   if (rank(decided) < i && (isYes(a.causeFound, t) || isYes(a.onlyCarryingOut, t))) {
     return { level: decided, reason: isYes(a.causeFound, t) ? 'cause-found' : 'carrying-out' }
   }
+  if (rank(decided) < i) trace?.push({ k: 'blocked', at: current })
   return { level: current, reason: 'hold' }
 }
 

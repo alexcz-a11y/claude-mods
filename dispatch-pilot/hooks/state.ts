@@ -65,6 +65,8 @@ export type SessionState = {
   /** Set by /dp lock: every main-loop step is written at this level and no effort is judged. */
   lock: Level | null
   codeMode: boolean
+  /** The session's kind is known: a main-loop request listed its tools (readout), or a receipt came. */
+  codeModeKnown: boolean
   turnNo: number
   /** The effort the engine itself gave the last main-loop step, before the mod wrote any. */
   sessionLevel: Level | null
@@ -114,6 +116,7 @@ export function emptySession(): SessionState {
   return {
     lock: null,
     codeMode: false,
+    codeModeKnown: false,
     turnNo: 0,
     sessionLevel: null,
     effortIsNumber: false,

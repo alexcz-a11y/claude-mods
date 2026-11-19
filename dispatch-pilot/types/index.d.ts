@@ -60,6 +60,8 @@ export type DpAgentType = { type: string; tier: DpTier | null; parentTier: DpTie
 export type DpSessionState = {
   lock: DpLevel | null
   codeMode: boolean
+  /** A main-loop request listed its tools, or a receipt came. */
+  codeModeKnown: boolean
   turnNo: number
   sessionLevel: DpLevel | null
   /** The last main-loop step's effort was a number. */

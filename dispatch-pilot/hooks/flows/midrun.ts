@@ -59,7 +59,7 @@ export async function onRow($: EngineInterface, cfg: Config, e: SessionAppendInp
   })
   const plan = box.plan
   if (plan === null) return e
-  if (codeMode && !session.codeMode) await update($, SESSION, (s) => ({ ...s, codeMode: true }))
+  if (codeMode && !session.codeMode) await update($, SESSION, (s) => ({ ...s, codeMode: true, codeModeKnown: true }))
   if (plan.note !== null) return withNote(e, plan.note)
   if (plan.ask === null) return e
   // The row is held while the question is out: this ask is the only wait here.

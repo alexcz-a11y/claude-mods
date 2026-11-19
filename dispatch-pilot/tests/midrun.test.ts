@@ -555,6 +555,7 @@ test('第一条回执行把 session.codeMode 置上，之后一直是 true', { o
   expect(session(w).codeMode).toBe(false)
   await appendAll($, scriptByPoll(1, 'scan', 'ok'))
   expect(session(w).codeMode).toBe(true)
+  expect(session(w).codeModeKnown).toBe(true)
   await complete($, 't1')
   await submit($, 'Now the downloader')
   await step($, { turnId: 't2', index: 0, effort: 'medium' })
