@@ -3,7 +3,7 @@ import { CAP, RATE_WAITS, mayAskHeldout, pool, spend } from '../eval/lib/budget.
 import type { Spent } from '../eval/lib/budget.ts'
 import { checkSessions } from '../eval/lib/case.ts'
 import type { AgentCase, Case, MidrunCase, SkillCase, SubmitCase } from '../eval/lib/case.ts'
-import { heldoutWants, sentState, unknownVariants, variantsFor, wants } from '../eval/lib/plan.ts'
+import { heldoutWants, neverAskedOn, sentState, unknownVariants, variantsFor, wants } from '../eval/lib/plan.ts'
 
 test('花得起：返回花过之后的数', () => {
   expect(spend({ requests: 1, tokens: 10 }, { requests: 1, tokens: 5 })).toEqual({ requests: 2, tokens: 15 })
@@ -204,7 +204,7 @@ const skillCase: SkillCase = {
 }
 const tally = (ws: { c: Case; variant: { name: string }; repeat: number }[]) => ws.map((w) => `${w.c.id} ${w.variant.name} #${w.repeat}`)
 
-test('留出集的一次运行：每类每种登记的给法都发，default 3 遍（skill 是 stage-1 和 stage-2），其余 1 遍', () => {
+test('留出集的一次运行：每类登记在它之前的给法都发，default 3 遍（skill 是 stage-1 和 stage-2），其余 1 遍', () => {
   const got = tally(heldoutWants([submitCase, midrunCase, agentCase, skillCase]))
   expect(got).toEqual([
     'submit-01 default #1', 'submit-01 default #2', 'submit-01 default #3',
@@ -218,6 +218,12 @@ test('留出集的一次运行：每类每种登记的给法都发，default 3 �
   ])
   // first-message was registered after the held-out pass, which is not asked again (amendment A1): the pass leaves it out.
   expect(got.some((x) => x.includes('first-message'))).toBe(false)
+})
+
+test('neverAskedOn：登记在留出集那一次运行之后的给法，在留出集上从没问过；别的组、别的给法不是', () => {
+  const [first] = variantsFor('submit', ['first-message'])
+  const [plain] = variantsFor('submit', [])
+  expect([neverAskedOn('heldout', first!), neverAskedOn('tune', first!), neverAskedOn('heldout', plain!)]).toEqual([true, false, false])
 })
 
 test('--variant first-message：和别的给法一样能选（submit 才有），留出集的那一次运行不带它', () => {

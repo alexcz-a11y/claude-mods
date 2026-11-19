@@ -6,7 +6,7 @@ import type { AskResult, Answer, Backend, Failure } from './backend.ts'
 import { failureText } from './log.ts'
 import { estimateTokens } from './statebuild.ts'
 import type { Decision } from './log.ts'
-import { CALIBRATED, SKILL_CHOICE, SKILL_GATES, SKILL_NOUL_CRITERIA, SKILL_RERANK, START_SKILL_BARS, skillFits } from './questions.ts'
+import { SKILL_CHOICE, SKILL_GATES, SKILL_NOUL_CRITERIA, SKILL_RERANK, START_SKILL_BARS, skillFits } from './questions.ts'
 import type { Question, SkillBars } from './questions.ts'
 
 export type Skill = { name: string; description: string }
@@ -16,18 +16,13 @@ export const LISTING_NOTE =
   "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, load the skill dispatch-pilot:find-skill with the Skill tool, with a few words on the work as its args: it answers with the skills that fit. Then load one of them with the Skill tool by its exact name."
 
 // The cookbook's constants: ACTION_THRESHOLD, NAMED_THRESHOLD, FITS_THRESHOLD (their start values, kept in
-// questions.ts with the calibrated ones), SHORTLIST.
+// questions.ts beside the options' defaults), SHORTLIST. The bars in use are the options' (Config.bars.skill).
 export const ACTION_BAR = START_SKILL_BARS.action
 export const NAMED_BAR = START_SKILL_BARS.named
 export const FITS_BAR = START_SKILL_BARS.fits
 export const SHORTLIST = 3
 
 export type { SkillBars }
-
-/** The calibrated skill bars of this backend and model version; the start values for any the calibration did not cover. */
-export function skillBarsFor(backend: 'drex' | 'jev', model: string): SkillBars {
-  return CALIBRATED.find((c) => c.backend === backend && c.model === model)?.skill ?? START_SKILL_BARS
-}
 
 /** Skills per choice question: Drex takes at most 255 options, and its questions carry one more (other). */
 export const BATCH = 250
@@ -121,7 +116,7 @@ export function stageOne(skills: Skill[], backend: Backend, withGate: boolean): 
 
 /**
  * The cookbook's needs_skill: the action answers' mean at ACTION_BAR, or named at NAMED_BAR. One of the three missing:
- * no mean. bars: the bars in use (skillBarsFor), or a sweep's.
+ * no mean. bars: the bars in use (Config.bars.skill), or a sweep's.
  */
 export function wantsSkill(a: { acts?: number; procedure?: number; prose?: number; named?: number }, bars: { action: number; named: number } = { action: ACTION_BAR, named: NAMED_BAR }): boolean {
   const acting = a.acts !== undefined && a.procedure !== undefined && a.prose !== undefined && (a.acts + a.procedure + (1 - a.prose)) / 3 >= bars.action

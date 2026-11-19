@@ -7,7 +7,7 @@ import { START } from '../hooks/decide.ts'
 import { emptyJournal } from '../hooks/journal.ts'
 import type { TurnJournal } from '../hooks/journal.ts'
 import type { Decision } from '../hooks/log.ts'
-import { applyShift, carrierOf, carriesNote, emptyCounters, gapOk, isCheckpoint, noteText, notesLeft, withNote } from '../hooks/midrun.ts'
+import { applyShift, carrierOf, carriesNote, emptyCounters, gapLeft, gapOk, isCheckpoint, noteText, notesLeft, withNote } from '../hooks/midrun.ts'
 import type { MidrunCounters } from '../hooks/midrun.ts'
 import { newTurn } from '../hooks/state.ts'
 import type { SessionState, TurnState } from '../hooks/state.ts'
@@ -139,6 +139,20 @@ test('Code Mode：Poll 结果行到达时判断，说明加在这一行，下一
   expect(turnState(w)).toMatchObject({ wanted: 'high', pendingNote: null, midrun: { notes: 1, lastShiftAt: 1, stepsSinceCheck: 0, scriptsSinceCheck: 0 } })
 })
 
+// An option overrides its threshold (amendment A17): with midrunYes at 0.95 a same_failure of 0.9 is no longer a yes.
+test('midrunYes 设成 0.95：同一失败 0.9 不再算「是」，档位不变，不加说明', { options: { ...KEYS, midrunYes: '0.95' } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, SAME_FAILURE) })
+  await begin($)
+  const rows = scriptByPoll(1, 'rerun the upload test', 'FAIL test_upload: expected 200, got 500')
+  await appendAll($, rows)
+  await stepT1($, 1)
+
+  expect(asked(w)).toHaveLength(1)
+  for (const r of rows) expect(reached(w, r)).toEqual(r)
+  expect(efforts(w)).toEqual(['medium', 'medium'])
+  expect(midruns(w)[0]).toMatchObject({ from: 'medium', to: 'medium', reason: 'hold', applied: false, bars: { ...START, yes: 0.95 } })
+})
+
 test('结果经 delivery 行到达：这一行不改，说明加在下一条回执行上', { options: KEYS }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (s) => (s.current_level === 'medium' ? SAME_FAILURE : HOLD)) })
   await begin($)
@@ -182,7 +196,7 @@ test('回答落在中间带：不加说明，档位不变', { options: KEYS }, a
   expect(turnState(w)).toMatchObject({ wanted: 'medium', pendingNote: null, midrun: { notes: 0, lastShiftAt: null, stepsSinceCheck: 0, scriptsSinceCheck: 0 } })
 })
 
-test('midrunEveryScripts 为 2：第一次脚本结果不发请求，第二次才发', { options: { ...KEYS, midrunEveryScripts: 2 } }, async ($, on) => {
+test('midrunEveryScripts 为 2：第一次脚本结果不发请求，第二次才发', { options: { ...KEYS, midrunEveryScripts: '2' } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, HOLD) })
   await begin($)
   const seen: [number, TurnState['midrun']][] = []
@@ -260,23 +274,26 @@ test('中途最高到 xhigh', { options: KEYS }, async ($, on) => {
   expect(turnState(w).midrun.notes).toBe(1)
 })
 
-test('普通会话：同一步的两条并行结果行，只在一条上加说明（Review Focus 5）', { options: { ...KEYS, midrunEverySteps: 1 } }, async ($, on) => {
+test('普通会话：同一步的两条并行结果行，只在一条上加说明（Review Focus 5）', { options: { ...KEYS, midrunEverySteps: '2' } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, SAME_FAILURE) })
   await begin($)
+  // One step first, so the next ends the second and is a checkpoint by the count (every 2 steps).
+  await appendAll($, [assistantToolUse('Read', { file_path: 'upload.ts' }), toolResult('Read', 'upload.ts')])
+  await stepT1($, 1)
   const upload = toolResult('Bash', 'FAIL test_upload', { error: true })
   const download = toolResult('Bash', 'FAIL test_download', { error: true })
   await appendAll($, [assistantToolUse('Bash', { command: 'npm test -- upload' }), assistantToolUse('Bash', { command: 'npm test -- download' }), upload, download])
-  await stepT1($, 1)
+  await stepT1($, 2)
 
   // One response, one work step (final review I3): the first row ends it and is the checkpoint; the second joins the
   // step, which had failed already, so it asks nothing and carries nothing.
   expect(asked(w)).toHaveLength(1)
   expect(reached(w, upload)!.message.content).toEqual([upload.message.content[0], noteBlock(NOTE_HIGH)])
   expect(reached(w, download)).toEqual(download)
-  expect(midruns(w).map((d) => [d.step, d.from, d.to, d.applied])).toEqual([[1, 'medium', 'high', true]])
-  expect(turnState(w).journal).toMatchObject({ workSteps: 1, failedSteps: 1, consecutiveFailures: 1 })
-  expect(efforts(w)).toEqual(['medium', 'high'])
-  expect(turnState(w).midrun).toMatchObject({ notes: 1, lastShiftAt: 1 })
+  expect(midruns(w).map((d) => [d.step, d.from, d.to, d.applied])).toEqual([[2, 'medium', 'high', true]])
+  expect(turnState(w).journal).toMatchObject({ workSteps: 2, failedSteps: 1, consecutiveFailures: 1 })
+  expect(efforts(w)).toEqual(['medium', 'medium', 'high'])
+  expect(turnState(w).midrun).toMatchObject({ notes: 1, lastShiftAt: 2 })
   expect(session(w).codeMode).toBe(false)
 })
 
@@ -355,22 +372,19 @@ test('经 delivery 行来的新输入：照常判断，换挡的说明排到下�
   expect(turnState(w)).toMatchObject({ pendingNote: null, midrun: { notes: 1 } })
 })
 
-test('同一步的两条结果行，两个请求同时在途：写入时再核对一次，只有一条换挡、一条说明', { options: { ...KEYS, midrunEverySteps: 1 } }, async ($, on) => {
+test('同一步的两条结果行，两个请求同时在途：写入时再核对一次，只有一条换挡、一条说明', { options: { ...KEYS, midrunEverySteps: '2' } }, async ($, on) => {
   const late: { clock: MockClock | null } = { clock: null }
-  let asks = 0
   const w = world(on, {
     onSubmit: turns($),
     answer: async ({ body }) => {
       if (!('same_failure' in body.questions)) return drexOk(SUBMIT_HOLD)
-      asks += 1
-      const n = asks
       await late.clock!.sleep(500)
-      return drexOk(n === 1 ? HOLD : SAME_FAILURE)
+      return drexOk(SAME_FAILURE)
     },
   })
   late.clock = w.clock
   await begin($)
-  // A failed step first (its checkpoint holds), so the response after it can fail twice in a row.
+  // A failed step first (no checkpoint: one failure, one step of two), so the response after it can fail twice in a row.
   const before = appendAll($, [assistantToolUse('Bash', { command: 'npm test' }), toolResult('Bash', 'FAIL test_upload', { error: true })])
   await w.clock.settle()
   await w.clock.advance(500)
@@ -384,7 +398,7 @@ test('同一步的两条结果行，两个请求同时在途：写入时再核�
   const first = append($, read)
   const second = append($, download)
   await w.clock.settle()
-  expect(asked(w)).toHaveLength(3)
+  expect(asked(w)).toHaveLength(2)
   await w.clock.advance(500)
   await Promise.all([first, second])
   await stepT1($, 2)
@@ -393,11 +407,11 @@ test('同一步的两条结果行，两个请求同时在途：写入时再核�
   const noted = [read, download].filter((r) => reached(w, r)!.message.content.length === 2)
   expect(noted).toHaveLength(1)
   expect(reached(w, noted[0]!)!.message.content.at(-1)).toEqual(noteBlock(NOTE_HIGH))
-  expect(midruns(w).slice(1).map((d) => [d.from, d.to])).toEqual([
+  expect(midruns(w).map((d) => [d.from, d.to])).toEqual([
     ['medium', 'high'],
     ['medium', 'high'],
   ])
-  expect(midruns(w).slice(1).map((d) => d.applied).sort()).toEqual([false, true])
+  expect(midruns(w).map((d) => d.applied).sort()).toEqual([false, true])
   expect(turnState(w)).toMatchObject({ wanted: 'high', midrun: { notes: 1 }, journal: { workSteps: 2, failedSteps: 2, consecutiveFailures: 2 } })
   expect(efforts(w)).toEqual(['medium', 'medium', 'high'])
 })
@@ -508,7 +522,7 @@ for (const [name, keys] of NO_BACKEND) {
   })
 }
 
-test('没有密钥：普通会话的三份工具结果也不评估、不记录', { options: { midrunEverySteps: 1, progressNote: true } }, async ($, on) => {
+test('没有密钥：普通会话的三份工具结果也不评估、不记录', { options: { midrunEverySteps: '2', progressNote: true } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, SAME_FAILURE), complete: () => 'Rerunning the upload test.' })
   await begin($)
   const rows: SessionAppendInput[] = []
@@ -594,7 +608,7 @@ test('说明排着时锁定了：不再加它，每步是锁定的档', { option
   expect(efforts(w)).toEqual(['medium', 'low', 'low', 'high'])
 })
 
-test('计数：到检查点清零，没到时数工作步和脚本结果', { options: { ...KEYS, midrunEverySteps: 3 } }, async ($, on) => {
+test('计数：到检查点清零，没到时数工作步和脚本结果', { options: { ...KEYS, midrunEverySteps: '4' } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, HOLD) })
   await begin($)
   const seen: [number, TurnState['midrun']][] = []
@@ -606,8 +620,8 @@ test('计数：到检查点清零，没到时数工作步和脚本结果', { opt
   expect(seen).toEqual([
     [0, { notes: 0, lastShiftAt: null, stepsSinceCheck: 1, scriptsSinceCheck: 0 }],
     [0, { notes: 0, lastShiftAt: null, stepsSinceCheck: 2, scriptsSinceCheck: 0 }],
+    [0, { notes: 0, lastShiftAt: null, stepsSinceCheck: 3, scriptsSinceCheck: 0 }],
     [1, { notes: 0, lastShiftAt: null, stepsSinceCheck: 0, scriptsSinceCheck: 0 }],
-    [1, { notes: 0, lastShiftAt: null, stepsSinceCheck: 1, scriptsSinceCheck: 0 }],
   ])
 })
 
@@ -687,7 +701,7 @@ test('这一轮自己的 prompt 行在 turn.start 之前到：不算新输入', 
   expect(asked(w)[1]!.body.state).toMatchObject({ request: 'Now the downloader', latest: { did: 'new input', result: 'and the docs' } })
 })
 
-test('说明用完之后：脚本结果和经 delivery 来的输入不发请求，prompt 行的新输入照样发，换挡不加说明', { options: { ...KEYS, midrunMaxNotes: 1 } }, async ($, on) => {
+test('说明用完之后：脚本结果和经 delivery 来的输入不发请求，prompt 行的新输入照样发，换挡不加说明', { options: { ...KEYS, midrunMaxNotes: '1' } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (s) => (s.current_level === 'medium' ? SAME_FAILURE : CAUSE_FOUND)) })
   await begin($)
   for (let n = 1; n <= 4; n++) {
@@ -818,8 +832,8 @@ test('gapOk、notesLeft、carriesNote', () => {
   const j = (workSteps: number): TurnJournal => ({ ...emptyJournal(), workSteps })
   const m = (o: Partial<MidrunCounters>): MidrunCounters => ({ ...emptyCounters(), ...o })
   expect(emptyCounters()).toEqual({ notes: 0, lastShiftAt: null, stepsSinceCheck: 0, scriptsSinceCheck: 0 })
-  expect([gapOk(m({}), j(0)), gapOk(m({ lastShiftAt: 2 }), j(4)), gapOk(m({ lastShiftAt: 2 }), j(5))]).toEqual([true, false, true])
   const cfg = readConfig({ midrunMaxNotes: 4 })
+  expect([gapOk(m({}), j(0), cfg), gapOk(m({ lastShiftAt: 2 }), j(4), cfg), gapOk(m({ lastShiftAt: 2 }), j(5), cfg)]).toEqual([true, false, true])
   expect([notesLeft(m({ notes: 1 }), cfg), notesLeft(m({ notes: 4 }), cfg), notesLeft(m({ notes: 6 }), cfg)]).toEqual([3, 0, 0])
   const kinds = ['receipt', 'script-result-poll', 'script-result-delivery', 'inner-call', 'tool-result', 'new-input', 'delivered-input', 'assistant', 'other'] as const
   expect(kinds.filter(carriesNote)).toEqual(['receipt', 'script-result-poll', 'tool-result'])
@@ -851,6 +865,25 @@ test('isCheckpoint：0 关掉按数的检查，失败成簇照样算；Code Mode
   expect(isCheckpoint('delivered-input', j(), spent, on, true)).toBe(false)
 })
 
+
+test('midrunShiftGap：0 时换挡后下一步就能再换，5 时要隔 5 个工作步；结果行的检查点跟着它', () => {
+  const j = (workSteps: number, o: Partial<TurnJournal> = {}): TurnJournal => ({ ...emptyJournal(), workSteps, ...o })
+  const shifted: MidrunCounters = { ...emptyCounters(), notes: 1, lastShiftAt: 4 }
+  const none = readConfig({ ...KEYS, midrunShiftGap: 0, midrunEverySteps: 1 })
+  const five = readConfig({ ...KEYS, midrunShiftGap: 5, midrunEverySteps: 1 })
+  expect([gapOk(shifted, j(4), none), gapOk(shifted, j(5), none)]).toEqual([true, true])
+  expect([gapLeft(shifted, j(4), none), gapLeft(shifted, j(5), none)]).toEqual([0, 0])
+  expect([8, 9].map((n) => gapOk(shifted, j(n), five))).toEqual([false, true])
+  expect([5, 8, 9].map((n) => gapLeft(shifted, j(n), five))).toEqual([4, 1, 0])
+  expect(isCheckpoint('tool-result', j(5), shifted, none, false)).toBe(true)
+  expect(isCheckpoint('tool-result', j(8), shifted, five, false)).toBe(false)
+  expect(isCheckpoint('tool-result', j(9), shifted, five, false)).toBe(true)
+  // A shift is written only past the gap too.
+  const turn: TurnState = { ...newTurn('t1', 'x'), wanted: 'high', journal: j(8), midrun: shifted }
+  const s = { to: 'xhigh' as const, note: 'n', queued: null }
+  expect(applyShift(turn, s, { asked: 'high', cfg: five, locked: false })).toBeNull()
+  expect(applyShift(turn, s, { asked: 'high', cfg: none, locked: false })).toMatchObject({ wanted: 'xhigh', midrun: { lastShiftAt: 8 } })
+})
 
 test('applyShift：prompt 行的换挡清掉还排着的旧说明，不计条数', () => {
   const cfg = readConfig({})
@@ -891,7 +924,7 @@ test('换挡间隔之内：结果行的检查点不问，新输入照问', () =>
   const j = (o: Partial<TurnJournal> = {}): TurnJournal => ({ ...emptyJournal(), workSteps: 5, ...o })
   // Shifted after step 4: the gap (3 work steps) has not passed at step 5.
   const recent: MidrunCounters = { ...emptyCounters(), notes: 1, lastShiftAt: 4 }
-  expect(gapOk(recent, j())).toBe(false)
+  expect(gapOk(recent, j(), on)).toBe(false)
   expect(isCheckpoint('tool-result', j({ consecutiveFailures: 2 }), recent, on, false)).toBe(false)
   expect(isCheckpoint('tool-result', j(), recent, on, false)).toBe(false)
   expect(isCheckpoint('script-result-poll', j(), recent, on, true)).toBe(false)

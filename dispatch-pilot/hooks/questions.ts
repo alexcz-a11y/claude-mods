@@ -106,7 +106,7 @@ export function skillFits(name: string, description: string): string {
 }
 
 // The thresholds the answers are read with, beside the questions they read (amendment A10). decide.ts and skills.ts
-// hold the reading; thresholdsFor and skillBarsFor pick a table from here.
+// hold the reading; config.ts reads the options against DEFAULT_BARS, and the manifest repeats its numbers.
 
 export type Thresholds = { up: number; upHigh: number; down: number; yes: number; no: number; modelDown: number }
 export type SkillBars = { action: number; named: number; fits: number }
@@ -116,20 +116,18 @@ export const START: Thresholds = { up: 0.7, upHigh: 0.8, down: 0.7, yes: 0.7, no
 /** The skill_suggestion cookbook's ACTION_THRESHOLD, NAMED_THRESHOLD and FITS_THRESHOLD. */
 export const START_SKILL_BARS: SkillBars = { action: 0.3, named: 0.5, fits: 0.3 }
 
-export type Calibrated = { backend: 'drex' | 'jev'; model: string; submit: Thresholds; midrun: Thresholds; agent: Thresholds; skill: SkillBars }
+/** The thresholds of each action and the skill bars, as the mod reads them (Config.bars). */
+export type Bars = { submit: Thresholds; midrun: Thresholds; agent: Thresholds; skill: SkillBars }
 
-// Calibrated on 2026-11-19 against drex-max-v1.1 on a tuning set of 10 cases per action; see eval/CALIBRATION.md.
-// A threshold the tuning set did not constrain keeps its start value.
-export const CALIBRATED: readonly Calibrated[] = [
-  {
-    backend: 'drex',
-    model: 'drex-max-v1.1',
-    submit: { up: 0.7, upHigh: 0.8, down: 0.7, yes: 0.7, no: 0.3, modelDown: 0.8 },
-    midrun: { up: 0.7, upHigh: 0.8, down: 0.7, yes: 0.7, no: 0.3, modelDown: 0.8 },
-    agent: { up: 0.7, upHigh: 0.8, down: 0.95, yes: 0.7, no: 0.3, modelDown: 0.8 },
-    skill: { action: 0.3, named: 0.5, fits: 0.3 },
-  },
-]
+// The options' defaults: the values calibrated on 2026-11-19 against drex-max-v1.1 on a tuning set of 10 cases per
+// action (eval/CALIBRATION.md); a threshold the tuning set did not constrain keeps its start value. They are read for
+// whichever backend answers (Ruling C43): one table, and what the configuration shows is what is used.
+export const DEFAULT_BARS: Bars = {
+  submit: { up: 0.7, upHigh: 0.8, down: 0.7, yes: 0.7, no: 0.3, modelDown: 0.8 },
+  midrun: { up: 0.7, upHigh: 0.8, down: 0.7, yes: 0.7, no: 0.3, modelDown: 0.8 },
+  agent: { up: 0.7, upHigh: 0.8, down: 0.95, yes: 0.7, no: 0.3, modelDown: 0.8 },
+  skill: { action: 0.3, named: 0.5, fits: 0.3 },
+}
 
 export function agentQuestions(): Record<string, Question> {
   return {

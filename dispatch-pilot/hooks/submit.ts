@@ -4,7 +4,8 @@
 import { noulOf, scoreOf } from './backend.ts'
 import type { AskResult } from './backend.ts'
 import type { Config } from './config.ts'
-import { messageLevel, thresholdsFor } from './decide.ts'
+import { messageLevel } from './decide.ts'
+import type { Thresholds } from './decide.ts'
 import { isLevel } from './levels.ts'
 import type { Level } from './levels.ts'
 import { failureText } from './log.ts'
@@ -38,10 +39,11 @@ export function stepLevel(cfg: Config, session: SessionState, turn: TurnState | 
 export type Settled = { base: Level | null; wanted: Level | null; decision: Decision }
 
 // What a message's answers make of its turn: the level it starts from, the level the mod wants, and
-// the Decision that records both. Pure. `writes`: the mod would write a level (apply mode, no lock).
+// the Decision that records both. Pure. `writes`: the mod would write a level (apply mode, no lock); `bars`: the
+// submit thresholds in use (Config.bars.submit).
 export function settleSubmit(
   r: AskResult,
-  c: { effort: unknown; previousLevel: Level | null; writes: boolean; turnId: string; id: string; at: number },
+  c: { effort: unknown; previousLevel: Level | null; writes: boolean; turnId: string; id: string; at: number; bars: Thresholds },
 ): Settled {
   const own = isLevel(c.effort) ? c.effort : null
   const common = { id: c.id, at: c.at, kind: 'submit' as const, backend: r.backend, ms: r.ms, turnId: c.turnId, step: 0, sent: null }
@@ -55,7 +57,7 @@ export function settleSubmit(
     const decision: Decision = { ...common, model: r.model, raw: r.answers, from: null, to: null, reason: null, detail: NO_LEVEL, bars: null, failure: null, requestId: null, applied: false }
     return { base: null, wanted: null, decision }
   }
-  const bars = thresholdsFor(r.backend, r.model, 'submit')
+  const bars = c.bars
   const v = messageLevel(
     own,
     c.previousLevel,

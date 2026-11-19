@@ -36,7 +36,7 @@ const TASK = 'Fix the flaky retry in the uploader'
 // Ruling C38: a message that only says to go on keeps the previous turn's level; open, mechanical and unknown_cause do
 // not move it. The engine's own level for the turn is medium in each.
 const goOn = (a: Record<string, unknown>, previousLevel: 'low' | 'xhigh' | null) =>
-  settleSubmit({ ok: true, answers: a as never, model: 'drex-max-v1.1', backend: 'drex', ms: 5 }, { effort: 'medium', previousLevel, writes: true, turnId: 't2', id: 'd2', at: 2 })
+  settleSubmit({ ok: true, answers: a as never, model: 'drex-max-v1.1', backend: 'drex', ms: 5 }, { effort: 'medium', previousLevel, writes: true, turnId: 't2', id: 'd2', at: 2, bars: START })
 const DOWN = score([0.8, 0.14, 0.03, 0.02, 0.01])
 
 test('只说接着做：上一轮 xhigh，open 指向最低档也沿用 xhigh；按引擎的 medium 记为升档', () => {
@@ -102,6 +102,17 @@ test('人发的消息：发一个请求，之后每一步都是决定的档，�
     unknown_cause: { type: 'noul', noul: 0.2 },
   })
   expect(recent(w)).toEqual(d)
+})
+
+// An option overrides its threshold (amendment A17): with submitUp at 0.95 the 0.90 above medium no longer raises.
+test('submitUp 设成 0.95：上方合计 0.90 不再升档，记下的门槛是选项的值', { options: { ...KEYS, submitUp: '0.95' } }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: () => drexOk(RAISE) })
+  await start($)
+  await submit($, TASK)
+  await step($, { turnId: 't1', index: 0, effort: 'medium' })
+
+  expect(efforts(w)).toEqual(['medium'])
+  expect(logged(w)[0]).toMatchObject({ kind: 'submit', from: 'medium', to: 'medium', reason: 'hold', bars: { ...START, up: 0.95 } })
 })
 
 test('task-notification、peer 开始的轮不判断', { options: KEYS }, async ($, on) => {

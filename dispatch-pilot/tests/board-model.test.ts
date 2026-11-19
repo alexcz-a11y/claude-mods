@@ -39,7 +39,7 @@ test('中途升过一次档', () => {
   expect(m.last?.nouls.map((n) => [n.label, n.reading])).toEqual([['同一失败又出现', 'no'], ['原因已查明', 'no'], ['只剩照做', 'no'], ['与计划矛盾', 'no']])
   expect(m.last?.rules).toEqual(['再升一档要上方合计 ≥ 0.80，现在 0.41', '降一档要下方合计 ≥ 0.70，现在 0.13'])
   expect(m.next).toMatchObject({ main: '下一份脚本结果到达时', ahead: 1 })
-  expect(m.features.map((f) => f.state)).toEqual(['active', 'active', 'active', 'active', 'active', 'off'])
+  expect(m.features.map((f) => f.state)).toEqual(['active', 'active', 'active', 'active', 'active', 'active'])
   expect(m.agents).toHaveLength(2)
 })
 
@@ -112,7 +112,7 @@ test('六个场景：其余各项', () => {
     { label: 'agent 定档', state: 'active', note: '本轮 2 个' },
     { label: 'skill 推荐', state: 'active', note: '62 个候选' },
     { label: '档位核对', state: 'active', note: '' },
-    { label: '进展记录', state: 'off', note: '' },
+    { label: '进展记录', state: 'active', note: '' },
   ])
   expect(up.backend).toEqual({ isOk: true, text: 'Drex drex-max-v1.1 · 可用' })
   expect(up.agents).toEqual([
@@ -163,7 +163,7 @@ test('六个场景：其余各项', () => {
   const locked = of('locked')
   expect([locked.level, locked.wanted, locked.where]).toEqual(['high', 'high', '第 2 轮 · 第 5 步'])
   expect(locked.next).toEqual({ main: '不评估', sub: '/dp unlock 解锁后恢复', ahead: 0 })
-  expect(locked.features.slice(3).map((f) => f.state)).toEqual(['active', 'active', 'off'])
+  expect(locked.features.slice(3).map((f) => f.state)).toEqual(['active', 'active', 'active'])
 })
 
 test('总能算出：空的 recent、raw 为 null 或没有 open、bars 为 null、没有格子、不认识的题、reason 为 null', () => {
@@ -204,7 +204,7 @@ test('总能算出：空的 recent、raw 为 null 或没有 open、bars 为 null
 test('功能：mod 关着六行都是关；开关关着是关；锁定时关着的仍是关', () => {
   expect(of('up', { enabled: false }).features.map((f) => f.state)).toEqual(['off', 'off', 'off', 'off', 'off', 'off'])
   expect(of('locked', { midrunShift: false }).features.slice(0, 3).map((f) => f.state)).toEqual(['locked', 'off', 'locked'])
-  const off = of('up', { submitShift: false, agentShift: false, skills: false, verifyEffort: false })
+  const off = of('up', { submitShift: false, agentShift: false, skills: false, verifyEffort: false, progressNote: false })
   expect(off.features.map((f) => f.state)).toEqual(['off', 'active', 'off', 'off', 'off', 'off'])
   // Without the backend's key the three judgements and the skills cannot ask; the rest do not need it.
   expect(boardModel(readConfig({}), scenes.up).features.map((f) => [f.state, f.note])).toEqual([
@@ -213,7 +213,7 @@ test('功能：mod 关着六行都是关；开关关着是关；锁定时关着�
     ['inactive', '没有可用的后端'],
     ['inactive', '没有可用的后端'],
     ['active', ''],
-    ['off', ''],
+    ['active', ''],
   ])
   // The progress note's model refused this session.
   const s = scenes.up
@@ -616,4 +616,7 @@ test('换挡间隔之内：下次评估数到间隔过了的那一份结果（G6
   expect([m.next.main, m.next.sub, m.next.ahead]).toEqual(['再 2 份脚本结果', '换挡后隔 3 份脚本结果才再评估 · 本轮还可换挡 3 次', 2])
   const ordinary = boardModel(readConfig({ drexApiKey: 'k' }), { ...s, session: { ...s.session, codeMode: false }, turn: { ...within, midrun: { ...within.midrun, stepsSinceCheck: 7 } } })
   expect([ordinary.next.main, ordinary.next.sub]).toEqual(['再 2 步', '换挡后隔 3 步才再评估 · 有新输入时照常评估'])
+  // The count and its words follow midrunShiftGap.
+  const wide = boardModel(readConfig({ drexApiKey: 'k', midrunShiftGap: 5 }), { ...s, turn: within })
+  expect([wide.next.main, wide.next.sub, wide.next.ahead]).toEqual(['再 4 份脚本结果', '换挡后隔 5 份脚本结果才再评估 · 本轮还可换挡 3 次', 4])
 })

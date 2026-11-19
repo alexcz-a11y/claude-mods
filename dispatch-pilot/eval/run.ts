@@ -30,7 +30,7 @@ import { checkCase, checkSessions, checkSet } from './lib/case.ts'
 import type { Case, CaseSet, Category } from './lib/case.ts'
 import { askDrex, hasKey } from './lib/drex.ts'
 import type { Reply } from './lib/drex.ts'
-import { heldoutWants, inOrder, sentState, stageOneOf, unknownVariants, variantsFor, wants } from './lib/plan.ts'
+import { heldoutWants, inOrder, neverAskedOn, sentState, stageOneOf, unknownVariants, variantsFor, wants } from './lib/plan.ts'
 import type { Want } from './lib/plan.ts'
 import { CHOSEN_BARS, START_BARS, mark, outcomeOf, shortlistOf } from './lib/read.ts'
 import type { Bars, Outcome, Stored } from './lib/read.ts'
@@ -332,7 +332,7 @@ async function askCommand(a: Args, ctx: Ctx, cases: readonly Case[]): Promise<vo
   if (a.set === 'heldout') {
     const done = existsSync(join(a.data, HELDOUT_DONE))
     if (!mayAskHeldout({ final: a.final, alreadyDone: done })) fail(done ? 'the held-out set has been asked: heldout-done exists' : 'the held-out set is asked only with --final')
-    if (a.variants.length > 0 || a.repeat !== 1) fail('the held-out pass asks every registered variant: it takes no --variant or --repeat', 2)
+    if (a.variants.length > 0 || a.repeat !== 1) fail('the held-out pass asks every variant registered before it: it takes no --variant or --repeat', 2)
   }
   if (!hasKey()) fail('没有密钥: NACE_API_KEY is not set')
   if (a.set === 'heldout') {
@@ -468,6 +468,11 @@ function score(a: Args, ctx: Ctx, cases: readonly Case[]): void {
     const v = readVariant(category, a.variants)
     const set = inSet(cases, a.set).filter((c) => c.category === category).sort((x, y) => (x.id < y.id ? -1 : 1))
     if (v === null || set.length === 0) continue
+    // Not a score of 0: the pass was over before this variant was registered.
+    if (neverAskedOn(a.set, v)) {
+      console.log(`${category} ${v.name}: never asked on the held-out set (registered after its one pass), so there is nothing to score`)
+      continue
+    }
     const marks: Record<string, number> = {}
     let none = 0
     for (const c of set) {

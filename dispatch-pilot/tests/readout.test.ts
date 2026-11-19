@@ -17,6 +17,9 @@ import { KEYS, appendAll, complete, dp, drexOk, noul, score, spawn, start, step,
 
 type World = ReturnType<typeof world>
 
+/** The tests below are about the readout: the progress note (on by default) is off, so its calls record nothing beside it. */
+const NO_NOTE = { ...KEYS, progressNote: false }
+
 const OPUS = 'claude-opus-5-5'
 const HAIKU = 'claude-haiku-5-5'
 const MESSAGES = 'https://api.anthropic.com/v1/messages?beta=true'
@@ -324,7 +327,7 @@ test('请求原样放行：桩收到的 url 和 init 与发出的相同', { opti
   expect(f.leaked()).toEqual([])
 })
 
-test('换挡之后的那条决策记录带上实际发出的档位；不一致时是 not-sent', { options: KEYS }, async ($, on) => {
+test('换挡之后的那条决策记录带上实际发出的档位；不一致时是 not-sent', { options: NO_NOTE }, async ($, on) => {
   // Another session's entry in the machine's log: an amendment finds its entry by id and leaves the rest alone.
   const other = { id: 'other-1', at: 1, kind: 'submit', backend: 'drex', model: 'drex-max-v1.1', ms: 5, raw: null, from: 'low', to: 'high', reason: 'more-open', detail: '', turnId: 'x1', step: 0, bars: null, failure: null, requestId: null, applied: true, sent: null }
   const w = world(on, {
@@ -374,7 +377,7 @@ test('换挡之后的那条决策记录带上实际发出的档位；不一致�
   expect(b.leaked()).toEqual([])
 })
 
-test('verifyEffort 关着：记录里 sent 为 null，/dp 标未核对', { options: { ...KEYS, verifyEffort: false }, plugins: [WATCHER, WIRE] }, async ($, on) => {
+test('verifyEffort 关着：记录里 sent 为 null，/dp 标未核对', { options: { ...NO_NOTE, verifyEffort: false }, plugins: [WATCHER, WIRE] }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, SAME_FAILURE) })
   await begin($)
   await appendAll($, scriptByPoll(1, 'rerun the upload test', 'FAIL test_upload'))
@@ -404,7 +407,7 @@ test('verifyEffort 关着：记录里 sent 为 null，/dp 标未核对', { optio
 
 // What the eight do not reach.
 
-test('排着的说明：放上行之前读到的请求不核对它，放上之后的第一次请求才核对', { options: KEYS }, async ($, on) => {
+test('排着的说明：放上行之前读到的请求不核对它，放上之后的第一次请求才核对', { options: NO_NOTE }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (s) => (s.current_level === 'medium' ? SAME_FAILURE : HOLD)) })
   await begin($)
   const submitted = logged(w)[0]!
@@ -598,7 +601,7 @@ test('没有开着的主循环步时认不准（agent 的请求、旁路请求�
   expect(f.log().map((d) => d.sent)).toEqual(['high'])
 })
 
-test('Code Mode：说明放在回执行上，脚本里 agent 的请求先到（没有开着的主循环步），主循环下一次请求才核对：记实际档位', { options: KEYS }, async ($, on) => {
+test('Code Mode：说明放在回执行上，脚本里 agent 的请求先到（没有开着的主循环步），主循环下一次请求才核对：记实际档位', { options: NO_NOTE }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (s) => (s.current_level === 'medium' ? SAME_FAILURE : HOLD)) })
   await begin($)
   await appendAll($, scriptByDelivery(1, 'run the upload test', 'FAIL test_upload'))
@@ -823,7 +826,7 @@ test('读数的两处写各自出错：当前档位写不进去时照样核对�
   expect(f.logs).toHaveLength(1)
 })
 
-test('没执行的决策不检查：shadow、请求失败；当前档位照读', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+test('没执行的决策不检查：shadow、请求失败；当前档位照读', { options: { ...NO_NOTE, mode: 'shadow' } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, SAME_FAILURE) })
   await begin($)
   await appendAll($, scriptByPoll(1, 'rerun the upload test', 'FAIL test_upload'))
@@ -851,7 +854,7 @@ test('没执行的决策不检查：请求失败时 sent 留空，当前档位�
   expect(f.lastSents()).toEqual(['medium'])
 })
 
-test('一轮结束时还没核对：sent 留空，下一轮的请求只核对下一轮的', { options: KEYS }, async ($, on) => {
+test('一轮结束时还没核对：sent 留空，下一轮的请求只核对下一轮的', { options: NO_NOTE }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, (s) => (s.current_level === 'medium' ? SAME_FAILURE : HOLD)) })
   await begin($)
   await appendAll($, scriptByPoll(1, 'rerun the upload test', 'FAIL test_upload'))

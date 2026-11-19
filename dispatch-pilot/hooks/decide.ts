@@ -2,17 +2,13 @@
 // no $ calls, no engine events, so every branch is testable without a session.
 import { LEVELS, TIERS } from './levels.ts'
 import type { Level, Tier } from './levels.ts'
-import { CALIBRATED, START } from './questions.ts'
+import { START } from './questions.ts'
 import type { Thresholds } from './questions.ts'
 
 // The tables live beside the questions (questions.ts); re-exported so their readers import them from here as before.
+// The thresholds in use are the options' (Config.bars); every reading here takes them as an argument.
 export { START }
 export type { Thresholds }
-
-/** The calibrated table of this backend, model version and action; START for any the calibration did not cover. */
-export function thresholdsFor(backend: 'drex' | 'jev', model: string, action: 'submit' | 'midrun' | 'agent'): Thresholds {
-  return CALIBRATED.find((c) => c.backend === backend && c.model === model)?.[action] ?? START
-}
 
 export type Reason =
   | 'more-open'

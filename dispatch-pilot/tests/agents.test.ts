@@ -96,6 +96,19 @@ for (const [lowest, effort] of [[0.9, 'high'], [0.96, 'low']] as const) {
   })
 }
 
+// The user's option (amendment A17): agentDown at 0.70 takes the same answer down to low.
+test('agentDown 设成 0.7：最低一档 0.9 时 agent 的 effort 降到 low', { options: { ...KEYS, agentDown: '0.70' } }, async ($, on) => {
+  const answer = { open: score([0.9, 0, 0.1, 0, 0]), mechanical: noul(0.1), unknown_cause: noul(0.1), read_only: noul(0.1) }
+  const w = world(on, { answer: agentAnswer(answer), agents: [info('agent-2')] })
+  await mainAtHigh($)
+  await teach($)
+  await spawn($)
+  await agentSteps($, 'agent-2', 1)
+
+  expect(effortsOf(w, 'agent-2')).toEqual(['low'])
+  expect(logged(w)[1]).toMatchObject({ kind: 'agent', from: 'opus · high', to: 'sonnet · low', bars: { ...START, down: 0.7 } })
+})
+
 // The brief's ten.
 
 test('派出时发一个请求，state.task 是任务原文；只读又机械的任务用 haiku（这个类型第二次派出起），之后每步写定下的 effort', { options: KEYS }, async ($, on) => {

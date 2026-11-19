@@ -3,17 +3,17 @@
 import { noulOf, scoreOf } from '../../hooks/backend.ts'
 import type { Answer } from '../../hooks/backend.ts'
 import { readConfig } from '../../hooks/config.ts'
-import { START, agentPlan, messageLevel, midrunLevel, readNoul, thresholdsFor } from '../../hooks/decide.ts'
+import { START, agentPlan, messageLevel, midrunLevel, readNoul } from '../../hooks/decide.ts'
 import type { Thresholds } from '../../hooks/decide.ts'
 import { LEVELS } from '../../hooks/levels.ts'
 import type { Level, Tier } from '../../hooks/levels.ts'
-import { ACTION_BAR, FITS_BAR, NAMED_BAR, pick, shortlist, skillBarsFor, wantsSkill } from '../../hooks/skills.ts'
+import type { Bars } from '../../hooks/questions.ts'
+import { ACTION_BAR, FITS_BAR, NAMED_BAR, pick, shortlist, wantsSkill } from '../../hooks/skills.ts'
 import type { Skill, SkillBars } from '../../hooks/skills.ts'
 import type { AgentCase, Case, MidrunCase, SkillCase, SubmitCase } from './case.ts'
 import { readDirect } from './controls.ts'
 
-export type { SkillBars }
-export type Bars = { submit: Thresholds; midrun: Thresholds; agent: Thresholds; skill: SkillBars }
+export type { Bars, SkillBars }
 export const START_BARS: Bars = { submit: START, midrun: START, agent: START, skill: { action: ACTION_BAR, named: NAMED_BAR, fits: FITS_BAR } }
 
 export type Stored = { ok: true; model: string; answers: Record<string, Answer> } | { ok: false; reason: string }
@@ -23,13 +23,8 @@ export type Mark = 'right' | 'over' | 'under' | 'needless-shift' | 'missed-shift
 // The mod's defaults: the pinned Drex version, and the agent models it may choose from (haiku, sonnet, opus; fableAgents off).
 const DEFAULTS = readConfig({})
 
-/** The bars the mod reads the pinned Drex version's answers with (Task 13), so a score here is the mod's own reading. */
-export const CHOSEN_BARS: Bars = {
-  submit: thresholdsFor('drex', DEFAULTS.drexModel, 'submit'),
-  midrun: thresholdsFor('drex', DEFAULTS.drexModel, 'midrun'),
-  agent: thresholdsFor('drex', DEFAULTS.drexModel, 'agent'),
-  skill: skillBarsFor('drex', DEFAULTS.drexModel),
-}
+/** The options' defaults (Task 13, amendment A17): the bars the mod reads with when no option is set, so a score here is the mod's own reading. */
+export const CHOSEN_BARS: Bars = DEFAULTS.bars
 
 type Answers = Record<string, Answer>
 const has = (a: Answers, type: Answer['type'], ...ids: string[]): boolean => ids.every((id) => a[id]?.type === type)

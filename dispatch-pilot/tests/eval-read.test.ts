@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { Answer } from '../hooks/backend.ts'
-import { START, submitLevel, thresholdsFor } from '../hooks/decide.ts'
-import { skillBarsFor } from '../hooks/skills.ts'
+import { readConfig } from '../hooks/config.ts'
+import { START, submitLevel } from '../hooks/decide.ts'
 import { settleSubmit } from '../hooks/submit.ts'
 import { CHOSEN_BARS, START_BARS, mark, outcomeOf, shortlistOf } from '../eval/lib/read.ts'
 import type { Bars, Stored } from '../eval/lib/read.ts'
@@ -24,13 +24,9 @@ const submitCase: SubmitCase = {
 const lowOpen = [0.8, 0.15, 0.05, 0, 0]
 const submitAnswers = { open: score(lowOpen), mechanical: n(0.2), unknown_cause: n(0.1) }
 
-test('CHOSEN_BARS 是 mod 给 drex-max-v1.1 的门槛，START_BARS 是起步值', () => {
-  expect(CHOSEN_BARS).toEqual({
-    submit: thresholdsFor('drex', 'drex-max-v1.1', 'submit'),
-    midrun: thresholdsFor('drex', 'drex-max-v1.1', 'midrun'),
-    agent: thresholdsFor('drex', 'drex-max-v1.1', 'agent'),
-    skill: skillBarsFor('drex', 'drex-max-v1.1'),
-  })
+test('CHOSEN_BARS 是选项的默认值（mod 不设选项时用的门槛），START_BARS 是起步值', () => {
+  expect(CHOSEN_BARS).toEqual(readConfig({}).bars)
+  expect(CHOSEN_BARS.agent).toEqual({ ...START, down: 0.95 })
   expect(START_BARS).toEqual({ submit: START, midrun: START, agent: START, skill: { action: 0.3, named: 0.5, fits: 0.3 } })
 })
 
@@ -72,7 +68,7 @@ test('只说接着做（裁定 C38）：outcomeOf 的档位和 mod 的 settleSub
   for (const r of rows) {
     const previous = r.previous === null ? null : { request: 'migrate the store', lastReply: 'Shall I go on?', ended: 'answered' as const, level: r.previous }
     const c: SubmitCase = { ...submitCase, input: { ...submitCase.input, previous } }
-    const mod = settleSubmit({ ok: true, answers: r.answers, model: 'drex-max-v1.1', backend: 'drex', ms: 1 }, { effort: c.input.base, previousLevel: r.previous, writes: true, turnId: 't', id: 'd', at: 0 })
+    const mod = settleSubmit({ ok: true, answers: r.answers, model: 'drex-max-v1.1', backend: 'drex', ms: 1 }, { effort: c.input.base, previousLevel: r.previous, writes: true, turnId: 't', id: 'd', at: 0, bars: CHOSEN_BARS.submit })
     const level = outcomeOf(c, ok(r.answers), START_BARS)?.level
     expect([r.previous, level]).toEqual([r.previous, r.want])
     expect([r.previous, level]).toEqual([r.previous, mod.wanted])

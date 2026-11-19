@@ -100,7 +100,7 @@ async function takePending($: EngineInterface, cfg: Config, e: TurnStepInput, se
   if (own === null || own.request !== pending.request) return own
   const at = await $.clock.now()
   const writes = cfg.enabled && cfg.mode === 'apply' && session.lock === null
-  const s = settleSubmit(pending.result, { effort: e.effort, previousLevel: session.previous?.level ?? null, writes, turnId: e.turnId, id: decisionId(at), at })
+  const s = settleSubmit(pending.result, { effort: e.effort, previousLevel: session.previous?.level ?? null, writes, turnId: e.turnId, id: decisionId(at), at, bars: cfg.bars.submit })
   // Recorded before the turn names it for a check, so a reading cannot amend a Decision not yet in the log.
   await record($, s.decision)
   const check = verifies(cfg) && s.decision.applied && s.wanted !== null ? { turnId: e.turnId, id: s.decision.id, level: s.wanted, queuedNote: null } : null

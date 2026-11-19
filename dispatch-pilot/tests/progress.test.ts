@@ -233,7 +233,20 @@ test('模型被拒绝（api-error 403）：这个会话不再调', { options: ON
   expect(w.completes).toHaveLength(1)
 })
 
-test('默认关：一次 model.complete 都没有', { options: KEYS }, async ($, on) => {
+// The user's decision of 2026-11-19: on by default, so a session with no option set writes the notes.
+test('默认开：不设任何选项，每个检查点之后都写一次进展记录，下一个检查点带着它', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers, complete: replies([JSON.stringify(NOTE_A)]) })
+  await begin($)
+  await script($, w, 1)
+  await script($, w, 2)
+  expect(asked(w)).toHaveLength(2)
+  expect(w.completes).toHaveLength(2)
+  expect('progress' in states(w)[0]).toBe(false)
+  expect(states(w)[1].progress).toEqual(NOTE_A)
+  expect(readConfig({}).progressNote).toBe(true)
+})
+
+test('progressNote 关：一次 model.complete 都没有', { options: { ...KEYS, progressNote: false } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers, complete: replies([JSON.stringify(NOTE_A)]) })
   await begin($)
   await script($, w, 1)
@@ -242,7 +255,6 @@ test('默认关：一次 model.complete 都没有', { options: KEYS }, async ($,
   expect(w.completes).toEqual([])
   expect(states(w).every((s) => !('progress' in s))).toBe(true)
   expect(turnState(w).progress).toBeNull()
-  expect(readConfig({}).progressNote).toBe(false)
 })
 
 test('新的一轮开始时记录清空', { options: ON }, async ($, on) => {

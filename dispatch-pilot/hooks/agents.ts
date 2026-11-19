@@ -5,7 +5,7 @@ import type { AgentSpawnInput } from 'claude-code'
 import { noulOf, scoreOf } from './backend.ts'
 import type { AskResult } from './backend.ts'
 import type { Config } from './config.ts'
-import { agentPlan, thresholdsFor } from './decide.ts'
+import { agentPlan } from './decide.ts'
 import type { Level, Tier } from './levels.ts'
 import type { Decision } from './log.ts'
 import type { AgentType, TurnState } from './state.ts'
@@ -50,7 +50,7 @@ export type Spawned = { model: Tier | null; effort: Level | null; decision: Omit
 export function settleSpawn(r: AskResult | null, c: { cfg: Config; e: AgentSpawnInput; tier: Tier | null; level: Level | null; turn: TurnState | null; known: AgentType | null }): Spawned {
   const { cfg, e, tier, level, known } = c
   const ok = r !== null && r.ok ? r : null
-  const bars = ok === null ? null : thresholdsFor(ok.backend, ok.model, 'agent')
+  const bars = ok === null ? null : cfg.bars.agent
   const a = ok?.answers
   const plan =
     a === undefined || bars === null

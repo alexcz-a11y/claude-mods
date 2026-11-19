@@ -56,6 +56,11 @@ export function heldoutWants(cases: readonly Case[]): Want[] {
   return out
 }
 
+/** A variant registered after the held-out pass (afterHeldout) was never asked on the held-out set, whatever is stored. */
+export function neverAskedOn(set: string, variant: Variant): boolean {
+  return set === 'heldout' && variant.afterHeldout === true
+}
+
 /** Second skill requests last: each is built from the answer to its first. */
 export function inOrder(ws: readonly Want[]): { first: Want[]; second: Want[] } {
   return { first: ws.filter((w) => !isStageTwo(w.variant)), second: ws.filter((w) => isStageTwo(w.variant)) }

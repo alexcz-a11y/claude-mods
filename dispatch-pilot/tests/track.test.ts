@@ -172,7 +172,7 @@ test('中途评估：不变记 hold，请求失败记 fail，都在下一格', {
   expect(cells(w)).toEqual([['high', 'up'], ['high', 'hold'], ['high', 'fail']])
 })
 
-test('shadow 模式：想换挡的评估没有执行，下一格记 hold，档位不变', { options: { ...KEYS, mode: 'shadow' } }, async ($, on) => {
+test('shadow 模式：想换挡的评估没有执行，下一格记 hold，档位不变', { options: { ...KEYS, mode: 'shadow', progressNote: false } }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_RAISE, () => SAME_FAILURE) })
   await start($)
   await submit($, TASK)

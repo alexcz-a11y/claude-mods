@@ -276,20 +276,20 @@ function nextOf(cfg: Config, s: { session: SessionState; turn: TurnState | null;
   const left = notesLeft(turn.midrun, cfg)
   if (left === 0) return { main: '本轮不再换挡', sub: '说明条数已用完；有新输入时仍会评估', ahead: 0 }
   // Within the gap since the last shift no result row is asked (midrun.ts isCheckpoint): the count waits for it.
-  const gap = gapLeft(turn.midrun, turn.journal)
+  const gap = gapLeft(turn.midrun, turn.journal, cfg)
   if (session.codeMode) {
     const every = cfg.midrunEveryScripts
     if (every === 0) return { main: '只在有新输入时', sub: '按脚本结果的评估关着', ahead: 0 }
     const byCount = Math.max(1, every - turn.midrun.scriptsSinceCheck)
     const n = Math.max(byCount, gap)
-    const why = n > byCount ? '换挡后隔 3 份脚本结果才再评估' : `每 ${every} 份脚本结果评估一次`
+    const why = n > byCount ? `换挡后隔 ${cfg.midrunShiftGap} 份脚本结果才再评估` : `每 ${every} 份脚本结果评估一次`
     return { main: n === 1 ? '下一份脚本结果到达时' : `再 ${n} 份脚本结果`, sub: `${why} · 本轮还可换挡 ${left} 次`, ahead: n }
   }
   const every = cfg.midrunEverySteps
   if (every === 0) return { main: gap > 0 ? `再 ${gap} 步之后，失败成簇时` : '失败成簇时', sub: '按步数的评估关着', ahead: 0 }
   const byCount = Math.max(1, every - turn.midrun.stepsSinceCheck)
   const n = Math.max(byCount, gap)
-  if (n > byCount) return { main: `再 ${n} 步`, sub: '换挡后隔 3 步才再评估 · 有新输入时照常评估', ahead: n }
+  if (n > byCount) return { main: `再 ${n} 步`, sub: `换挡后隔 ${cfg.midrunShiftGap} 步才再评估 · 有新输入时照常评估`, ahead: n }
   return { main: `再 ${n} 步`, sub: `每 ${every} 步评估一次 · 同一失败复现或连续两步失败会提前`, ahead: n }
 }
 

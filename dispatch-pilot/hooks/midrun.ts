@@ -11,7 +11,7 @@
 import { noulOf, scoreOf } from './backend.ts'
 import type { AskResult } from './backend.ts'
 import type { Config } from './config.ts'
-import { REASON_EN, midrunLevel, thresholdsFor } from './decide.ts'
+import { REASON_EN, midrunLevel } from './decide.ts'
 import type { Reason, Verdict } from './decide.ts'
 import { applyRow } from './journal.ts'
 import type { Row, RowKind } from './journal.ts'
@@ -25,20 +25,17 @@ import type { StepRecord } from './statebuild.ts'
 export { emptyCounters } from './state.ts'
 export type { MidrunCounters } from './state.ts'
 
-/** Two shifts in one turn are at least this many work steps apart. */
-const SHIFT_GAP = 3
-
-/** No shift yet this turn, or the last one SHIFT_GAP or more work steps back. */
 /**
  * How many more work steps until a result row may be asked again after a shift (0: it may now). The k-th next result
- * row ends work step workSteps + k, and gapOk wants SHIFT_GAP since lastShiftAt; the board's 下次评估 counts it.
+ * row ends work step workSteps + k, and gapOk wants cfg.midrunShiftGap since lastShiftAt; the board's 下次评估 counts it.
  */
-export function gapLeft(m: MidrunCounters, j: TurnJournal): number {
-  return m.lastShiftAt === null ? 0 : Math.max(0, SHIFT_GAP - (j.workSteps - m.lastShiftAt))
+export function gapLeft(m: MidrunCounters, j: TurnJournal, cfg: Config): number {
+  return m.lastShiftAt === null ? 0 : Math.max(0, cfg.midrunShiftGap - (j.workSteps - m.lastShiftAt))
 }
 
-export function gapOk(m: MidrunCounters, j: TurnJournal): boolean {
-  return m.lastShiftAt === null || j.workSteps - m.lastShiftAt >= SHIFT_GAP
+/** No shift yet this turn, or the last one cfg.midrunShiftGap or more work steps back. */
+export function gapOk(m: MidrunCounters, j: TurnJournal, cfg: Config): boolean {
+  return m.lastShiftAt === null || j.workSteps - m.lastShiftAt >= cfg.midrunShiftGap
 }
 
 export function notesLeft(m: MidrunCounters, cfg: Config): number {
@@ -103,7 +100,7 @@ export function isCheckpoint(kind: RowKind, j: TurnJournal, m: MidrunCounters, c
   // hold the row for an answer that cannot be acted on (final review G6). Input is still asked above (the controller's
   // ruling): it is new to the turn, and its evaluation is recorded and shown as the last one even when the gap
   // refuses its shift too.
-  if (!gapOk(m, j)) return false
+  if (!gapOk(m, j, cfg)) return false
   if (codeMode) {
     if (kind !== 'script-result-poll' && kind !== 'script-result-delivery') return false
     return cfg.midrunEveryScripts > 0 && m.scriptsSinceCheck + 1 >= cfg.midrunEveryScripts
@@ -195,7 +192,7 @@ type CheckpointContext = { turn: TurnState; kind: RowKind; current: Level; cfg: 
 function shiftFor(v: Verdict, c: CheckpointContext): Shift | null {
   const m = c.turn.midrun
   const carrier = carrierOf(c.kind)
-  if (carrier === null || v.level === c.current || !gapOk(m, c.turn.journal) || c.cfg.mode !== 'apply') return null
+  if (carrier === null || v.level === c.current || !gapOk(m, c.turn.journal, c.cfg) || c.cfg.mode !== 'apply') return null
   if (carrier === 'input') return { to: v.level, note: null, queued: null }
   if (notesLeft(m, c.cfg) === 0) return null
   const text = noteText(v.level, v.reason)
@@ -214,7 +211,7 @@ export function settleCheckpoint(r: AskResult, c: CheckpointContext): Judged {
     const decision: Decision = { ...common, model: null, raw: null, to: c.current, reason: null, detail: failureText(r), bars: null, failure: r.reason, requestId: r.requestId ?? null, applied: false }
     return { decision, shift: null }
   }
-  const bars = thresholdsFor(r.backend, r.model, 'midrun')
+  const bars = c.cfg.bars.midrun
   const a = r.answers
   const v = midrunLevel(
     c.current,
@@ -236,7 +233,7 @@ export function settleCheckpoint(r: AskResult, c: CheckpointContext): Judged {
  */
 export function applyShift(turn: TurnState, s: Shift, c: { asked: Level; cfg: Config; locked: boolean }): TurnState | null {
   const noted = s.note !== null || s.queued !== null
-  if (c.locked || (turn.wanted ?? turn.base) !== c.asked || !gapOk(turn.midrun, turn.journal)) return null
+  if (c.locked || (turn.wanted ?? turn.base) !== c.asked || !gapOk(turn.midrun, turn.journal, c.cfg)) return null
   // A note that replaces one still queued takes no new one, so only a note with none queued needs a note left.
   if (noted && turn.pendingNote === null && notesLeft(turn.midrun, c.cfg) === 0) return null
   // A note still queued names the level this shift replaces, so it is never placed: the shift's own queued note

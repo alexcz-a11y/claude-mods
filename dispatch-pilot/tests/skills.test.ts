@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
 
 import { DREX_URL, JEV_URL } from '../hooks/backend.ts'
+import { readConfig } from '../hooks/config.ts'
 import type { AskResult, Answer } from '../hooks/backend.ts'
 import type { Decision } from '../hooks/log.ts'
 import {
@@ -23,7 +24,6 @@ import {
   readStageOne,
   readStageTwo,
   shortlist,
-  skillBarsFor,
   skillDecision,
   stageOne,
   stageTwo,
@@ -287,6 +287,18 @@ test('只有点名题过了 0.50 也发第二次请求', { options: KEYS }, asyn
   expect(Object.keys(w.fetched[1]!.body.questions)).toContain('which')
   expect(w.submitted[0]!.context).toEqual([suggestionBlock(BRAIN)])
   expect(skillDecisions(w)[0]).toMatchObject({ to: 'superpowers:brainstorming', applied: true })
+})
+
+// An option overrides its threshold (amendment A17): with skillNamed at 0.80 a named answer of 0.75 asks no second request.
+test('skillNamed 设成 0.80：点名题 0.75 不再够，不发第二次请求，不推荐', { options: { ...KEYS, skillNamed: '0.80' } }, async ($, on) => {
+  const gates = { ...NOT_WANTED, named: 0.75 }
+  const w = world(on, { onSubmit: turns($), answer: answering({ gates, first: { 'superpowers:brainstorming': 0.7 }, which: 'superpowers:brainstorming', fits: { 'superpowers:brainstorming': 0.8 } }) })
+  await sendWithListing($, w, FIVE, 'Brainstorm a name for the project with the brainstorming method')
+
+  expect(w.fetched).toHaveLength(1)
+  expect(w.submitted[0]!.context).toBeUndefined()
+  expect(skillDecisions(w)[0]).toMatchObject({ to: null, applied: false, failure: null })
+  expect(skillDecisions(w)[0]!.detail).toContain('0.80')
 })
 
 test('fits 最高的低于 0.30：不推荐', { options: KEYS }, async ($, on) => {
@@ -623,15 +635,13 @@ test('pick 和 pickMany 的读法', () => {
   expect(pickMany(short, { fits_0: n(0.1) })).toEqual([])
 })
 
-test('skillBarsFor：两个后端都是起步值（扫门槛没有挪动 skill 的三个门槛）', () => {
-  const start = { action: ACTION_BAR, named: NAMED_BAR, fits: FITS_BAR }
-  expect(skillBarsFor('drex', 'drex-max-v1.1')).toEqual({ action: 0.3, named: 0.5, fits: 0.3 })
-  expect(skillBarsFor('drex', 'drex-max-v1.0')).toEqual(start)
-  expect(skillBarsFor('jev', 'jev-latest')).toEqual(start)
+test('skill 的三个门槛默认是起步值（扫门槛没有挪动它们）', () => {
+  expect(readConfig({}).bars.skill).toEqual({ action: ACTION_BAR, named: NAMED_BAR, fits: FITS_BAR })
+  expect([ACTION_BAR, NAMED_BAR, FITS_BAR]).toEqual([0.3, 0.5, 0.3])
 })
 
 test('readStageOne、readStageTwo 和 pickMany 按交给它们的门槛读', () => {
-  const bars = skillBarsFor('drex', 'drex-max-v1.1')
+  const bars = readConfig({}).bars.skill
   const ok = (answers: Record<string, Answer>): AskResult => ({ ok: true, answers, model: 'drex-max-v1.1', backend: 'drex', ms: 1 })
   // The action answers' mean is 0.40: past the start bar 0.30, short of 0.45. The bar differs from named's 0.50, so
   // the detail shows which bar it read.

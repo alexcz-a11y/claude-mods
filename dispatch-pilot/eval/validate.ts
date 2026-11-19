@@ -10,6 +10,8 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { optionProblems } from './lib/manifest.ts'
+
 const hooksDir = fileURLToPath(new URL('../hooks/', import.meta.url))
 
 // Matched over each file's whole text (global), so on( and the event name on two lines are found too.
@@ -64,8 +66,13 @@ if (!existsSync(scenesCopy) || readFileSync(scenesCopy, 'utf8') !== readFileSync
   found.push('docs/research/board-scenes/hooks/scenes-data.ts is not a copy of dispatch-pilot/tests/support/scenes.ts; from the repository root run:\n  cp dispatch-pilot/tests/support/scenes.ts docs/research/board-scenes/hooks/scenes-data.ts')
 }
 
+// The options as the configuration shows them: each one read by the code, with the code's default (amendment A17).
+const manifestPath = fileURLToPath(new URL('../.claude-plugin/plugin.json', import.meta.url))
+const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { userConfig?: Record<string, unknown> }
+for (const p of optionProblems(manifest.userConfig ?? {})) found.push(`.claude-plugin/plugin.json userConfig: ${p}`)
+
 if (found.length > 0) {
   console.error(found.join('\n'))
   process.exit(1)
 }
-console.log(`dispatch-pilot: ${files.length} hook files, none registers tool.call or its kin; ${atoms.size} atom keys, each declared alike; the probe's scenes are the tests' own`)
+console.log(`dispatch-pilot: ${files.length} hook files, none registers tool.call or its kin; ${atoms.size} atom keys, each declared alike; the probe's scenes are the tests' own; ${Object.keys(manifest.userConfig ?? {}).length} options, each a switch or a picker (but the keys) read with the code's default`)
