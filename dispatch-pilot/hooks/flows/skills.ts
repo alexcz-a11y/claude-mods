@@ -22,12 +22,13 @@ import {
   readStageTwo,
   searchFailedReply,
   shortlist,
+  skillBarsFor,
   skillDecision,
   stageOne,
   stageTwo,
   suggestionBlock,
 } from '../skills.ts'
-import type { Skill, SkillOutcome } from '../skills.ts'
+import type { Skill, SkillBars, SkillOutcome } from '../skills.ts'
 import { emptySession } from '../state.ts'
 import { submitState } from '../statebuild.ts'
 
@@ -37,15 +38,19 @@ const SESSION = atom({ plugin: 'dispatch-pilot', key: 'session' } as const, empt
 const TURN = atom({ plugin: 'dispatch-pilot', key: 'turn' } as const, null)
 const SKILLS = atom({ plugin: 'dispatch-pilot', key: 'skills' } as const, [])
 
+// An answer is read with the bars of the backend and model that gave it, as thresholdsFor is (a fallback's answer
+// with its own). A failed request is read for its failure alone, so its bars play no part.
+const barsOf = (r: AskResult): SkillBars => skillBarsFor(r.backend, r.ok ? r.model : '')
+
 // The second request, on the shortlist, with what is left of submitTimeoutMs.
 export async function suggestSkill($: EngineInterface, cfg: Config, c: { skills: Skill[]; state: unknown; first: AskResult; asked: string[]; t0: number }): Promise<SkillOutcome> {
   const none = { first: c.first, asked: c.asked, second: null, skill: null }
-  const one = readStageOne(c.skills, c.first, true)
+  const one = readStageOne(c.skills, c.first, true, barsOf(c.first))
   if ('detail' in one) return { ...none, detail: one.detail }
   const left = cfg.submitTimeoutMs - ((await $.clock.now()) - c.t0)
   if (left < SECOND_MIN_MS) return { ...none, detail: SECOND_LATE }
   const second = await ask(ioOf($), cfg, { state: c.state, questions: stageTwo(one.short, cfg.backend) }, left)
-  return { ...none, second, ...readStageTwo(one.short, second) }
+  return { ...none, second, ...readStageTwo(one.short, second, barsOf(second)) }
 }
 
 // A message's skill judgement, from its prompt.submit to the turn.start of its text, where the turn's id is known
@@ -169,5 +174,5 @@ export async function findSkill($: EngineInterface, cfg: Config, text: string): 
   const left = cfg.submitTimeoutMs - ((await $.clock.now()) - t0)
   if (left < SECOND_MIN_MS) return searchFailedReply(query, 'timeout', skills)
   const second = await ask(ioOf($), cfg, { state, questions: stageTwo(short, cfg.backend) }, left)
-  return second.ok ? findSkillReply(query, pickMany(short, second.answers), null) : searchFailedReply(query, second.reason, skills)
+  return second.ok ? findSkillReply(query, pickMany(short, second.answers, barsOf(second).fits), null) : searchFailedReply(query, second.reason, skills)
 }

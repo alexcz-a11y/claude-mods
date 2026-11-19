@@ -2,17 +2,16 @@
 // no $ calls, no engine events, so every branch is testable without a session.
 import { LEVELS, TIERS } from './levels.ts'
 import type { Level, Tier } from './levels.ts'
+import { CALIBRATED, START } from './questions.ts'
+import type { Thresholds } from './questions.ts'
 
-export type Thresholds = { up: number; upHigh: number; down: number; yes: number; no: number; modelDown: number }
+// The tables live beside the questions (questions.ts); re-exported so their readers import them from here as before.
+export { START }
+export type { Thresholds }
 
-export const START: Thresholds = { up: 0.7, upHigh: 0.8, down: 0.7, yes: 0.7, no: 0.3, modelDown: 0.8 }
-
-// One table per backend, model version and action once calibration has run; until then all return START.
+/** The calibrated table of this backend, model version and action; START for any the calibration did not cover. */
 export function thresholdsFor(backend: 'drex' | 'jev', model: string, action: 'submit' | 'midrun' | 'agent'): Thresholds {
-  void backend
-  void model
-  void action
-  return START
+  return CALIBRATED.find((c) => c.backend === backend && c.model === model)?.[action] ?? START
 }
 
 export type Reason =
@@ -123,16 +122,16 @@ export function submitLevel(
  * The level of the turn a person's message starts (Ruling C38). A message that only says to go on (continues read as
  * yes) keeps the previous turn's level when one is known: the message says nothing about the work, and the decision
  * model reads a bare go-ahead as the lowest level of open, so open, mechanical and unknown_cause do not move it. Any
- * other message is submitLevel from the session's own level.
+ * other message is submitLevel from the session's own level. base: the level it went from, the turn's start.
  */
 export function messageLevel(
   own: Level,
   previous: Level | null,
   a: { open: readonly number[]; mechanical?: number; unknownCause?: number; continues?: number },
   t: Thresholds,
-): Verdict {
-  if (previous !== null && isYes(a.continues, t)) return { level: previous, reason: 'continues' }
-  return submitLevel(own, a, t)
+): Verdict & { base: Level } {
+  if (previous !== null && isYes(a.continues, t)) return { level: previous, reason: 'continues', base: previous }
+  return { ...submitLevel(own, a, t), base: own }
 }
 
 export function midrunLevel(

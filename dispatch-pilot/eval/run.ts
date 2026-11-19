@@ -8,9 +8,12 @@
 //   ask   --set tune|fit|check [--variant <name>|all]... [--repeat <n>] [--concurrency <n>] [--retry-failed]
 //   ask   --set heldout --final [--concurrency <n>] [--retry-failed]               the held-out pass, resumable
 //   smoke                                         one request, checked field by field (amendment A4)
-//   score --set fit|check|tune|heldout [--bars <file>] [--form direct] [--long-unattended] [--variant <name>]
-//   sweep --path <submit.up|...|skill.fits> [--bars <file>]                         on fit
-//   stability [--set ...] [--bars <file>] [--variant <name>] [--form direct] [--long-unattended]
+//   score --set fit|check|tune|heldout [--bars start|<file>] [--form direct] [--long-unattended] [--variant <name>]
+//   sweep --path <submit.up|...|skill.fits> [--bars start|<file>]                   on fit
+//   stability [--set ...] [--bars start|<file>] [--variant <name>] [--form direct] [--long-unattended]
+//
+// score and stability read with the mod's own bars for drex-max-v1.1 (CHOSEN_BARS) unless --bars says otherwise; sweep
+// sweeps from the start bars. --bars start: the start bars; --bars <file>: a JSON file's values over the start bars.
 import { randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -29,7 +32,7 @@ import { askDrex, hasKey } from './lib/drex.ts'
 import type { Reply } from './lib/drex.ts'
 import { heldoutWants, inOrder, sentState, stageOneOf, unknownVariants, variantsFor, wants } from './lib/plan.ts'
 import type { Want } from './lib/plan.ts'
-import { START_BARS, mark, outcomeOf, shortlistOf } from './lib/read.ts'
+import { CHOSEN_BARS, START_BARS, mark, outcomeOf, shortlistOf } from './lib/read.ts'
 import type { Bars, Outcome, Stored } from './lib/read.ts'
 import { VARIANTS, build } from './lib/request.ts'
 import type { Built, Variant } from './lib/request.ts'
@@ -400,8 +403,10 @@ async function smoke(a: Args, ctx: Ctx, cases: readonly Case[]): Promise<void> {
 
 // ---- reading: score, sweep, stability
 
-function readBars(path: string | null): Bars {
-  if (path === null) return START_BARS
+// No --bars: the command's own default (CHOSEN_BARS for score and stability, START_BARS for sweep).
+function readBars(path: string | null, unset: Bars): Bars {
+  if (path === null) return unset
+  if (path === 'start') return START_BARS
   let v: Record<string, Record<string, unknown>>
   try {
     v = JSON.parse(readFileSync(path, 'utf8')) as Record<string, Record<string, unknown>>
@@ -457,7 +462,7 @@ function refuseHeldout(a: Args): void {
 function score(a: Args, ctx: Ctx, cases: readonly Case[]): void {
   if (a.set === null) fail(`--set is needed\n${USAGE}`, 2)
   refuseHeldout(a)
-  const bars = readBars(a.bars)
+  const bars = readBars(a.bars, CHOSEN_BARS)
   const opt: Opt = { form: a.form, longUnattended: a.longUnattended }
   for (const category of CATEGORIES) {
     const v = readVariant(category, a.variants)
@@ -507,7 +512,7 @@ function stabilityOf(ctx: Ctx, cases: readonly Case[], names: readonly string[],
 function stability(a: Args, ctx: Ctx, cases: readonly Case[]): void {
   const set = a.set ?? 'tune'
   refuseHeldout({ ...a, set })
-  const s = stabilityOf(ctx, inSet(cases, set), a.variants, readBars(a.bars), { form: a.form, longUnattended: a.longUnattended })
+  const s = stabilityOf(ctx, inSet(cases, set), a.variants, readBars(a.bars, CHOSEN_BARS), { form: a.form, longUnattended: a.longUnattended })
   for (const u of s.unstable) console.log(`${u.c.id}: ${u.got.join(', ')}`)
   if (s.gaps.length > 0) console.log(`a repeat with no answer: ${s.gaps.map((c) => c.id).join(', ')}`)
   console.log(`${s.asked} cases asked more than once, ${s.unstable.length} decide differently`)
@@ -518,7 +523,7 @@ function sweepCommand(a: Args, ctx: Ctx, cases: readonly Case[]): void {
   const path = a.path
   const category = path.split('.')[0] as Category
   if (!CATEGORIES.includes(category)) fail(`no threshold at ${path}`, 2)
-  const base = readBars(a.bars)
+  const base = readBars(a.bars, START_BARS)
   const fit = inSet(cases, 'fit').filter((c) => c.category === category)
   // Amendment A13: stability is judged once under the start values, before any sweep; a case whose repeats decide
   // differently there takes no part in the sweep, whatever --bars gives.

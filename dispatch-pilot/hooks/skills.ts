@@ -6,8 +6,8 @@ import type { AskResult, Answer, Backend, Failure } from './backend.ts'
 import { failureText } from './log.ts'
 import { estimateTokens } from './statebuild.ts'
 import type { Decision } from './log.ts'
-import { SKILL_CHOICE, SKILL_GATES, SKILL_NOUL_CRITERIA, SKILL_RERANK, skillFits } from './questions.ts'
-import type { Question } from './questions.ts'
+import { CALIBRATED, SKILL_CHOICE, SKILL_GATES, SKILL_NOUL_CRITERIA, SKILL_RERANK, START_SKILL_BARS, skillFits } from './questions.ts'
+import type { Question, SkillBars } from './questions.ts'
 
 export type Skill = { name: string; description: string }
 
@@ -15,11 +15,20 @@ export type Skill = { name: string; description: string }
 export const LISTING_NOTE =
   "Dispatch Pilot leaves most of this session's skills out of the skill listing. The ones that fit a message may be suggested beside it. For any other skill, load the skill dispatch-pilot:find-skill with the Skill tool, with a few words on the work as its args: it answers with the skills that fit. Then load one of them with the Skill tool by its exact name."
 
-// The cookbook's constants: ACTION_THRESHOLD, NAMED_THRESHOLD, FITS_THRESHOLD, SHORTLIST.
-export const ACTION_BAR = 0.3
-export const NAMED_BAR = 0.5
-export const FITS_BAR = 0.3
+// The cookbook's constants: ACTION_THRESHOLD, NAMED_THRESHOLD, FITS_THRESHOLD (their start values, kept in
+// questions.ts with the calibrated ones), SHORTLIST.
+export const ACTION_BAR = START_SKILL_BARS.action
+export const NAMED_BAR = START_SKILL_BARS.named
+export const FITS_BAR = START_SKILL_BARS.fits
 export const SHORTLIST = 3
+
+export type { SkillBars }
+
+/** The calibrated skill bars of this backend and model version; the start values for any the calibration did not cover. */
+export function skillBarsFor(backend: 'drex' | 'jev', model: string): SkillBars {
+  return CALIBRATED.find((c) => c.backend === backend && c.model === model)?.skill ?? START_SKILL_BARS
+}
+
 /** Skills per choice question: Drex takes at most 255 options, and its questions carry one more (other). */
 export const BATCH = 250
 /** The second request is sent only with at least this much of the deadline left. */
@@ -112,7 +121,7 @@ export function stageOne(skills: Skill[], backend: Backend, withGate: boolean): 
 
 /**
  * The cookbook's needs_skill: the action answers' mean at ACTION_BAR, or named at NAMED_BAR. One of the three missing:
- * no mean. bars: other thresholds, for calibration's sweep; the mod uses the defaults.
+ * no mean. bars: the bars in use (skillBarsFor), or a sweep's.
  */
 export function wantsSkill(a: { acts?: number; procedure?: number; prose?: number; named?: number }, bars: { action: number; named: number } = { action: ACTION_BAR, named: NAMED_BAR }): boolean {
   const acting = a.acts !== undefined && a.procedure !== undefined && a.prose !== undefined && (a.acts + a.procedure + (1 - a.prose)) / 3 >= bars.action
@@ -164,7 +173,7 @@ function bestFit(short: Skill[], answers: Record<string, Answer>): number | unde
 }
 
 /**
- * The suggestion: which's choice, once the best fits reaches FITS_BAR (fits: another bar, for calibration's sweep);
+ * The suggestion: which's choice, once the best fits reaches FITS_BAR (fits: the bar in use, or a sweep's);
  * null for other, or when none fits. A shortlist of one asked no which (Jev): its fits alone decides.
  */
 export function pick(short: Skill[], answers: Record<string, Answer>, fits: number = FITS_BAR): Skill | null {
@@ -176,12 +185,12 @@ export function pick(short: Skill[], answers: Record<string, Answer>, fits: numb
   return short.find((s) => s.name === which.choice) ?? null
 }
 
-/** find-skill's answer: every skill whose fits reaches FITS_BAR, best first, at most SHORTLIST. */
-export function pickMany(short: Skill[], answers: Record<string, Answer>): Skill[] {
-  const fits = fitsOf(short, answers)
+/** find-skill's answer: every skill whose fits reaches FITS_BAR (fits: the bar in use), best first, at most SHORTLIST. */
+export function pickMany(short: Skill[], answers: Record<string, Answer>, fits: number = FITS_BAR): Skill[] {
+  const known = fitsOf(short, answers)
   return short
-    .map((s, i) => ({ s, f: fits[i] }))
-    .filter((x): x is { s: Skill; f: number } => x.f !== undefined && x.f >= FITS_BAR)
+    .map((s, i) => ({ s, f: known[i] }))
+    .filter((x): x is { s: Skill; f: number } => x.f !== undefined && x.f >= fits)
     .sort((a, b) => b.f - a.f)
     .slice(0, SHORTLIST)
     .map((x) => x.s)
@@ -315,15 +324,15 @@ export function mergeSkills(held: readonly Skill[], listed: readonly Skill[]): S
 const fmt = (p: number | undefined): string => (p === undefined ? '—' : p.toFixed(2))
 
 /** After the first request: the shortlist to ask the second about, or why there is none (for the Decision). */
-export function readStageOne(skills: Skill[], r: AskResult, withGate: boolean): { short: Skill[] } | { detail: string } {
+export function readStageOne(skills: Skill[], r: AskResult, withGate: boolean, bars: SkillBars): { short: Skill[] } | { detail: string } {
   if (!r.ok) return { detail: failureText(r) }
   // A single candidate needs no choice answer (shortlist takes it as it is).
   if (skills.length > 1 && !Object.keys(r.answers).some((id) => id.startsWith('skill_'))) return { detail: 'skill 题的回答缺题或类型不对' }
   if (withGate) {
     const g = gateOf(r.answers)
-    if (!wantsSkill(g)) {
+    if (!wantsSkill(g, bars)) {
       const mean = g.acts !== undefined && g.procedure !== undefined && g.prose !== undefined ? (g.acts + g.procedure + (1 - g.prose)) / 3 : undefined
-      return { detail: `不需要 skill：动手题平均 ${fmt(mean)}，点名题 ${fmt(g.named)}（分别低于 ${fmt(ACTION_BAR)}、${fmt(NAMED_BAR)}）` }
+      return { detail: `不需要 skill：动手题平均 ${fmt(mean)}，点名题 ${fmt(g.named)}（分别低于 ${fmt(bars.action)}、${fmt(bars.named)}）` }
     }
   }
   const short = shortlist(skills, r.answers)
@@ -331,12 +340,12 @@ export function readStageOne(skills: Skill[], r: AskResult, withGate: boolean): 
 }
 
 /** After the second request: the suggestion, or why there is none. */
-export function readStageTwo(short: Skill[], r: AskResult): { skill: Skill | null; detail: string } {
+export function readStageTwo(short: Skill[], r: AskResult, bars: SkillBars): { skill: Skill | null; detail: string } {
   if (!r.ok) return { skill: null, detail: failureText(r) }
-  const skill = pick(short, r.answers)
+  const skill = pick(short, r.answers, bars.fits)
   if (skill !== null) return { skill, detail: '' }
   const best = bestFit(short, r.answers)
-  if (best === undefined || best < FITS_BAR) return { skill: null, detail: `最合适的 fits 只有 ${fmt(best)}，低于 ${fmt(FITS_BAR)}` }
+  if (best === undefined || best < bars.fits) return { skill: null, detail: `最合适的 fits 只有 ${fmt(best)}，低于 ${fmt(bars.fits)}` }
   return { skill: null, detail: r.answers.which?.type === 'choice' && r.answers.which.choice === 'other' ? '第二次请求选了 other' : '第二次请求选的不在候选里' }
 }
 

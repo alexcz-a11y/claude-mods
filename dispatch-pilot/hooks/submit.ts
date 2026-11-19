@@ -64,7 +64,6 @@ export function settleSubmit(
   )
   // A "go on" turn starts at the last turn's level (design 5.3); the shift is still measured from the engine's own
   // level, as for any other decided level, so a go-ahead that restores xhigh over a medium session reads as a rise.
-  const base = v.reason === 'continues' ? v.level : own
   const decision: Decision = { ...common, model: r.model, raw: r.answers, from: own, to: v.level, reason: v.reason, detail: '', bars, failure: null, requestId: null, applied: c.writes }
-  return { base, wanted: v.level, decision }
+  return { base: v.base, wanted: v.level, decision }
 }

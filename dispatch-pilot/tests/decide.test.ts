@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import { START, agentPlan, decide, margins, midrunLevel, readNoul, submitLevel } from '../hooks/decide.ts'
-import { REASON_EN, thresholdsFor } from '../hooks/decide.ts'
+import { REASON_EN, messageLevel, thresholdsFor } from '../hooks/decide.ts'
 
 test('设计里的例子：从 medium 升到 high，不到 xhigh', () => {
   expect(decide('medium', [0.02, 0.08, 0.25, 0.55, 0.1], START)).toBe('high')
@@ -73,9 +73,18 @@ test('decide：升得动就不再看降；概率缺项当 0', () => {
   expect(decide('medium', [], START)).toBe('medium')
   expect(decide('low', [1], START)).toBe('low')
 })
-test('thresholdsFor 现在都返回 START', () => {
+test('thresholdsFor：drex-max-v1.1 用校准后的表，只有 agent 的降档门槛是 0.95；别的后端和版本仍是 START', () => {
+  expect(thresholdsFor('drex', 'drex-max-v1.1', 'agent')).toEqual({ ...START, down: 0.95 })
   expect(thresholdsFor('drex', 'drex-max-v1.1', 'submit')).toEqual(START)
+  expect(thresholdsFor('drex', 'drex-max-v1.1', 'midrun')).toEqual(START)
   expect(thresholdsFor('jev', 'jev-latest', 'agent')).toEqual(START)
+  expect(thresholdsFor('drex', 'drex-max-v1.0', 'agent')).toEqual(START)
+})
+test('messageLevel 带回它起算的档位：只说接着做时是上一轮的，否则是会话自己的', () => {
+  const flat = [0.2, 0.2, 0.2, 0.2, 0.2]
+  expect(messageLevel('medium', 'xhigh', { open: flat, continues: 0.9 }, START)).toEqual({ level: 'xhigh', reason: 'continues', base: 'xhigh' })
+  expect(messageLevel('medium', 'xhigh', { open: flat, continues: 0.1 }, START)).toEqual({ level: 'medium', reason: 'hold', base: 'medium' })
+  expect(messageLevel('medium', null, { open: flat, continues: 0.9 }, START)).toEqual({ level: 'medium', reason: 'hold', base: 'medium' })
 })
 test('REASON_EN：十个原因都有固定文字', () => {
   expect(Object.keys(REASON_EN).sort()).toEqual(

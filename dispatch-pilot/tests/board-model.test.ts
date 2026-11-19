@@ -386,6 +386,9 @@ test('只说接着做（裁定 C38）：换挡记录和上次评估都写出沿�
   const kept = boardModel(cfg, judging(s, [{ ...up, from: 'xhigh' }]))
   expect(kept.last).toMatchObject({ mark: 'hold', text: '不变', rules: [`档位不变：${why}`] })
   expect(kept.shifts).toEqual([])
+  // A record that holds no open probabilities still says why the level is the previous turn's.
+  const bare = boardModel(cfg, judging(s, [{ ...up, raw: { continues: { type: 'noul', noul: 0.9 } } }]))
+  expect(bare.last).toMatchObject({ mark: 'up', probs: null, rules: [`升到这一档：${why}`] })
 })
 
 test('会话种类：照 session.codeMode 写 Code Mode 会话或普通会话，空闲时也有；六个场景和原型一致', () => {

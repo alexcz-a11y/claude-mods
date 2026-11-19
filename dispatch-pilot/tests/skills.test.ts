@@ -2,7 +2,7 @@ import { expect, test } from 'claude-code/testing'
 import type { Engine, MockClock } from 'claude-code/testing'
 
 import { DREX_URL, JEV_URL } from '../hooks/backend.ts'
-import type { Answer } from '../hooks/backend.ts'
+import type { AskResult, Answer } from '../hooks/backend.ts'
 import type { Decision } from '../hooks/log.ts'
 import {
   ACTION_BAR,
@@ -20,7 +20,10 @@ import {
   pick,
   pickMany,
   queryOf,
+  readStageOne,
+  readStageTwo,
   shortlist,
+  skillBarsFor,
   skillDecision,
   stageOne,
   stageTwo,
@@ -618,6 +621,28 @@ test('pick 和 pickMany 的读法', () => {
   expect(pickMany(short, { fits_0: n(0.4), fits_1: n(0.8), fits_2: n(0.2) })).toEqual([XLSX, PDF])
   expect(pickMany(short, { fits_0: n(0.3), fits_1: n(0.3), fits_2: n(0.3) })).toEqual(short)
   expect(pickMany(short, { fits_0: n(0.1) })).toEqual([])
+})
+
+test('skillBarsFor：两个后端都是起步值（扫门槛没有挪动 skill 的三个门槛）', () => {
+  const start = { action: ACTION_BAR, named: NAMED_BAR, fits: FITS_BAR }
+  expect(skillBarsFor('drex', 'drex-max-v1.1')).toEqual({ action: 0.3, named: 0.5, fits: 0.3 })
+  expect(skillBarsFor('drex', 'drex-max-v1.0')).toEqual(start)
+  expect(skillBarsFor('jev', 'jev-latest')).toEqual(start)
+})
+
+test('readStageOne、readStageTwo 和 pickMany 按交给它们的门槛读', () => {
+  const bars = skillBarsFor('drex', 'drex-max-v1.1')
+  const ok = (answers: Record<string, Answer>): AskResult => ({ ok: true, answers, model: 'drex-max-v1.1', backend: 'drex', ms: 1 })
+  // The action answers' mean is 0.40: past the start bar 0.30, short of 0.50.
+  const gate = { acts_on_user_system: n(0.4), would_follow_documented_procedure: n(0.4), prose_suffices: n(0.6), named: n(0.1) }
+  const first = ok({ skill_0: choice({ pdf: 0.7, 'anthropic-skills:xlsx': 0.2, other: 0.1 }), ...gate })
+  expect(readStageOne([PDF, XLSX], first, true, bars)).toEqual({ short: [PDF, XLSX] })
+  const strict = readStageOne([PDF, XLSX], first, true, { ...bars, action: 0.5 })
+  expect('detail' in strict && strict.detail).toContain('0.50')
+  const second = ok({ which: choice({ pdf: 0.8, 'anthropic-skills:xlsx': 0.1, other: 0.1 }), fits_0: n(0.4), fits_1: n(0.1) })
+  expect(readStageTwo([PDF, XLSX], second, bars)).toEqual({ skill: PDF, detail: '' })
+  expect(readStageTwo([PDF, XLSX], second, { ...bars, fits: 0.5 })).toEqual({ skill: null, detail: '最合适的 fits 只有 0.40，低于 0.50' })
+  expect(pickMany([PDF, XLSX], second.ok ? second.answers : {}, 0.5)).toEqual([])
 })
 
 test('findSkillReply 的几种回答', () => {

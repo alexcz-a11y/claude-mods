@@ -215,12 +215,13 @@ function lastOf(cfg: Config, d: Decision, prefix: string): NonNullable<BoardMode
 // way, from the new level, then why this level was reached (the bar the last hop passed, when the open question moved
 // it; else the reason). A hold, or an evaluation not applied: the margins either way from the level it started at.
 function rulesOf(d: Decision, mark: Mark, probs: number[] | null, bars: Thresholds): string[] {
+  const why = d.reason === null ? null : (REASON_ZH[d.reason] ?? d.reason)
+  // A "go on" message keeps the last turn's level whatever the open question says: its margins explain nothing, so it
+  // says why with or without the open probabilities.
+  if (d.reason === 'continues') return [`${mark === 'up' ? '升到这一档' : mark === 'down' ? '降到这一档' : '档位不变'}：${why}`]
   if (probs === null || !isLevel(d.from)) return []
   const cap: Level = d.kind === 'midrun' ? 'xhigh' : 'max'
   const byOpen = d.reason === 'more-open' || d.reason === 'less-open'
-  const why = d.reason === null ? null : (REASON_ZH[d.reason] ?? d.reason)
-  // A "go on" message keeps the last turn's level whatever the open question says: its margins explain nothing.
-  if (d.reason === 'continues') return [`${mark === 'up' ? '升到这一档' : mark === 'down' ? '降到这一档' : '档位不变'}：${why}`]
   const out: string[] = []
   if (mark === 'up' && isLevel(d.to)) {
     const further = margins(d.to, probs, bars, cap).up

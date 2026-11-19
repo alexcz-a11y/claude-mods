@@ -1,8 +1,9 @@
 import { expect, test } from 'claude-code/testing'
 import type { Answer } from '../hooks/backend.ts'
-import { START, submitLevel } from '../hooks/decide.ts'
+import { START, submitLevel, thresholdsFor } from '../hooks/decide.ts'
+import { skillBarsFor } from '../hooks/skills.ts'
 import { settleSubmit } from '../hooks/submit.ts'
-import { START_BARS, mark, outcomeOf, shortlistOf } from '../eval/lib/read.ts'
+import { CHOSEN_BARS, START_BARS, mark, outcomeOf, shortlistOf } from '../eval/lib/read.ts'
 import type { Bars, Stored } from '../eval/lib/read.ts'
 import { conservativeFor, gridFor, plateau, sweep } from '../eval/lib/sweep.ts'
 import type { Row } from '../eval/lib/sweep.ts'
@@ -23,6 +24,16 @@ const submitCase: SubmitCase = {
 const lowOpen = [0.8, 0.15, 0.05, 0, 0]
 const submitAnswers = { open: score(lowOpen), mechanical: n(0.2), unknown_cause: n(0.1) }
 
+test('CHOSEN_BARS 是 mod 给 drex-max-v1.1 的门槛，START_BARS 是起步值', () => {
+  expect(CHOSEN_BARS).toEqual({
+    submit: thresholdsFor('drex', 'drex-max-v1.1', 'submit'),
+    midrun: thresholdsFor('drex', 'drex-max-v1.1', 'midrun'),
+    agent: thresholdsFor('drex', 'drex-max-v1.1', 'agent'),
+    skill: skillBarsFor('drex', 'drex-max-v1.1'),
+  })
+  expect(START_BARS).toEqual({ submit: START, midrun: START, agent: START, skill: { action: 0.3, named: 0.5, fits: 0.3 } })
+})
+
 test('回答失败或 model 不是 drex-max-v1.1：不是答案', () => {
   expect(outcomeOf(submitCase, { ok: false, reason: 'timeout' }, START_BARS)).toBe(null)
   expect(outcomeOf(submitCase, { ok: true, model: 'drex-max-v1.0', answers: submitAnswers }, START_BARS)).toBe(null)
@@ -40,7 +51,7 @@ test('submit 在 START_BARS 下的档位和 submitLevel 一样', () => {
   expect(mark(submitCase, o!)).toBe('right')
 })
 
-test('上一轮说「接着做」：从上一轮的档位起算，和 mod 一样', () => {
+test('上一轮说「接着做」：沿用上一轮的档位，和 mod 一样', () => {
   const previous = { request: 'migrate the store', lastReply: 'Shall I go on?', ended: 'answered' as const, level: 'xhigh' as const }
   const c: SubmitCase = { ...submitCase, input: { ...submitCase.input, previous } }
   const flat = [0.2, 0.2, 0.2, 0.2, 0.2]

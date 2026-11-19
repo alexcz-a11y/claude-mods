@@ -36,8 +36,8 @@ const UNKNOWN = '模型没动：还不知道这个类型是否沿用主 agent �
 const HOLD = { open: score([0.05, 0.3, 0.3, 0.3, 0.05]), mechanical: noul(0.1), unknown_cause: noul(0.1), read_only: noul(0.1) }
 // Read-only and mechanical: effort capped at medium, the lowest tier allowed.
 const LOOKUP = { open: score([0.05, 0.3, 0.3, 0.3, 0.05]), mechanical: noul(0.9), unknown_cause: noul(0.1), read_only: noul(0.9) }
-// Little is open (0.9 on the two lowest levels): medium, one tier down.
-const EASY = { open: score([0.5, 0.4, 0.05, 0.05, 0]), mechanical: noul(0.1), unknown_cause: noul(0.1), read_only: noul(0.1) }
+// Little is open (0.96 on the two lowest levels, past drex-max-v1.1's 0.95 to step down): medium, one tier down.
+const EASY = { open: score([0.6, 0.36, 0.02, 0.02, 0]), mechanical: noul(0.1), unknown_cause: noul(0.1), read_only: noul(0.1) }
 // Very open (0.85 above high, over the stricter bar 0.8): xhigh, the tier kept.
 const HARD = { open: score([0, 0.05, 0.1, 0.8, 0.05]), mechanical: noul(0.1), unknown_cause: noul(0.1), read_only: noul(0.1) }
 
@@ -78,6 +78,22 @@ function teach($: Engine, o: Partial<AgentSpawnInput> = {}) {
 /** Runs n steps of an agent's loop, each at the engine's level. */
 async function agentSteps($: Engine, agentId: string, n: number, effort: unknown = 'high') {
   for (let index = 0; index < n; index++) await step($, { turnId: `a-${agentId}`, index, effort, model: 'claude-haiku-5-5', agentId })
+}
+
+// The calibrated table of drex-max-v1.1 (eval/CALIBRATION.md): an agent's effort steps down only when the levels
+// below it hold 0.95. Under START (0.70) the lowest level at 0.90 would take high down to low.
+for (const [lowest, effort] of [[0.9, 'high'], [0.96, 'low']] as const) {
+  test(`drex-max-v1.1 上派出 agent：最低一档 ${lowest}，effort 是 ${effort}`, { options: KEYS }, async ($, on) => {
+    const answer = { open: score([lowest, 0, 1 - lowest, 0, 0]), mechanical: noul(0.1), unknown_cause: noul(0.1), read_only: noul(0.1) }
+    const w = world(on, { answer: agentAnswer(answer), agents: [info('agent-2')] })
+    await mainAtHigh($)
+    await teach($)
+    await spawn($)
+    await agentSteps($, 'agent-2', 1)
+
+    expect(effortsOf(w, 'agent-2')).toEqual([effort])
+    expect(logged(w)[1]).toMatchObject({ kind: 'agent', from: 'opus · high', to: `sonnet · ${effort}`, bars: { ...START, down: 0.95 } })
+  })
 }
 
 // The brief's ten.
@@ -452,7 +468,7 @@ test('派出成功时 Decision 的每个字段', { options: { ...KEYS, midrunShi
     model: 'drex-max-v1.1',
     ms: 0,
     raw: {
-      open: { type: 'score', score: EASY.open.score, probabilities: [0.5, 0.4, 0.05, 0.05, 0] },
+      open: { type: 'score', score: EASY.open.score, probabilities: [0.6, 0.36, 0.02, 0.02, 0] },
       mechanical: { type: 'noul', noul: 0.1 },
       unknown_cause: { type: 'noul', noul: 0.1 },
       read_only: { type: 'noul', noul: 0.1 },
@@ -463,7 +479,7 @@ test('派出成功时 Decision 的每个字段', { options: { ...KEYS, midrunShi
     detail: 'general-purpose',
     turnId: 't1',
     step: 1,
-    bars: START,
+    bars: { ...START, down: 0.95 },
     failure: null,
     requestId: null,
     applied: true,
