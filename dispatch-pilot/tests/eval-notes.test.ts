@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { callsFor, firstPrompt, foldNotes, notesWanted, withNotes, withoutTelemetry } from '../eval/lib/notes.ts'
+import { callsFor, firstPrompt, foldNotes, noteArgs, notesWanted, withNotes, withoutTelemetry } from '../eval/lib/notes.ts'
 import type { MidrunCase } from '../eval/lib/case.ts'
 import type { ProgressNote, StepRecord } from '../hooks/statebuild.ts'
 
@@ -91,4 +91,8 @@ test('withoutTelemetry：去掉 OpenTelemetry 的变量，别的原样留着', (
   const env = { PATH: '/bin', HOME: '/h', CLAUDE_CODE_ENABLE_TELEMETRY: '1', ENABLE_BETA_TRACING_DETAILED: '1', OTEL_EXPORTER_OTLP_ENDPOINT: 'x', OTEL_LOGS_EXPORTER: 'otlp', NOT_OTEL_X: 'kept' }
   expect(withoutTelemetry(env)).toEqual({ PATH: '/bin', HOME: '/h', NOT_OTEL_X: 'kept' })
   expect(env.OTEL_LOGS_EXPORTER).toBe('otlp')
+})
+
+test('noteArgs：haiku、mod 的 system，只读项目的设置（用户的 hooks、env、插件不进来）', () => {
+  expect(noteArgs('SYS')).toEqual(['-p', '--model', 'haiku', '--setting-sources', 'project', '--system-prompt', 'SYS'])
 })

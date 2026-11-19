@@ -51,6 +51,16 @@ export function withNotes(cases: readonly MidrunCase[], id: string, notes: Notes
   return cases.map((c) => (c.id === id ? { ...c, input: { ...c.input, notes } } : c))
 }
 
+/**
+ * The arguments of one note's call. Only the project's settings are read, and the call runs in an empty directory, so
+ * that is none: the user's hooks, env and plugins must not shape a note the mod writes through its own model call.
+ * (claude --help: "Comma-separated list of setting sources to load (user, project, local)"; whether the user's own
+ * CLAUDE.md is left out with them it does not say.)
+ */
+export function noteArgs(system: string): string[] {
+  return ['-p', '--model', 'haiku', '--setting-sources', 'project', '--system-prompt', system]
+}
+
 // Global constraints: no command and no session runs with OpenTelemetry on.
 const TELEMETRY = ['CLAUDE_CODE_ENABLE_TELEMETRY', 'ENABLE_BETA_TRACING_DETAILED']
 

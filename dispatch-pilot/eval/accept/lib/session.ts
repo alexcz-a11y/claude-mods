@@ -65,16 +65,47 @@ export function pasted(prompt: string): string {
   return `\x1b[200~${prompt.replace(/\s+$/, '')}\x1b[201~`
 }
 
-export type Screen = 'trust' | 'permission' | 'busy' | 'idle'
+export type Screen = 'trust' | 'permission' | 'busy' | 'ready' | 'other'
 
-// The engine's own wording (2.1.328): the trust dialog, a permission prompt, and the line shown while a turn runs.
+// The engine's own wording (2.1.328, measured live by the controller): the trust dialog, whose menu starts on
+// "No, exit"; a permission prompt's question and its menu; the line shown while a turn runs.
 const TRUST = /Is this a project you created or one you trust|Yes, I trust this folder/
 const PERMISSION = /Do you want to (proceed|allow|make this edit|create)|Yes, and don't ask again/
+const MENU = /^\s*❯\s*(\d|Yes)/
 const BUSY = /esc to interrupt/i
+// The input box: a line that starts with the marker and a space, or the marker alone (capture-pane drops the spaces at
+// the end of a line). The board and the status lines around it change on their own, so nothing else is read.
+const INPUT = /^\s*❯(\s|$)/
+const PROMPT_LINES = 15
+
+/** The screen's last lines that hold anything: capture-pane pads the pane's height with empty ones. */
+function bottom(text: string, n: number): string[] {
+  const lines = text.split('\n')
+  while (lines.length > 0 && lines.at(-1)!.trim() === '') lines.pop()
+  return lines.slice(-n)
+}
 
 export function screenState(text: string): Screen {
   if (TRUST.test(text)) return 'trust'
-  if (PERMISSION.test(text)) return 'permission'
+  const last = bottom(text, PROMPT_LINES)
+  // A permission prompt is a menu at the bottom; the question quoted in a reply, or an old menu above, is not one.
+  if (last.some((l) => MENU.test(l)) && PERMISSION.test(last.join('\n'))) return 'permission'
   if (BUSY.test(text)) return 'busy'
-  return 'idle'
+  return text.split('\n').some((l) => INPUT.test(l)) ? 'ready' : 'other'
+}
+
+/** Whether the trust dialog's marker is on "Yes, I trust this folder" (Enter would then trust, not exit). */
+export function trustSelected(text: string): boolean {
+  return text.split('\n').some((l) => /❯.*Yes, I trust this folder/.test(l))
+}
+
+/**
+ * Whether a directory's real path holds the user's name: under the home directory, or the name anywhere in it, case
+ * left aside (the file system here does not tell cases apart). The mod sends the session's directory to the decision
+ * model.
+ */
+export function holdsUser(realPath: string, home: string, user: string): boolean {
+  const p = realPath.toLowerCase()
+  const h = home.replace(/\/+$/, '').toLowerCase()
+  return (h !== '' && (p === h || p.startsWith(h + '/'))) || (user !== '' && p.includes(user.toLowerCase()))
 }

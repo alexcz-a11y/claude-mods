@@ -43,3 +43,21 @@ export function turnSpan(records: readonly unknown[]): { startedAt: number; ende
   const end = main.findLast(isTurnDuration) ?? main.findLast(isMainResponse)
   return { startedAt, endedAt: (end === undefined ? null : timeOf(end)) ?? startedAt }
 }
+
+/**
+ * The levels the main loop's requests really carried, from the session's own record: each response's effort, in order
+ * (one per message id, since the engine writes a record per block), with consecutive repeats made one; shifts is how
+ * many times it changed. A response with no effort recorded is passed over.
+ */
+export function levelsOf(records: readonly unknown[]): { levels: string[]; shifts: number } {
+  const seen = new Set<string>()
+  const levels: string[] = []
+  records.forEach((r, i) => {
+    if (!isObj(r) || !isMainResponse(r)) return
+    const id = typeof r.message.id === 'string' ? r.message.id : `#${i}`
+    if (seen.has(id)) return
+    seen.add(id)
+    if (typeof r.effort === 'string' && r.effort !== '' && levels.at(-1) !== r.effort) levels.push(r.effort)
+  })
+  return { levels, shifts: Math.max(0, levels.length - 1) }
+}

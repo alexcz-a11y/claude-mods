@@ -3,7 +3,7 @@
 // eval/cases/midrun.json (model-written) or <data>/cases/midrun.json (from real sessions; --data, default
 // ~/.config/dispatch-pilot/calibration). "before" is built up over input.recent as the mod builds it (one call per
 // step, each on the note before it), "after" on the latest step. A note is the mod's own prompt (progressPrompt) answered by
-// `claude -p --model haiku` and read with parseProgress; a reply it cannot read, a failed call or one over 120 s gives
+// `claude -p --model haiku --setting-sources project` and read with parseProgress; a reply it cannot read, a failed call or one over 120 s gives
 // no note (the note before it stands). This is not the mod's own path ($.model.complete at low effort with a 200-token cap): the record says so.
 //
 //   --dry-run   how many notes would be written, and the first prompt; calls nothing, changes no file
@@ -20,14 +20,13 @@ import type { ProgressNote } from '../hooks/statebuild.ts'
 import { pool } from './lib/budget.ts'
 import { checkCase } from './lib/case.ts'
 import type { MidrunCase } from './lib/case.ts'
-import { callsFor, firstPrompt, foldNotes, notesWanted, withNotes, withoutTelemetry } from './lib/notes.ts'
+import { callsFor, firstPrompt, foldNotes, noteArgs, notesWanted, withNotes, withoutTelemetry } from './lib/notes.ts'
 import type { Notes } from './lib/notes.ts'
 
 const USAGE = 'usage: node dispatch-pilot/eval/notes.ts [--data <dir>] [--dry-run] [--only <case id>] [--force]'
 const REPO_FILE = fileURLToPath(new URL('./cases/midrun.json', import.meta.url))
 // Each call runs in a fresh empty directory here, so its session record does not land among this project's.
 const CALL_ROOT = '/private/tmp/dp-notes'
-const MODEL = 'haiku'
 const CALL_MS = 120_000
 const CONCURRENCY = 4
 
@@ -79,6 +78,17 @@ function writeSource(s: Source): void {
 type Prompt = { system: string; prompt: string }
 type Called = { note: ProgressNote | null; why: string }
 
+// The calls in the air: their process groups and directories, so an interrupted run leaves none behind.
+const live = new Map<number, string>()
+
+function killGroup(pid: number): void {
+  try {
+    process.kill(-pid, 'SIGKILL')
+  } catch {
+    // already gone
+  }
+}
+
 /** One note: claude -p in a fresh directory, without the telemetry variables; killed (its whole group) after CALL_MS. */
 function call(p: Prompt): Promise<Called> {
   mkdirSync(CALL_ROOT, { recursive: true, mode: 0o700 })
@@ -90,17 +100,15 @@ function call(p: Prompt): Promise<Called> {
       if (settled) return
       settled = true
       clearTimeout(timer)
+      if (child.pid !== undefined) live.delete(child.pid)
       rmSync(dir, { recursive: true, force: true })
       resolve(c)
     }
     // detached: its own process group, so a kill takes the hooks and tools it started too.
-    const child = spawn('claude', ['-p', '--model', MODEL, '--system-prompt', p.system], { cwd: dir, env: withoutTelemetry(process.env), stdio: ['pipe', 'pipe', 'ignore'], detached: true })
+    const child = spawn('claude', noteArgs(p.system), { cwd: dir, env: withoutTelemetry(process.env), stdio: ['pipe', 'pipe', 'ignore'], detached: true })
+    if (child.pid !== undefined) live.set(child.pid, dir)
     const timer = setTimeout(() => {
-      try {
-        if (child.pid !== undefined) process.kill(-child.pid, 'SIGKILL')
-      } catch {
-        // already gone
-      }
+      if (child.pid !== undefined) killGroup(child.pid)
       done({ note: null, why: 'timeout' })
     }, CALL_MS)
     child.stdout.setEncoding('utf8')
@@ -153,6 +161,17 @@ async function main(): Promise<void> {
     }
     return
   }
+  // Interrupted (a terminal's Ctrl-C, a caller's timeout, a closed terminal): the calls are in their own process groups,
+  // so they would run on without their time limit; kill them and remove their directories before exiting.
+  const onSignal = (): void => {
+    for (const [pid, dir] of live) {
+      killGroup(pid)
+      rmSync(dir, { recursive: true, force: true })
+    }
+    cleanRoot()
+    process.exit(130)
+  }
+  for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(s, onSignal)
   try {
     await pool(todo, {
       concurrency: CONCURRENCY,
@@ -167,6 +186,7 @@ async function main(): Promise<void> {
       },
     })
   } finally {
+    for (const s of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.off(s, onSignal)
     cleanRoot()
   }
 }

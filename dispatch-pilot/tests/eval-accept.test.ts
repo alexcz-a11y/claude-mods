@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
-import { levelsSent, ownMidrun } from '../eval/accept/lib/decisions.ts'
-import { recordDir, turnEnded, turnSpan } from '../eval/accept/lib/records.ts'
-import { paneCommand, pasted, screenState, sessionEnv, settingsFor } from '../eval/accept/lib/session.ts'
+import { ownMidrun } from '../eval/accept/lib/decisions.ts'
+import { levelsOf, recordDir, turnEnded, turnSpan } from '../eval/accept/lib/records.ts'
+import { holdsUser, paneCommand, pasted, screenState, sessionEnv, settingsFor, trustSelected } from '../eval/accept/lib/session.ts'
 import type { Decision } from '../hooks/log.ts'
 
 const USER_CONFIG = {
@@ -50,11 +50,57 @@ test('pasted：整段作为一次粘贴（多行不被当成几次回车），�
   expect(pasted('line 1\nline 2\n')).toBe('\x1b[200~line 1\nline 2\x1b[201~')
 })
 
-test('screenState：信任对话框、权限请求、还在跑、空闲', () => {
-  expect(screenState('Quick safety check\nIs this a project you created or one you trust?\n❯ 1. Yes, I trust this folder')).toBe('trust')
-  expect(screenState('Bash command\n  rm -rf build\nDo you want to proceed?\n❯ 1. Yes\n  2. Yes, and don\'t ask again')).toBe('permission')
-  expect(screenState('✻ Working… (12s · esc to interrupt)')).toBe('busy')
-  expect(screenState('❯ \n  ? for shortcuts')).toBe('idle')
+// Screens as 2.1.328 draws them (the controller's live trial): the trust dialog's menu starts on "No, exit".
+const TRUST_SCREEN = 'Quick safety check\n Is this a project you created or one you trust?\n ❯ 1. No, exit\n   2. Yes, I trust this folder\n'
+const READY_SCREEN = '▸ dispatch-pilot · medium\n────────\n❯ \n────────\n  ⏵⏵ auto mode on (shift+tab to cycle) · 12% · 05:02\n\n\n'
+
+test('screenState：信任对话框；输入框的 ❯ 行就是就绪；还在跑', () => {
+  expect(screenState(TRUST_SCREEN)).toBe('trust')
+  expect(screenState(READY_SCREEN)).toBe('ready')
+  // capture-pane drops the space after an empty input box's marker.
+  expect(screenState(READY_SCREEN.replace('❯ ', '❯'))).toBe('ready')
+  expect(screenState('✻ Working… (12s · esc to interrupt)\n❯ \n')).toBe('busy')
+  expect(screenState('starting…\n')).toBe('other')
+})
+
+test('screenState：权限请求只认屏幕底部 15 行里、带 ❯ 菜单行的', () => {
+  const prompt = 'Bash command\n  rm -rf build\nDo you want to proceed?\n❯ 1. Yes\n  2. Yes, and don\'t ask again\n  3. No\n\n\n'
+  expect(screenState(prompt)).toBe('permission')
+  // The model's own text quoting the question, with no menu: not a prompt.
+  expect(screenState('⏺ The script asks "Do you want to proceed?" before deleting.\n❯ \n')).toBe('ready')
+  // A menu far above the bottom 15 lines is history, not the screen's prompt.
+  const old = prompt + Array.from({ length: 20 }, (_, i) => 'line ' + i).join('\n') + '\n❯ \n'
+  expect(screenState(old)).toBe('ready')
+})
+
+test('trustSelected：只有 ❯ 停在「Yes, I trust this folder」那一行才算选中', () => {
+  expect(trustSelected(TRUST_SCREEN)).toBe(false)
+  expect(trustSelected('Quick safety check\n   1. No, exit\n ❯ 2. Yes, I trust this folder\n')).toBe(true)
+})
+
+test('holdsUser：home 下或者路径里有用户名（不分大小写）都算', () => {
+  expect(holdsUser('/private/tmp/dp-accept/01-on-code-x', '/Users/someone', 'someone')).toBe(false)
+  expect(holdsUser('/Users/someone/work/x', '/Users/someone', 'someone')).toBe(true)
+  expect(holdsUser('/private/tmp/SomeOne-runs/x', '/Users/someone', 'someone')).toBe(true)
+  expect(holdsUser('/USERS/SOMEONE/x', '/Users/someone', '')).toBe(true)
+})
+
+test('levelsOf：主循环每一步带的 effort 依次排开，相邻重复的并成一个；shifts 是换了几次', () => {
+  const at = (id: string, effort: string | undefined, extra: object = {}) => ({ type: 'assistant', isSidechain: false, timestamp: '2031-01-01T00:00:01.000Z', effort, message: { id, model: 'x', content: [{ type: 'text' }] }, ...extra })
+  const records = [
+    turnStart,
+    at('m1', 'medium'),
+    at('m1', 'medium'),
+    at('m2', 'medium'),
+    at('sub', 'low', { isSidechain: true, agentId: 'a' }),
+    { type: 'assistant', isSidechain: false, isVirtual: true, effort: 'low', message: { id: 'v', model: '<synthetic>', content: [] } },
+    at('m3', 'high'),
+    at('m4', undefined),
+    at('m5', 'high'),
+    at('m6', 'medium'),
+  ]
+  expect(levelsOf(records)).toEqual({ levels: ['medium', 'high', 'medium'], shifts: 2 })
+  expect(levelsOf([turnStart])).toEqual({ levels: [], shifts: 0 })
 })
 
 test('recordDir：会话目录按引擎的写法编码（非字母数字都换成 -）', () => {
@@ -86,7 +132,7 @@ function decision(id: string, kind: Decision['kind'], turnId: string | null, at:
   return { id, at, kind, backend: 'drex', model: 'drex-max-v1.1', ms: 300, raw: null, from: 'medium', to: 'medium', reason: 'hold', detail: '', turnId, step: 0, bars: null, failure: null, requestId: null, applied: false, sent: null, ...extra }
 }
 
-test('ownMidrun：这次会话的轮由时间窗里它的 submit 决定；旧记录和别的轮不算', () => {
+test('ownMidrun：这次会话的轮由它开始时的 submit 决定；旧记录和别的轮不算', () => {
   const log = [
     decision('old', 'midrun', 'T0', 500),
     decision('s1', 'submit', 'T1', 1_200),
@@ -98,10 +144,16 @@ test('ownMidrun：这次会话的轮由时间窗里它的 submit 决定；旧记
   const own = ownMidrun(log, { seen: new Set(['old']), startedAt: 1_000, endedAt: 10_000 })
   expect(own.turnId).toBe('T1')
   expect(own.midrun!.map((d) => d.id)).toEqual(['m1', 'm2'])
-  expect(levelsSent(own.midrun!)).toEqual([{ from: 'medium', to: 'high', sent: 'high' }])
 })
 
-test('ownMidrun：时间窗里有两个会话的 submit：分不清，不算数', () => {
+test('ownMidrun：另一个会话的 submit 落在这一轮中间：仍认得出这一轮', () => {
+  const log = [decision('s1', 'submit', 'T1', 1_200), decision('m1', 'midrun', 'T1', 3_000), decision('s2', 'submit', 'T2', 30_000), decision('m2', 'midrun', 'T2', 31_000), decision('m3', 'midrun', 'T1', 40_000)]
+  const own = ownMidrun(log, { seen: new Set(), startedAt: 1_000, endedAt: 60_000 })
+  expect(own.turnId).toBe('T1')
+  expect(own.midrun!.map((d) => d.id)).toEqual(['m1', 'm3'])
+})
+
+test('ownMidrun：这一轮开始时有两个会话的 submit：分不清，不算数', () => {
   const log = [decision('s1', 'submit', 'T1', 1_200), decision('s2', 'submit', 'T2', 1_400), decision('m1', 'midrun', 'T1', 3_000)]
   const own = ownMidrun(log, { seen: new Set(), startedAt: 1_000, endedAt: 10_000 })
   expect(own.turnId).toBe(null)

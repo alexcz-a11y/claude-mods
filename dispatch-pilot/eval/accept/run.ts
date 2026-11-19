@@ -1,10 +1,11 @@
 // Run with `node dispatch-pilot/eval/accept/run.ts --task <id> --arm on|off --mode code|ordinary [--model <model>]
 // [--data <dir>] [--work <dir>] [--max-minutes <n>] [--dry-run]` (calibration plan, Task 15 Step 3). One acceptance run:
-// the task's project/ copied to <work>/<task>-<arm>-<mode>-<timestamp>/project, an interactive session in tmux
-// (server dpacc, session acc-<task>-<arm>-<mode>-<timestamp>) that loads this mod with --plugin-dir, the task's prompt
-// sent, the turn waited out (at most --max-minutes), then check.sh, the session record's usage and this session's
-// mid-run decisions from the mod's store, appended as one line to <data>/accept.jsonl. The session, the settings file
-// (the only place the Nace key is written) and the run's directory are removed at the end, on failure too.
+// the task's project/ copied to <work>/<task>-<arm>-<mode>-<timestamp>-<random>/project, an interactive session in tmux
+// (server dpacc, session acc-<the same name>) that loads this mod with --plugin-dir, the task's prompt
+// sent, the turn waited out (at most --max-minutes), then check.sh, the session record's usage and the levels its
+// requests carried, and the mod's store's count of this session's mid-run decisions (best effort), appended as one line
+// to <data>/accept.jsonl. The session, the settings file (the only place the Nace key is written) and the run's
+// directory are removed at the end, on failure and on SIGINT, SIGTERM or SIGHUP too.
 //
 //   --model        default sonnet
 //   --data         default ~/.config/dispatch-pilot/calibration
@@ -14,16 +15,16 @@
 //   --dry-run      everything but the session: the directory, the settings file with the key as "DRY-RUN", the tmux
 //                  command printed, check.sh on the untouched project (it should fail), then the clean-up
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { createHash, randomBytes } from 'node:crypto'
+import { appendFileSync, chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { readLog } from '../../hooks/log.ts'
-import { levelsSent, ownMidrun } from './lib/decisions.ts'
-import { recordDir, turnEnded, turnSpan } from './lib/records.ts'
-import { paneCommand, pasted, screenState, sessionEnv, settingsFor } from './lib/session.ts'
+import { ownMidrun } from './lib/decisions.ts'
+import { levelsOf, recordDir, turnEnded, turnSpan } from './lib/records.ts'
+import { holdsUser, paneCommand, pasted, screenState, sessionEnv, settingsFor, trustSelected } from './lib/session.ts'
 import type { Arm, Mode } from './lib/session.ts'
 import { usageOf } from './lib/usage.ts'
 import type { Usage } from './lib/usage.ts'
@@ -36,14 +37,15 @@ const SERVER = 'dpacc'
 // both dispatch-pilot store files on this machine, the inline one and the installed one's "dispatch-pilot@alex-mods").
 const STORE = join(homedir(), '.claude', 'plugins', 'store', `dispatch-pilot_inline-${createHash('sha256').update('dispatch-pilot@inline').digest('hex').slice(0, 12)}.json`)
 const TICK_MS = 1000
-/** The screen unchanged this long, with no turn running, after the record shows the turn's end. */
+/** No "esc to interrupt" on screen this long, after the record shows the turn's end (the board and the status lines
+ * change on their own, so the rest of the screen is not compared). */
 const IDLE_MS = 5000
-/** The screen unchanged this long before the prompt is sent; a ready screen shows the shortcuts hint sooner. */
+/** The input box on screen this long before the prompt is sent. */
 const SETTLE_MS = 3000
-const READY_FALLBACK_MS = 30_000
 /** No prompt in the record this long after sending: Enter once more (a long paste may wait for a second one). */
 const RESEND_MS = 30_000
 const CHECK_MS = 10 * 60_000
+const SIGNALS = ['SIGINT', 'SIGTERM', 'SIGHUP'] as const
 
 function fail(message: string, code = 1): never {
   console.error(message)
@@ -140,8 +142,11 @@ type Line = {
   pass: boolean
   reason?: string
   usage: Usage
+  /** From the mod's store, best effort: null when the decisions cannot be told from another session's. */
   midrunDecisions: number | null
-  levelsSent: ReturnType<typeof levelsSent> | null
+  /** From the session's own record: the levels its requests carried, consecutive repeats made one. */
+  levelsSent: string[]
+  shifts: number
   startedAt: string
   minutes: number
 }
@@ -155,12 +160,20 @@ async function main(): Promise<void> {
 
   const started = new Date()
   const stamp = stampOf(started)
-  const runDir = join(a.work, `${a.task}-${a.arm}-${a.mode}-${stamp}`)
+  // A short random part: two runs of the same task, arm and mode started in the same second do not meet.
+  const name = `${a.task}-${a.arm}-${a.mode}-${stamp}-${randomBytes(2).toString('hex')}`
+  // The path the engine sees (and the mod sends): relative paths resolved, symbolic links followed.
   const user = userInfo().username
-  if (runDir.startsWith(homedir()) || (user !== '' && runDir.includes(user))) fail(`--work: ${a.work} holds the user's name; the mod would send it to the decision model`)
+  const home = realpathSync(homedir())
+  const tooNear = `--work: ${a.work} holds the user's name; the mod would send it to the decision model`
+  if (holdsUser(resolve(a.work), home, user)) fail(tooNear)
+  mkdirSync(a.work, { recursive: true, mode: 0o700 })
+  const work = realpathSync(a.work)
+  if (holdsUser(work, home, user)) fail(tooNear)
+  const runDir = join(work, name)
   const project = join(runDir, 'project')
   const settingsPath = join(runDir, 'settings.json')
-  const session = `acc-${a.task}-${a.arm}-${a.mode}-${stamp}`
+  const session = `acc-${name}`
   const env = sessionEnv(process.env, a.mode)
   let live = false
 
@@ -173,8 +186,8 @@ async function main(): Promise<void> {
     cleanUp()
     process.exit(130)
   }
-  process.on('SIGINT', onSignal)
-  process.on('SIGTERM', onSignal)
+  // A closed terminal (SIGHUP) too: the settings file holds the key.
+  for (const s of SIGNALS) process.on(s, onSignal)
 
   try {
     mkdirSync(runDir, { recursive: true, mode: 0o700 })
@@ -207,8 +220,8 @@ async function main(): Promise<void> {
     let reason: string | undefined
     let sentAt: number | null = null
     let resent = false
-    let screen = ''
-    let changedAt = Date.now()
+    let readySince: number | null = null
+    let busyAt = 0
     let trustAt = 0
     for (;;) {
       await sleep(TICK_MS)
@@ -222,40 +235,44 @@ async function main(): Promise<void> {
         break
       }
       const text = tmux(env, 'capture-pane', '-p', '-t', session).out
-      if (text !== screen) {
-        screen = text
-        changedAt = now
-      }
       const state = screenState(text)
       if (state === 'permission') {
         reason = 'blocked'
         break
       }
       if (state === 'trust') {
-        // The run's own directory: the first choice trusts it.
-        if (now - trustAt > 3000) {
-          tmux(env, 'send-keys', '-t', session, 'Enter')
-          trustAt = now
+        readySince = null
+        // The run's own directory. The menu starts on "No, exit", which Enter alone would choose: move down to
+        // "Yes, I trust this folder", and press Enter only once the marker is seen there.
+        if (now - trustAt < 3000) continue
+        trustAt = now
+        tmux(env, 'send-keys', '-t', session, 'Down')
+        await sleep(500)
+        if (!trustSelected(tmux(env, 'capture-pane', '-p', '-t', session).out)) {
+          reason = 'trust-dialog'
+          break
         }
+        tmux(env, 'send-keys', '-t', session, 'Enter')
         continue
       }
-      const still = now - changedAt
       if (sentAt === null) {
-        const ready = state === 'idle' && text.trim() !== '' && still >= SETTLE_MS && (text.includes('for shortcuts') || now - started.getTime() >= READY_FALLBACK_MS)
-        if (!ready) continue
+        readySince = state === 'ready' ? (readySince ?? now) : null
+        if (readySince === null || now - readySince < SETTLE_MS) continue
         tmux(env, 'send-keys', '-t', session, '-l', pasted(prompt))
         await sleep(500)
         tmux(env, 'send-keys', '-t', session, 'Enter')
         sentAt = Date.now()
+        busyAt = sentAt
         console.error(`${session}: prompt sent`)
         continue
       }
+      if (state === 'busy') busyAt = now
       const recs = readRecords(records)
       if (!resent && turnSpan(recs) === null && now - sentAt >= RESEND_MS) {
         tmux(env, 'send-keys', '-t', session, 'Enter')
         resent = true
       }
-      if (turnEnded(recs) && state === 'idle' && still >= IDLE_MS) break
+      if (turnEnded(recs) && now - busyAt >= IDLE_MS) break
     }
 
     const killed = tmux(env, 'kill-session', '-t', session)
@@ -265,7 +282,8 @@ async function main(): Promise<void> {
     const recs = readRecords(records)
     const span = turnSpan(recs) ?? { startedAt: sentAt ?? started.getTime(), endedAt: Date.now() }
     const own = ownMidrun(readStoreLog(), { seen, startedAt: span.startedAt, endedAt: span.endedAt })
-    if (own.midrun === null) console.error(`${session}: another session's decisions fall in this turn's span; its mid-run decisions are not counted`)
+    if (own.midrun === null) console.error(`${session}: another session's turn started with this one; the store's mid-run decisions are not counted`)
+    const sent = levelsOf(recs)
     let pass = false
     if (reason === undefined) {
       const code = runCheck(checkSh, project, env)
@@ -281,7 +299,8 @@ async function main(): Promise<void> {
       ...(reason === undefined ? {} : { reason }),
       usage: usageOf(recs),
       midrunDecisions: own.midrun === null ? null : own.midrun.length,
-      levelsSent: own.midrun === null ? null : levelsSent(own.midrun),
+      levelsSent: sent.levels,
+      shifts: sent.shifts,
       startedAt: started.toISOString(),
       minutes: Math.round(((Date.now() - started.getTime()) / 60_000) * 100) / 100,
     }
@@ -290,8 +309,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(line))
   } finally {
     cleanUp()
-    process.off('SIGINT', onSignal)
-    process.off('SIGTERM', onSignal)
+    for (const s of SIGNALS) process.off(s, onSignal)
   }
 }
 
