@@ -19,15 +19,15 @@ dispatch-pilot/
   hooks/flows/readout.ts       http.fetch 上读实际档位
   hooks/config.ts              readConfig(options)
   hooks/levels.ts              档位、模型层级
-  hooks/questions.ts           所有题的措辞和门槛表（thresholdsFor、skillBarsFor）
-  hooks/decide.ts              decide、读是非题、发消息/中途/agent 的读法
+  hooks/questions.ts           所有题的措辞和门槛表（START、START_SKILL_BARS、CALIBRATED）
+  hooks/decide.ts              decide、读是非题、发消息/中途/agent 的读法，thresholdsFor（按后端和模型查门槛表）
   hooks/statebuild.ts          三种 state、估 token、截断、fitState
   hooks/backend.ts             ask(io, …)：Drex、Jev、核对回答、时限、fallback
   hooks/journal.ts             从 session.append 的行里读出一轮的依据
   hooks/midrun.ts              检查点、限制、说明行
   hooks/submit.ts              发消息时的读法和 ownLevel（mod 在这一步写的档位）
   hooks/agents.ts              settleSpawn：agent 的模型、effort 和决策记录；记下的 agent 类型（knownType、learnType）
-  hooks/skills.ts              解析 skill 列表、合并候选、两步问法、find-skill 的回答
+  hooks/skills.ts              解析 skill 列表、合并候选、两步问法、find-skill 的回答，skillBarsFor（skill 的门槛）
   hooks/readout.ts             从请求体读实际档位、认主循环的请求
   hooks/progress.ts            进展记录的提示词和解析
   hooks/log.ts                 决策记录、/dp 的文字版
@@ -77,7 +77,7 @@ dispatch-pilot/
   - `--settings` 文件里 `env.CLAUDE_CODE_EXPERIMENTAL_CODE_MODE` 设成空字符串时，即使用户自己的设置打开了 Code Mode，会话也是普通会话（看板写「普通会话」）。
   - 在一个空目录里跑 `claude -p --setting-sources project`，用户自己的 hook 和设置都不会进来。
   - 保存一个 mod 目录下的文件，可能让正在跑的、用 `--plugin-dir` 加载它的会话热重载这个 mod。所以验收会话跑着的时候，mod 目录下什么也不写。
-- **同一请求里的题会互相影响**（Drex `drex-max-v1.1`，2026-11-19 校准时实测）：只把一道题（`direct`）的选项打乱顺序，按别的题读出来的决定 30 例里变了 6 例；去掉两道对照题之后，对一句光秃秃的「继续」，`open` 落在第 0 档的概率从约 0.5 变到 0.8。所以校准问的就是 mod 实际发的请求，请求里加一道题或去掉一道题，调整集都要重新问（见「校准工具」）。Nace 的 `drex-for-harness` skill 说 “questions in one request cannot read each other's answers.”（`eval/STANDARD.md` 的 S23），TypeSafe 文档也说同一请求里的题互不影响；在 Drex 上实测不是这样（Jev 没有测）。
+- **同一请求里的题会互相影响**（Drex `drex-max-v1.1`，2026-11-19 校准时实测）：只把一道题（`direct`）的选项打乱顺序，按别的题读出来的决定 30 例里变了 6 例；去掉两道对照题之后，对一句光秃秃的「继续」，`open` 落在第 0 档的概率从约 0.5 变到 0.8。所以校准问的就是 mod 实际发的请求，请求里加一道题或去掉一道题，调整集都要重新问（见「校准工具」）。Nace 的 `drex-for-harness` skill 说 “questions in one request cannot read each other's answers.”（`eval/STANDARD.md` 的 S23），TypeSafe 文档也说同一请求里的题互不影响；在 Drex 上实测不是这样（Jev 没有测）。mod 发消息时的请求有两种：有候选 skill 时是档位题加 skill 第一次请求的题，校准问的是这一种；没有候选时（每个会话的第一条消息，skill 列表在它之后才到；`skills` 关着时的每条消息）只有档位题。后一种不在校准的取舍里，事后在调整集上作为观察问过（给法 `first-message`，Ruling C41）：10 例的决定和前一种全部相同，概率并不都相同；留出集没有用它问过（修订 A1）。
 - 挂了 `ui.render`（AbovePrompt、SessionMode）、`http.fetch` 和 `agent.spawn` 的 mod 不挡 Code Mode。加载成功时调试日志里是 `hooks module dispatch-pilot@inline loaded … events: session.start,command.run,prompt.submit,prompt.attachment,skill.prompt,turn.start,turn.step,agent.spawn,session.append,turn.complete,http.fetch`。
 
 ## Code Mode 一轮里的行
@@ -156,7 +156,7 @@ E1 到 E9 是 2.1.326（2026-11-17），E6 和 E10 到 E18 是 2.1.327（2026-11
 - 选项 `scene` 用 `state.get` 的桩回答 mod 对四个状态的读取。版本号要用测试工具自己的（`next(e)` 的结果）：固定回答 `version: 1` 时，mod 的每次 `update()` 都对不上版本，重试到上限后抛 `the value was written by another every time it was read`。
 - `on` 也可以交给导入的函数（入口里的 `registerBoard(on, cfg)`）：validate 顺着导入扫描，hooks 列表里照样有 `ui.render{component=AbovePrompt}` 这几项。
 - `AbovePrompt` 在 `vscode` 和 `mobile` 上也能 mount（hook 照样被调用），所以「别的端交给 next」要由 hook 自己判断 `e.surface`。
-- Desktop 的画法只有测试能验证：Claude Desktop 自带的 Claude Code 是 2.1.325，低于 2.1.327。`$.ui.mount({ surface: 'desktop' })` 能 mount，`findAll({ type: 'Svg' })` 的 `props` 带 `source`、`alt`、`width`、`height`。`Text` 写了 `weight: 'semibold'` 时，`find` 拿到的 props 里还会多出 `bold: true`。
+- Desktop 的画法只有测试能验证：Claude Desktop 自带的 Claude Code 是 2.1.326（2026-11-19 `scripts/check.sh` 读到的），低于 2.1.327。`$.ui.mount({ surface: 'desktop' })` 能 mount，`findAll({ type: 'Svg' })` 的 `props` 带 `source`、`alt`、`width`、`height`。`Text` 写了 `weight: 'semibold'` 时，`find` 拿到的 props 里还会多出 `bold: true`。
 - `find` 的 `text` 给字符串时按包含匹配，外层 `Text` 也会被找到（例如 `'high'` 会找到整行）。要精确匹配就用 `/^…$/`。
 - 测试文件自己 import 的 hooks 模块，和测试工具加载的插件不是同一个模块实例。`register` 设下的模块级变量（例如 runtime.ts 的 `board`），在测试文件 import 的那份里看不到，所以替身 `$` 调 `redraw` 时不会写状态行。
 - 在 mod 自己的 `ui.invalidate` hook 里（`$.ui.invalidate` 的 op 事件；`next.origin.plugin` 是 mod 自己）读 `$.state`，在测试工具里会挂住，有的读取一直等不到结果，不报错，也不超时（2.1.327 实测）。所以状态行由 `redraw` 在调用者的 hook 里写，不挂在 `ui.invalidate` 上。
@@ -179,7 +179,7 @@ E1 到 E9 是 2.1.326（2026-11-17），E6 和 E10 到 E18 是 2.1.327（2026-11
 - 探针给时间轴、面板和脚部标签各挂了一个原样放行、matcher 写明 `plugin: 'dispatch-pilot'` 的渲染 hook，所以 `/dpscene` 之后三处一起重画。
 - 实测（2.1.327，tmux 180×50）：没有面板时一轮五行、空闲一行；面板开着时时间轴三行，面板停靠在右边；100 列时面板落到 prompt 上方；`/dp` 关上面板时时间轴马上回到完整的行数；锁定的场景没有记号行。
 - 改了 `tests/support/scenes.ts` 就重新拷一份到 `docs/research/board-scenes/hooks/scenes-data.ts`，`eval/validate.ts` 会比对两份。
-- Desktop 上还不能目测：Claude Desktop 自带的 Claude Code 是 2.1.325，低于 2.1.327。
+- Desktop 上还不能目测：Claude Desktop 自带的 Claude Code 是 2.1.326（2026-11-19 `scripts/check.sh` 读到的），低于 2.1.327。
 
 ## 校准工具
 
@@ -193,11 +193,11 @@ E1 到 E9 是 2.1.326（2026-11-17），E6 和 E10 到 E18 是 2.1.327（2026-11
   - `ask --set heldout --final`：留出集只问这一次，登记过的给法一次发完，写下 `heldout-done` 之后不再发；中途停下的可以带 `--final` 接着发没回答的（裁定 C3）。
   - `smoke`：用一例模型写的用例发一个请求，逐项核对状态码、回答的 `model`、每道题的编号、类型和选项名，不通过就以 1 退出（修订 A4）。
   - `score --set fit|check|tune|heldout [--bars start|<文件>] [--variant <名字>]`：判分；`heldout` 要等 `heldout-done` 存在才读。
-  - `sweep --path <submit.up|…|skill.fits> [--bars start|<文件>]`：在 `fit` 上扫一个门槛，其余不动。
+  - `sweep --path <submit.up|…|skill.fits> [--bars start|<文件>]`：在 `fit` 上扫一个门槛，其余不动；打出对得最多的那一段、它保守的一端，以及按记录的规则（修订 A14、A15、A3）从初值取的值。
   - `stability [--set …] [--bars start|<文件>] [--variant <名字>]`：同一请求的三遍里决定不一样的用例。
   - `score` 和 `stability` 默认按 mod 给 `drex-max-v1.1` 的门槛读（`hooks/questions.ts` 的表，`eval/lib/read.ts` 的 `CHOSEN_BARS`）；`--bars start` 按初值读；`--bars <文件>` 是一个 JSON 文件里的值盖在初值上。`sweep` 从初值起扫。
-- **`eval/notes.ts`**：`node dispatch-pilot/eval/notes.ts [--data <dir>] [--dry-run] [--only <用例>] [--force]`。给中途的用例写两份进展记录（截至上一步的、含最新一步的），写回用例所在的文件。用的是 mod 自己的提示词和解析，由 `claude -p --model haiku --setting-sources project` 回答，每次调用在 `/private/tmp/dp-notes` 下一个新的空目录里跑，去掉遥测变量；这不是 mod 自己的调用路径（`$.model.complete`），记录里写明了。`--dry-run` 只报要写几份和第一份提示词，什么也不调。
-- **`eval/accept/run.ts`**：`node dispatch-pilot/eval/accept/run.ts --task <id> --arm on|off --mode code|ordinary [--model <模型>] [--data <dir>] [--work <dir>] [--max-minutes <n>] [--dry-run]`。一次验收运行：把 `eval/accept/tasks/<id>/project` 复制到工作目录（默认 `/private/tmp/dp-accept`，路径里不能有用户名，因为 mod 会把会话的工作目录发给决策模型），在 tmux（server `dpacc`）里起一个用 `--plugin-dir` 加载本 mod 的交互会话，发出任务的 prompt，等这一轮结束，再跑任务的 `check.sh`，从这个会话自己的记录读用量、每次请求带的档位和换挡，往 `<数据目录>/accept.jsonl` 追加一行。会话、设置文件（Nace 的密钥只写在这里，0600）和工作目录在结束、失败和收到 SIGINT、SIGTERM、SIGHUP 时都删掉。一行里从 mod 的 `$.store` 数出来的中途决策数在几个会话同时跑时不准，不要用。任务在 `eval/accept/tasks/<id>/`：`project/`、`prompt.txt`、`check.sh`（隐藏的检查）、`meta.json`、`solution.patch`。
+- **`eval/notes.ts`**：`node dispatch-pilot/eval/notes.ts [--data <dir>] [--dry-run] [--only <用例>] [--force]`。给中途的用例写两份进展记录（截至上一步的、含最新一步的），写回用例所在的文件。用的是 mod 自己的提示词和解析，由 `claude -p --model haiku --setting-sources project` 回答，每次调用在 `/private/tmp/dp-notes` 下一个新的空目录里跑，环境去掉遥测变量和 `NACE_API_KEY`；调用结束（或被中断）时删掉这个目录，也删掉 Claude Code 在 `~/.claude/projects/` 下给它写的会话记录（名字以 `-private-tmp-dp-notes-call-` 开头的文件夹，里面是清理过的真实会话文字）；这不是 mod 自己的调用路径（`$.model.complete`），记录里写明了。`--dry-run` 只报要写几份和第一份提示词，什么也不调。
+- **`eval/accept/run.ts`**：`node dispatch-pilot/eval/accept/run.ts --task <id> --arm on|off --mode code|ordinary [--model <模型>] [--data <dir>] [--work <dir>] [--max-minutes <n>] [--dry-run]`。一次验收运行：把 `eval/accept/tasks/<id>/project` 复制到工作目录（默认 `/private/tmp/dp-accept`，路径里不能有用户名，因为 mod 会把会话的工作目录发给决策模型），在 tmux（server `dpacc`）里起一个用 `--plugin-dir` 加载本 mod 的交互会话，发出任务的 prompt，等这一轮结束，再跑任务的 `check.sh`，从这个会话自己的记录读用量、每次请求带的档位和换挡，往 `<数据目录>/accept.jsonl` 追加一行。会话、设置文件（Nace 的密钥只写在这里，0600）和工作目录在结束、失败和收到 SIGINT、SIGTERM、SIGHUP 时都删掉；设置文件在会话一结束、跑 `check.sh` 之前就删。跑具留下两样东西，校准做完后要手工删：Claude Code 在 `~/.claude/projects/` 下给每个会话写的记录（以运行目录命名的文件夹，`-private-tmp-dp-accept-…`），这是读出用量和档位的依据，里面只有编出来的任务；mod 的 store（`~/.claude/plugins/store/dispatch-pilot_inline-*.json`）的 log 里这些会话的决策。一行里从 mod 的 `$.store` 数出来的中途决策数在几个会话同时跑时不准，不要用。任务在 `eval/accept/tasks/<id>/`：`project/`、`prompt.txt`、`check.sh`（隐藏的检查）、`meta.json`、`solution.patch`。
 
 **私有数据目录** `~/.config/dispatch-pilot/calibration/`（目录 0700，不在仓库里，也不能进仓库：仓库是公开的）：
 
@@ -210,7 +210,7 @@ E1 到 E9 是 2.1.326（2026-11-17），E6 和 E10 到 E18 是 2.1.327（2026-11
 
 **不发请求地重算**：`score`、`sweep`、`stability` 只读 `answers.jsonl`，不发请求，也不要密钥，例如 `node dispatch-pilot/eval/run.ts score --set tune`、`node dispatch-pilot/eval/run.ts sweep --path agent.down`、`node dispatch-pilot/eval/run.ts score --set heldout --bars start`。记录里每张表旁边写着重算它的命令。没有这个目录就重算不了。
 
-**改了题就要重问。** 同一请求里的题会互相影响（见「引擎规则」里的「同一请求里的题会互相影响」），所以校准问的就是 mod 实际发的请求（修订 A16）。往请求里加一道题或去掉一道题，请求的 hash 就变了，原来的回答不再适用：调整集要重新问一遍（`ask` 只会发这些变了的请求），门槛也要在新的回答上重扫。
+**改了题就要重问。** 同一请求里的题会互相影响（见「引擎规则」里的「同一请求里的题会互相影响」），所以校准问的就是 mod 实际发的请求（修订 A16）。往请求里加一道题或去掉一道题，请求的 hash 就变了，原来的回答不再适用：调整集要重新问一遍（`ask` 只会发这些变了的请求），门槛也要在新的回答上重扫。mod 发消息时有两种请求：有候选 skill 时档位题和 skill 第一次请求的题一起发（submit 的 `default`，门槛在它上面扫），没有候选时只发档位题（`first-message`，只在调整集上观察过，决定和 `default` 全同，留出集没问，见记录里「没有候选 skill 时的请求」）。有候选时请求的样子还随用户的 skill 列表变：候选分成 ceil(n/250) 道 choice，校准的快照是 169 个、一道，超过 250 个就是两道，没有问过。
 
 ## 实机验证
 

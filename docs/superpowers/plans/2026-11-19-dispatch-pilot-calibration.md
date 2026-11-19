@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- 分支 `dp/rewrite`，只在 worktree `/Users/alexnear/Documents/claude-mods/.claude/worktrees/dp-rewrite` 里改；Claude Code `>=2.1.327`（本机 2.1.328）。
+- 分支 `dp/rewrite`，只在 worktree `.claude/worktrees/dp-rewrite`（仓库根目录下）里改；Claude Code `>=2.1.327`（本机 2.1.328）。
 - 只校准 Drex `drex-max-v1.1`；Jev 不参加任何测试，不向 TypeSafe 发任何请求。
 - 出题、给参考答案、设计验收任务的 agent 一律明写模型 `fable` 和 effort `xhigh`。派出前确认 `~/.claude/settings.json` 里 `dispatch-pilot@alex-mods` 和 `dispatch-pilot-extras@alex-mods` 是 `false`。
 - 每类 15 例，四类共 60 例：6 例 `fit`（用来改）、4 例 `check`（每次改动后复查）、5 例 `heldout`（留出）。边界例和反例合计每类不少于 5 例，其中留出集里不少于 2 例。分组在看到任何回答之前定下，之后不改。
