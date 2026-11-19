@@ -66,7 +66,18 @@
    },
    "statedNext": "汇总打印和画图都加上了，图例的中文字体也设好了。再完整跑一遍，确认表和图都生成，然后把结果交给你。",
    "codeMode": false,
-   "notes": null
+   "notes": {
+    "before": {
+     "done": "The edit to /Users/user/work/shop-metrics/analysis/repurchase.py succeeded, following an earlier run of the merge script on 48,210 order rows and 9,873 customer rows.",
+     "remaining": "Re-run repurchase.py (the edit's contents are not shown, so its effect on the calculati … e rates in out/repurchase_by_region.csv, then build and save the per-region line chart.",
+     "cause_known": false
+    },
+    "after": {
+     "done": "Merged orders (48,210 rows) with customers (9,873 rows) into 61,877 rows, then wrote out/repurchase_by_region.csv (48 region-month rows) and out/repurchase_by_region.png.",
+     "remaining": "The output is wrong: many repurchase rates exceed 1.0 (e.g. 华东 2025-03 has 2,001 re … ), so the calculation in repurchase.py must be fixed and the CSV and chart regenerated.",
+     "cause_known": false
+    }
+   }
   },
   "expect": {
    "action": "up",
@@ -145,7 +156,18 @@
    },
    "statedNext": "写法已经定了：每页的「参数」一节统一成一张四列的表（参数、类型、必填、说明），约定写进了 docs/CONTRIBUTING.md。又按它改完 4 页，跑一下检查脚本看进度。",
    "codeMode": false,
-   "notes": null
+   "notes": {
+    "before": {
+     "done": "The parameter-section rule is recorded in docs/CONTRIBUTING.md, and docs/api/cancel-order.md, docs/api/list-orders.md and docs/api/get-invoice.md have been edited successfully.",
+     "remaining": "The parameter sections of the other 38 pages under docs/api/ still need converting to the rule, and then all 41 pages need a consistency check.",
+     "cause_known": true
+    },
+    "after": {
+     "done": "The parameter-section rule (one table with columns 参数 | 类型 | 必填 | 说明) i … NTRIBUTING.md, and the check shows 8 of the 41 pages under docs/api/ already follow it.",
+     "remaining": "The other 33 pages still need conversion (27 bullet lists, 4 old tables, 2 prose), followed by a consistency check across all 41 pages.",
+     "cause_known": true
+    }
+   }
   },
   "expect": {
    "action": "down",
@@ -226,7 +248,18 @@
    },
    "statedNext": "matchMedia 的 mock 挪到渲染之前装好了，单独跑这个测试文件 6 个全过。再跑一遍全量确认。",
    "codeMode": false,
-   "notes": null
+   "notes": {
+    "before": {
+     "done": "主题开关测试文件 src/settings/theme-toggle.test.tsx 现在 6 个用例全部通过，之前失败的「restores \"system\" and follows …」用例已通过。",
+     "remaining": "结果中没有显示「跟随系统」选项、localStorage 存取和页面加载恢复逻辑的实现是否已完成，需要确认这些代码并运行完整测试套件。",
+     "cause_known": false
+    },
+    "after": {
+     "done": "最新一次运行显示 src/settings/theme-toggle.test.tsx 有 1 个失败用例「res … 通过”的说法不符；整个套件结果为 187 通过、1 失败（共 188）。",
+     "remaining": "还需确认「跟随系统」选项、localStorage 存取和页面加载恢复逻辑 … 码），然后修复失败的 system 主题用例并重新运行完整测试套件。",
+     "cause_known": false
+    }
+   }
   },
   "expect": {
    "action": "up",
@@ -307,7 +340,18 @@
    },
    "statedNext": "Lint is clean in all three packages with the flat config. Committing the bump and the migration.",
    "codeMode": false,
-   "notes": null
+   "notes": {
+    "before": {
+     "done": "On branch chore/eslint-9, the legacy `.eslintrc.cjs` was replaced with a flat `eslint.c … , and packages/web reported Done in the latest run, with no errors shown in its output.",
+     "remaining": "Lint the fourth workspace project and confirm zero errors across all four, then find out why the CI lint job takes about nine minutes versus forty seconds locally and fix it.",
+     "cause_known": false
+    },
+    "after": {
+     "done": "On branch chore/eslint-9, commit 8c41d07 bumped eslint to 9.14 and replaced the legacy  …  `eslint.config.mjs`, and the earlier run showed packages/web finishing with no errors.",
+     "remaining": "Lint the fourth workspace project to confirm zero errors across all four, then find out why the CI lint job takes about nine minutes versus forty seconds locally and fix it.",
+     "cause_known": false
+    }
+   }
   },
   "expect": {
    "action": "hold",
@@ -375,7 +419,18 @@
    },
    "statedNext": "密钥、请求体、镜像两边都对得上，本地拿同一份抓包验签也通过。把这份抓包原样重放到 staging，看能不能复现 401。",
    "codeMode": true,
-   "notes": null
+   "notes": {
+    "before": {
+     "done": "Confirmed the request body is byte-identical at ingress and in the app (1482 bytes), an … ptured request cb_1117_0914 verifies as valid locally against staging secret version 7.",
+     "remaining": "The cause of the 401 is still unknown, since the local check passes; next, compare the signature header format and the raw-body HMAC against a real failing provider request.",
+     "cause_known": false
+    },
+    "after": {
+     "done": "Replaying the captured callback 12 times to staging sent byte-identical bodies and iden … (x2 and k8), so the 401 is intermittent and not explained by the payload or by one pod.",
+     "remaining": "Find what the server checks differently between the 200 and 401 responses, such as per- … ndow, or a load-balancer path, then confirm it against a real failing provider request.",
+     "cause_known": false
+    }
+   }
   },
   "expect": {
    "action": "up",
@@ -455,7 +510,18 @@
    },
    "statedNext": "回滚事务的做法最快，三个自己 commit 的测试用 savepoint 就能兜住，payments 上 212 个全过。把 fixture 挪进 testkit，payments 改成从那里导入，再跑一遍确认。",
    "codeMode": false,
-   "notes": null
+   "notes": {
+    "before": {
+     "done": "The payments integration `conftest.py` now imports the transactional `db` fixture from  … tion that is rolled back; the edit succeeded but no tests have been run against it yet.",
+     "remaining": "Run the payments integration suite to confirm the 3 self-committing tests pass under ro … pproach out to the other 9 services and time the full suite against the 6m12s baseline.",
+     "cause_known": true
+    },
+    "after": {
+     "done": "Switched the payments integration `conftest.py` to the transactional `db` fixture from  … , 12 deletions), and the payments integration suite now passes all 212 tests in 47.80s.",
+     "remaining": "Roll the transactional fixture out to the other 9 services and time the full suite against the 6m12s baseline.",
+     "cause_known": true
+    }
+   }
   },
   "expect": {
    "action": "down",
@@ -536,7 +602,18 @@
    },
    "statedNext": "单条 SQL 只要 40 毫秒，瓶颈多半不在数据库。给三个阶段加上计时，拿 2000 个账户的样本跑一遍。",
    "codeMode": false,
-   "notes": null
+   "notes": {
+    "before": {
+     "done": "Added `timed()` instrumentation around `fetch_entries`, `to_csv`, and `store.put` in th … `/workspace/ledger-jobs/jobs/export_ledger.py`, but no timings have been collected yet.",
+     "remaining": "Run the export to collect the per-stage timings, measure the cost of creating an Object … ed/incremental export) that is checked against 3x data volume, without implementing it.",
+     "cause_known": false
+    },
+    "after": {
+     "done": "A timing run on a 2,000-account sample (14m52s wall, which extrapolates to about 5h for … , mostly connect+TLS (52%) and upload (29%), with fetch_entries at 9% and to_csv at 8%.",
+     "remaining": "Write the redesign plan comparing at least two approaches (for example, reusing one sto … ithout implementing either; the first-half run time under 2 hours has not been checked.",
+     "cause_known": true
+    }
+   }
   },
   "expect": {
    "action": "hold",
