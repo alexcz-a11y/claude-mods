@@ -186,7 +186,7 @@ E1 到 E9 是 2.1.326（2026-11-17），E6 和 E10 到 E18 是 2.1.327（2026-11
 
 ### 有密钥（2.1.328）
 
-2026-11-19 实测：Claude Code 2.1.328，tmux 里的交互会话，主模型 Sonnet 5.5，Drex `drex-max-v1.1`，一共 72 次判断请求，没有设任何 OpenTelemetry 变量。
+2026-11-19 实测：Claude Code 2.1.328，tmux 里的交互会话，主模型 Sonnet 5.5，Drex `drex-max-v1.1`，验证用了 72 次判断请求，修后的复查另外 6 次（一共 78 次），没有设任何 OpenTelemetry 变量。
 
 **普通会话**
 
@@ -210,6 +210,7 @@ E1 到 E9 是 2.1.326（2026-11-17），E6 和 E10 到 E18 是 2.1.327（2026-11
 
 - **F1：会话第一条之后，每条消息的 skill 决定都没记到它的轮上。** 现象：这些决定都记成 `turnId: null`、`applied: false`，虽然推荐已经随消息送下去了；`/dp log` 写「未执行」，也没有轮。原因（2.1.328 上用一次性探针量了两遍）：`prompt.submit` 的 `next(e)` 在 `turn.start` 的 hook 开始之后、结束之前就返回（顺序见「引擎规则」）；入口的 `turn.start` hook 先 await `startTurn` 再取判断，`prompt.submit` 在这中间看到判断还放着，就当作没有轮开始，记成了没有轮。会话的第一条不受影响，因为它的判断在列表到达时补做，那时轮已经开始了。
 - 现在的规则：一条消息的 skill 判断一直放着，直到同一段文字的 `turn.start` 记下它，带那一轮的 id，`applied` 是推荐有没有随消息送下去；不管这个 hook 在 `next(e)` 返回之前还是之后开始、结束都一样。`prompt.submit` 只在消息被丢掉（`next(e)` 回答 `drop`）时自己记（`turnId: null`、`applied: false`）。下一次 `prompt.submit` 开始时，还放着的判断（它的轮没开始，或者别的 mod 改了它的文字）记成 `turnId: null`、`applied: false` 并放掉，不管那条消息有没有自己的判断（这时进行中那一轮自己的判断已经在它的 `turn.start` 上取走了，还放着的不属于任何一轮）；这样它不会被之后文字碰巧相同的一轮拿走。每个判断只记一次；热重载或会话结束会丢掉还放着的那一个（`flows/skills.ts`，`tests/skills.test.ts` 里 F1 的几条）。
+- 修后实测（2.1.328，普通会话，Sonnet 5.5，另外 6 次判断请求）：会话第一条消息的 skill 记录带它那一轮的 id；「用 GSAP 的 ScrollTrigger…」那条推荐 `gsap-scrolltrigger` 的记录带它那一轮的 id，`/dp log` 里不再写「未执行」；没有推荐的那条记录同样带轮次。
 
 **没有验证的**
 
