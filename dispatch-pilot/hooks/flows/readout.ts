@@ -64,7 +64,7 @@ export function readout($: EngineInterface, e: { url: string; init?: HttpInit },
 async function keepReading($: EngineInterface, r: Reading, open: OpenStep | null): Promise<null> {
   if (r.kind === 'main') {
     const effort = r.effort
-    const level = await failOpen($, 'http.fetch', false, () => keepLevel($, effort))
+    const level = await failOpen($, 'http.fetch', false, () => keepLevel($, effort, r.codeMode))
     const cell = await failOpen($, 'http.fetch', false, () => keepCell($, effort, open))
     if (level || cell) await redraw($)
   }
@@ -72,10 +72,16 @@ async function keepReading($: EngineInterface, r: Reading, open: OpenStep | null
   return null
 }
 
-// Whether it wrote: the board is drawn again only for a change.
-async function keepLevel($: EngineInterface, effort: Level | null): Promise<boolean> {
-  if ((await read($, SESSION)).lastSent === effort) return false
-  await update($, SESSION, (s) => ({ ...s, lastSent: effort }))
+// Whether it wrote: the board is drawn again only for a change. The request's tools also tell the session's kind: once
+// known it stays; a receipt seen earlier (midrun.ts) is Code Mode whatever a request says.
+async function keepLevel($: EngineInterface, effort: Level | null, codeMode: boolean | undefined): Promise<boolean> {
+  const s0 = await read($, SESSION)
+  const kindNews = codeMode !== undefined && (!s0.codeModeKnown || (codeMode && !s0.codeMode))
+  if (s0.lastSent === effort && !kindNews) return false
+  await update($, SESSION, (s) => {
+    const kind = codeMode === undefined ? {} : { codeMode: s.codeMode || codeMode, codeModeKnown: true }
+    return { ...s, lastSent: effort, ...kind }
+  })
   return true
 }
 

@@ -977,3 +977,34 @@ test('没有主循环的一步开着：请求体不解析，状态不读（G7）
   const f = fakeDollar({ state: {}, store: { log: [] } })
   expect(readout(f.$, { url: MESSAGES, init: init(body) } as never, 'engine')).toBe(null)
 })
+
+
+const CODE_TOOLS = [{ name: 'REPL', input_schema: {} }, { name: 'Poll', input_schema: {} }]
+const PLAIN_TOOLS = [{ name: 'Bash', input_schema: {} }, { name: 'Read', input_schema: {} }]
+
+test('classify：请求体的 tools 里有 REPL 是 Code Mode，没有是普通会话；没有 tools 时不说', () => {
+  expect(read(body({ effort: 'high', extra: { tools: CODE_TOOLS } }))).toEqual({ kind: 'main', effort: 'high', codeMode: true })
+  expect(read(body({ effort: 'high', extra: { tools: PLAIN_TOOLS } }))).toEqual({ kind: 'main', effort: 'high', codeMode: false })
+  expect(read(body({ effort: 'high', extra: { tools: [] } }))).toEqual({ kind: 'main', effort: 'high', codeMode: false })
+  expect('codeMode' in (read(body({ effort: 'high' })) as object)).toBe(false)
+  expect('codeMode' in (read(body({ effort: 'high', extra: { tools: 'REPL' } })) as object)).toBe(false)
+})
+
+test('会话种类：第一次主循环请求的 tools 定下来；之后普通会话的请求不把 Code Mode 改回去', { options: NO_NOTE }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answers(SUBMIT_HOLD, HOLD) })
+  await begin($)
+  expect((lastOf(w, 'session') as SessionState).codeModeKnown).toBe(false)
+  const plain = fakeDollar(seedOf(w))
+  await sendIn(plain, [{ turnId: 't1', index: 0 }], [body({ effort: 'medium', extra: { tools: PLAIN_TOOLS } })])
+  expect([plain.session().codeMode, plain.session().codeModeKnown]).toEqual([false, true])
+  const code = fakeDollar(seedOf(w))
+  await sendIn(code, [{ turnId: 't1', index: 0 }], [body({ effort: 'medium', extra: { tools: CODE_TOOLS } })])
+  expect([code.session().codeMode, code.session().codeModeKnown]).toEqual([true, true])
+  await sendIn(code, [{ turnId: 't1', index: 1 }], [body({ effort: 'medium', extra: { tools: PLAIN_TOOLS } })])
+  expect(code.session().codeMode).toBe(true)
+  // A body with no tools list says nothing of the kind.
+  const none = fakeDollar(seedOf(w))
+  await sendIn(none, [{ turnId: 't1', index: 0 }], [body({ effort: 'medium' })])
+  expect(none.session().codeModeKnown).toBe(false)
+  expect([plain.leaked(), code.leaked(), none.leaked()]).toEqual([[], [], []])
+})

@@ -16,8 +16,12 @@ import type { TurnState } from './state.ts'
 /** The main loop's step whose request is on its way; matched: one of its requests was read already. */
 export type OpenStep = { turnId: string; index: number; model: string; matched: boolean }
 
-/** unsure: a main-loop request read while a step was open, which cannot be told from an agent's (or a second one). */
-export type Reading = { kind: 'main'; effort: Level | null } | { kind: 'unsure' } | { kind: 'ignore' }
+/**
+ * unsure: a main-loop request read while a step was open, which cannot be told from an agent's (or a second one).
+ * codeMode, on a main reading whose body lists its tools: whether the tools the model was given include REPL, which a
+ * Code Mode session's main loop is given and an ordinary one's is not. Absent when the body has no tools list.
+ */
+export type Reading = { kind: 'main'; effort: Level | null; codeMode?: boolean } | { kind: 'unsure' } | { kind: 'ignore' }
 
 const IGNORE: Reading = { kind: 'ignore' }
 
@@ -61,7 +65,10 @@ export function classify(i: { originPlugin: string | undefined; url: string; bod
   if (open.matched || typeof body.model !== 'string' || modelBase(body.model) !== modelBase(open.model) || i.agentStepsOpen > 0) return { kind: 'unsure' }
   // The top level only: a message that carried a change has an output_config of its own (E6).
   const config = body.output_config
-  return { kind: 'main', effort: isRecord(config) && isLevel(config.effort) ? config.effort : null }
+  const effort = isRecord(config) && isLevel(config.effort) ? config.effort : null
+  const tools = body.tools
+  if (!Array.isArray(tools)) return { kind: 'main', effort }
+  return { kind: 'main', effort, codeMode: tools.some((t) => isRecord(t) && t.name === 'REPL') }
 }
 
 /** The check a turn waits on: the Decision's id and the level the next main-loop request should carry. */
