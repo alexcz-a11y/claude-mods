@@ -223,7 +223,10 @@ function count<T>(xs: readonly T[], f: (x: T) => boolean): number {
   return xs.filter(f).length
 }
 
-/** A category's problems (its 15 cases); an empty array means it passes. */
+/**
+ * A category's problems (its 15 cases); an empty array means it passes. Every case must already have passed
+ * checkCase: a malformed one (an input field missing, say) may make this throw.
+ */
 export function checkSet(category: Category, cases: readonly Case[]): string[] {
   const problems: string[] = []
   const want = (ok: boolean, what: string): void => {
@@ -293,7 +296,10 @@ const BEARER = /\bBearer [A-Za-z0-9._~+/=-]{8,}/g
 const HEX = /\b[0-9a-fA-F]{32,}\b/g
 // A random base64 run of 32 or more has a digit and both cases all but always; a long identifier or path seldom does.
 const BASE64 = [/[A-Za-z0-9+/]{32,}={0,2}/g, /[A-Za-z0-9_-]{32,}/g]
-const USER_PATH = /\/(?:Users|home)\/[^/\s]+\//g
+// A home directory with or without a path after it ("cd /Users/someone"); quotes and brackets end the name.
+const USER_PATH = /\/(?:Users|home)\/[^/\s'"`()<>[\]{},;]+\/?/g
+// The placeholder user, however the path ends ("/Users/user", "/Users/user/", "/Users/user.").
+const isPlaceholderUser = (s: string): boolean => s.replace(/[/.:]+$/, '') === '/Users/user'
 
 /** The fragments of a text that look like a key, a token or a local path with a user name in it. */
 export function secretsIn(text: string): string[] {
@@ -305,7 +311,7 @@ export function secretsIn(text: string): string[] {
   scan(BEARER, (s) => /[0-9]/.test(s))
   scan(HEX)
   for (const re of BASE64) scan(re, (s) => /[0-9]/.test(s) && /[a-z]/.test(s) && /[A-Z]/.test(s))
-  scan(USER_PATH, (s) => s !== '/Users/user/')
+  scan(USER_PATH, (s) => !isPlaceholderUser(s))
   // One secret can match several patterns: keep the first and longest of overlapping hits.
   hits.sort((a, b) => a.at - b.at || b.text.length - a.text.length)
   const out: string[] = []

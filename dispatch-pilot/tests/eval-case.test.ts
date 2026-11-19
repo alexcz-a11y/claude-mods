@@ -125,6 +125,17 @@ test('文字里有密钥或带用户名的路径：是问题', () => {
   expect(secretsIn('at /Users/someone/project/a.ts')).toHaveLength(1)
   expect(secretsIn('at /Users/user/project/a.ts')).toEqual([])
 })
+test('不以斜杠结尾的用户路径也算；/Users/user 不算', () => {
+  expect(secretsIn('cd /Users/someone')).toHaveLength(1)
+  expect(secretsIn('cd /Users/user')).toEqual([])
+  expect(secretsIn('/Users/user/x')).toEqual([])
+})
+test('midrun 的进展记录不是 null：合格的通过，缺 cause_known 是一个问题', () => {
+  const after = { done: 'found the race', remaining: 'fix it and rerun', cause_known: true }
+  expect(checkCase({ ...okMidrun, input: { ...okMidrun.input, notes: { before: null, after } } }, [])).toEqual([])
+  const { cause_known: _, ...partial } = after
+  expect(checkCase({ ...okMidrun, input: { ...okMidrun.input, notes: { before: null, after: partial } } }, [])).toHaveLength(1)
+})
 test('secretsIn 认的其余几种', () => {
   expect(secretsIn('OPENAI=sk-proj-abc123def456')).toHaveLength(1)
   expect(secretsIn('token ghp_A1b2C3d4E5f6G7h8')).toHaveLength(1)
