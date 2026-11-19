@@ -21,7 +21,9 @@ const ALL = { up, start, ordinary, notsent, idle, locked }
 const width = (r: Row): number => displayWidth(rowText(r))
 const texts = (r: Row): string[] => r.parts.flatMap((p) => (p.t === 'text' ? [p.text] : []))
 const drawn = (p: Part | undefined): string => (p === undefined ? '' : runsOf(p).map((r) => r.text).join(''))
-const sectionsOf = (m: BoardModel): Record<string, string[]> => Object.fromEntries(paneSections(m).map((x) => [x.id, x.rows.map(rowText)]))
+// A boxed row reads as its title in brackets, then its rows, each after a bar.
+const rowLines = (r: Row): string[] => (r.box === undefined ? [rowText(r)] : [`[${r.box.title}]`, ...r.box.rows.map((x) => `| ${rowText(x)}`)])
+const sectionsOf = (m: BoardModel): Record<string, string[]> => Object.fromEntries(paneSections(m).map((x) => [x.id, x.rows.flatMap(rowLines)]))
 
 // The brief's six.
 
@@ -258,9 +260,20 @@ test('面板的各分区：现在、换挡记录、上次评估、下次评估�
     '原因已查明      0.22  否',
     '只剩照做        0.18  否',
     '与计划矛盾      0.09  否',
-    '比 high 高的各档合计 0.41 < 0.80：不升',
-    '比 high 低的各档合计 0.13 < 0.70：不降',
     '第 9 步后 · Drex · 312 ms',
+    '[换挡依据]',
+    '| ↑ 第 6 步后 medium → high  （已发出）',
+    '| 模型的判断         估计  要',
+    '| 该用 high 或更高   85%   70%   ✓ 到这里',
+    '| 该用 xhigh 或更高  45%   80%   ✗ 停',
+    '| 同一失败又出现     91%   70%   ✓ 直接升一档',
+    '| 之后又评估了 3 次，都没换档',
+    '[下次怎样会换档]',
+    '| 要满足              上次  要',
+    '| 该用 xhigh 或更高   41%   80%   → 升到 xhigh',
+    '| 该用 medium 或更低  13%   70%   → 降到 medium',
+    '| 降还要：原因已查明，或剩下只是照做',
+    '| 直接升一档：同一失败又出现，或结果和计划矛盾',
   ])
   expect(s.next).toEqual(['下一份脚本结果到达时', '每 1 份脚本结果评估一次 · 本轮还可换挡 3 次'])
   expect(s.features).toEqual([
@@ -278,7 +291,18 @@ test('面板的各分区：现在、换挡记录、上次评估、下次评估�
   expect(sectionsOf(notsent).shifts).toEqual(['第 3 步后  medium → high（已发出）', '  同一失败在修改后又出现', '第 7 步后  high → xhigh（还没发出）', '  最新结果和原计划矛盾'])
   expect(sectionsOf(notsent).now?.slice(0, 2)).toEqual(['▮▮▮▯▯ high', '! 要 xhigh，实际发出 high'])
   expect(sectionsOf(locked).shifts).toEqual(['这一轮没有换挡'])
-  expect(sectionsOf(ordinary).last).toEqual(['× 评估失败，档位不变', '评估失败：超时，按规则放行', '第 13 步后 · Drex 超时'])
+  expect(sectionsOf(ordinary).last).toEqual([
+    '× 评估失败，档位不变',
+    '评估失败：超时，按规则放行',
+    '第 13 步后 · Drex 超时',
+    // The message's shift is still the turn's last; the failed evaluation leaves no estimates, so no forecast.
+    '[换挡依据]',
+    '| ↑ 发消息时 medium → high  （已发出）',
+    '| 模型的判断         估计  要',
+    '| 该用 high 或更高   88%   70%   ✓ 到这里',
+    '| 该用 xhigh 或更高  38%   80%   ✗ 停',
+    '| 之后又评估了 2 次，都没换档',
+  ])
   // Between turns: the level the last turn ended at, and the last evaluation recorded.
   const between = sectionsOf(idle)
   expect(between.now).toEqual(['▮▮▯▯▯ medium', '– 空闲', '上一轮结束在 high', 'Code Mode 会话'])

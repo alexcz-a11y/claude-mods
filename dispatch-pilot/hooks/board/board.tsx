@@ -23,6 +23,8 @@ const SKILLS = atom({ plugin: 'dispatch-pilot', key: 'skills' } as const, [])
 
 /** The pane's id: $.ui.open, $.ui.close and its ui.render requestId. */
 export const PANE_ID = 'dispatch-pilot'
+/** What a boxed row's border and padding take of the pane's width: a column of border and one of padding each side. */
+const BOX_COLUMNS = 4
 /** The Desktop timeline's most rows (design 5.14). */
 const DESKTOP_MAX_ROWS = 12
 
@@ -185,7 +187,16 @@ export function registerBoard(on: On, cfg: Config): void {
             {sections.flatMap((s, i) => [
               ...(i === 0 ? [] : [<Text> </Text>]),
               <Text {...TONE_LOOK.accent}>{s.title}</Text>,
-              ...s.rows.map((row) => drawDesktopRow({ Box, Svg, Text }, fitDesktopRow(row, columns, barWidth), barWidth)),
+              ...s.rows.map((row) =>
+                row.box === undefined ? (
+                  drawDesktopRow({ Box, Svg, Text }, fitDesktopRow(row, columns, barWidth), barWidth)
+                ) : (
+                  <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
+                    <Text {...TONE_LOOK.accent}>{row.box.title}</Text>
+                    {row.box.rows.map((r) => drawDesktopRow({ Box, Svg, Text }, fitDesktopRow(r, columns - BOX_COLUMNS, barWidth), barWidth))}
+                  </Box>
+                ),
+              ),
             ])}
           </Box>
         )
@@ -193,7 +204,20 @@ export function registerBoard(on: On, cfg: Config): void {
       const { Box, Text } = $.ui.resolve(e)
       return (
         <Box flexDirection="column">
-          {sections.flatMap((s, i) => [...(i === 0 ? [] : [<Text> </Text>]), <Text {...TONE_LOOK.accent}>{s.title}</Text>, ...s.rows.map((row) => drawRow(Text, fitRow(row, columns), 'wrap'))])}
+          {sections.flatMap((s, i) => [
+            ...(i === 0 ? [] : [<Text> </Text>]),
+            <Text {...TONE_LOOK.accent}>{s.title}</Text>,
+            ...s.rows.map((row) =>
+              row.box === undefined ? (
+                drawRow(Text, fitRow(row, columns), 'wrap')
+              ) : (
+                <Box flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
+                  <Text {...TONE_LOOK.accent}>{row.box.title}</Text>
+                  {row.box.rows.map((r) => drawRow(Text, fitRow(r, columns - BOX_COLUMNS), 'wrap'))}
+                </Box>
+              ),
+            ),
+          ])}
         </Box>
       )
     })

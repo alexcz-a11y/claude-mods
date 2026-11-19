@@ -3,7 +3,7 @@
 // nothing the model has said is worked out again. board.tsx draws these; each Tone becomes a theme key there.
 import { LEVELS } from '../levels.ts'
 import type { Level } from '../levels.ts'
-import type { BoardModel, Mark, Readout, TrackCell } from './model.ts'
+import type { BoardModel, Mark, Readout, TrackCell, TableRow } from './model.ts'
 
 /** How a stretch of text looks. Only theme keys stand behind them, so the board follows the person's theme. */
 export type Tone = 'plain' | 'dim' | 'ok' | 'warn' | 'err' | 'info' | 'accent' | Level
@@ -20,7 +20,8 @@ export type Part =
  * to the next such part, go with it (a label and its value, one item of a list). A line too wide for its columns
  * loses its last groups whole (fitRow), never its first, and never half a word or half a wide character.
  */
-export type Row = { id: string; parts: Part[] }
+/** box: the pane draws the row as a round box with this title over these rows (its own parts are empty). */
+export type Row = { id: string; parts: Part[]; box?: { title: string; rows: Row[] } }
 
 export type Section = { id: 'now' | 'shifts' | 'last' | 'next' | 'features' | 'agents' | 'skill'; title: string; rows: Row[] }
 
@@ -390,9 +391,63 @@ function lastRows(m: BoardModel): Row[] {
     const reading = READING[n.reading]
     rows.push({ id: `noul-${i}`, parts: [text(padded(n.label, label)), text(n.value.toFixed(2), 'dim'), text(`  ${reading.text}`, reading.tone)] })
   })
-  last.rules.forEach((rule, i) => rows.push({ id: `rule-${i}`, parts: [text(rule, 'dim')] }))
+  if (last.note !== null) rows.push({ id: 'note', parts: [text(last.note, 'dim')] })
   rows.push({ id: 'by', parts: [text(`${last.at} · ${last.by}`, 'dim')] })
-  return rows
+  return [...rows, ...boxRows(m)]
+}
+
+const pct = (p: number): string => `${Math.round(p * 100)}%`
+
+// A small table: the label, what the decision model gave, the bar, what came of it; the columns padded to line up.
+function tableRows(id: string, head: [string, string, string], rows: readonly TableRow[]): Row[] {
+  const label = Math.max(displayWidth(head[0]), ...rows.map((r) => displayWidth(r.label))) + 2
+  return [
+    { id: `${id}-head`, parts: [text(padded(head[0], label) + padded(head[1], 6) + head[2], 'dim')] },
+    ...rows.map((r, i): Row => ({
+      id: `${id}-${i}`,
+      parts: [text(padded(r.label, label), r.tone === 'dim' ? 'dim' : undefined), text(padded(pct(r.p), 6), r.tone === 'dim' ? 'dim' : undefined, r.tone !== 'dim'), text(padded(pct(r.bar), 6), 'dim'), text(r.mark, r.tone)],
+    })),
+  ]
+}
+
+// The two boxes under the last evaluation (after the person's ask on 2026-11-19): the last shift's basis, kept until
+// the next shift, and what the next evaluation would need. Only inside a turn.
+function boxRows(m: BoardModel): Row[] {
+  const out: Row[] = []
+  if (!m.isIdle) {
+    const b = m.basis
+    const inner: Row[] =
+      b === null
+        ? [{ id: 'none', parts: [text('这一轮还没有换挡', 'dim')] }]
+        : [
+            {
+              id: 'head',
+              parts: [
+                text(b.dir === 'up' ? '↑ ' : '↓ ', b.dir === 'up' ? 'warn' : 'medium', true),
+                text(`${b.at} `, 'dim'),
+                text(b.from, b.from, true),
+                text(' → '),
+                text(b.to, b.to, true),
+                ...(Math.abs(LEVELS.indexOf(b.to) - LEVELS.indexOf(b.from)) > 1 ? [text(`（${b.dir === 'up' ? '升' : '降'} ${Math.abs(LEVELS.indexOf(b.to) - LEVELS.indexOf(b.from))} 档）`, 'dim')] : []),
+                text('  '),
+                readingPart(b.reading),
+              ],
+            },
+            ...(b.rows.length === 0 ? [] : tableRows('basis', ['模型的判断', '估计', '要'], b.rows)),
+            ...b.notes.map((n, i): Row => ({ id: `note-${i}`, parts: [text(n, 'dim')] })),
+            ...(b.since === null ? [] : [{ id: 'since', parts: [text(b.since, 'dim')] }]),
+          ]
+    out.push({ id: 'basis', parts: [], box: { title: '换挡依据', rows: inner } })
+  }
+  const f = m.forecast
+  if (f !== null) {
+    out.push({
+      id: 'forecast',
+      parts: [],
+      box: { title: '下次怎样会换档', rows: [...tableRows('forecast', ['要满足', '上次', '要'], f.rows), ...f.notes.map((n, i): Row => ({ id: `note-${i}`, parts: [text(n, 'dim')] }))] },
+    })
+  }
+  return out
 }
 
 function nextRows(m: BoardModel): Row[] {
