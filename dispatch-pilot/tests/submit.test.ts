@@ -556,7 +556,7 @@ test('turn.start 清掉旧判断的同时，这一轮自己的判断写进来：
   expect(logged(w).map((d) => [d.turnId, d.to])).toEqual([['t1', 'high']])
 })
 
-test('续做：上一轮没有判断过（task-notification），它的档就是会话的档，续做从这一档起算', { options: KEYS }, async ($, on) => {
+test('续做：上一轮没有判断过（task-notification），它的档就是会话的档，续做沿用这一档', { options: KEYS }, async ($, on) => {
   const w = world(on, { onSubmit: turns($), answer: ({ body }) => drexOk('continues' in body.questions ? { ...HOLD, continues: noul(0.9) } : RAISE) })
   await start($)
   await submit($, 'Background task finished', { kind: 'task-notification' })

@@ -278,6 +278,9 @@ async function main(): Promise<void> {
     const killed = tmux(env, 'kill-session', '-t', session)
     if (tmux(env, 'has-session', '-t', session).status === 0) throw new Error(`the tmux session ${session} is still there after kill-session (exit ${killed.status})`)
     live = false
+    // The settings file holds the key and the session that read it is gone: removed now, not after runCheck, whose
+    // spawnSync keeps the signal handlers from running for up to CHECK_MS. cleanUp removes it on every earlier exit.
+    rmSync(settingsPath, { force: true })
 
     const recs = readRecords(records)
     const span = turnSpan(recs) ?? { startedAt: sentAt ?? started.getTime(), endedAt: Date.now() }

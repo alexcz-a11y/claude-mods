@@ -7,6 +7,7 @@
 // order from no note at all, and "after" the next one, written at the latest step on top of "before".
 import { progressPrompt } from '../../hooks/progress.ts'
 import type { ProgressNote, StepRecord } from '../../hooks/statebuild.ts'
+import { recordDir } from '../accept/lib/records.ts'
 import type { MidrunCase } from './case.ts'
 
 export type Notes = { before: ProgressNote | null; after: ProgressNote | null }
@@ -69,4 +70,26 @@ export function withoutTelemetry(env: Readonly<Record<string, string | undefined
   const out: Record<string, string> = {}
   for (const [k, v] of Object.entries(env)) if (v !== undefined && !TELEMETRY.includes(k) && !k.startsWith('OTEL_')) out[k] = v
   return out
+}
+
+/**
+ * The environment of one note's call: no telemetry variable and no Nace key. The call needs no key, and one in the
+ * environment is one `env` away from the session's record (as sessionEnv in accept/lib/session.ts).
+ */
+export function noteEnv(env: Readonly<Record<string, string | undefined>>): Record<string, string> {
+  const out = withoutTelemetry(env)
+  delete out.NACE_API_KEY
+  return out
+}
+
+// What every call directory's record folder is named from (notes.ts makes its call directories under /private/tmp/dp-notes).
+const CALL_RECORD_PREFIX = '-private-tmp-dp-notes-call-'
+
+/**
+ * The folder Claude Code keeps a call's session record in, which notes.ts removes after the call; null for a directory
+ * that is not a note's call directory, so nothing else under ~/.claude/projects/ is ever removed.
+ */
+export function callRecord(home: string, callDir: string): string | null {
+  const dir = recordDir(home, callDir)
+  return dir.slice(dir.lastIndexOf('/') + 1).startsWith(CALL_RECORD_PREFIX) ? dir : null
 }

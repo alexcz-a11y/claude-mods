@@ -41,13 +41,14 @@ export function wants(cases: readonly Case[], names: readonly string[], repeat: 
 /** How often the held-out pass asks a variant: the category's default 3 times (skill: stage-1 and stage-2), others once. */
 const HELDOUT_REPEATS = 3
 
-/** The held-out set's one pass (Ruling C3): every registered variant of every case. */
+/** The held-out set's one pass (Ruling C3): every variant registered before it (afterHeldout off) of every case. */
 export function heldoutWants(cases: readonly Case[]): Want[] {
   const out: Want[] = []
   for (const c of cases) {
     const all = VARIANTS[c.category]
     const main = c.category === 'skill' ? ['stage-1', 'stage-2'] : [all[0]!.name]
     for (const variant of all) {
+      if (variant.afterHeldout === true) continue
       const times = main.includes(variant.name) ? HELDOUT_REPEATS : 1
       for (let r = 1; r <= times; r++) out.push({ c, variant, repeat: r })
     }

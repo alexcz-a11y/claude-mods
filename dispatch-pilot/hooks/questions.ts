@@ -2,7 +2,7 @@
 // no $ calls.
 // Questions point at state fields with a backtick path (`request`, `latest.result`), so a field
 // renamed in statebuild.ts must be renamed here too (a test checks the top-level names).
-// The wording is a starting point; calibration may change it.
+// The wording is the calibration's start, kept by the calibration of 2026-11-19: an alternative was tried and withdrawn.
 
 export type Question =
   | { type: 'score'; instructions: string; criteria: readonly string[] }

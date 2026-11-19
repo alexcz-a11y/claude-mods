@@ -38,7 +38,7 @@ import { VARIANTS, build } from './lib/request.ts'
 import type { Built, Variant } from './lib/request.ts'
 import { RATE_LIMITED, SMOKE, Store } from './lib/store.ts'
 import type { Result } from './lib/store.ts'
-import { conservativeFor, plateau, sweep } from './lib/sweep.ts'
+import { conservativeFor, plateau, ruledValue, sweep, valueAt } from './lib/sweep.ts'
 
 const USAGE = 'usage: node dispatch-pilot/eval/run.ts <check-cases|plan|ask|smoke|score|sweep|stability> [--data <dir>] [flags]; see the head of run.ts'
 const CATEGORIES: readonly Category[] = ['submit', 'midrun', 'agent', 'skill']
@@ -541,6 +541,10 @@ function sweepCommand(a: Args, ctx: Ctx, cases: readonly Case[]): void {
   for (const r of rows) console.log(`${r.value.toFixed(2)}  right ${String(r.right).padStart(2)}  no answer ${r.unusable}  ${'█'.repeat(r.right)}`)
   const p = plateau(rows, conservativeFor(path))
   console.log(`${path}: best ${p.best} of ${kept.length} from ${p.from.toFixed(2)} to ${p.to.toFixed(2)}; the conservative end is ${p.pick.toFixed(2)}`)
+  // What the record takes (A14, A15, A3), from the start value; the conservative end alone would move thresholds no case asks to move.
+  const r = ruledValue(rows, path, valueAt(START_BARS, path))
+  const why = r.rule === 'A14' ? 'the best stretch covers the grid, start value kept' : r.rule === 'A15' ? 'start value inside the best stretch, kept' : 'start value outside the best stretch: its conservative end'
+  console.log(`${path}: by the record's rules, swept alone over --bars: ${r.value.toFixed(2)} (amendment ${r.rule}: ${why})`)
 }
 
 // ---- main

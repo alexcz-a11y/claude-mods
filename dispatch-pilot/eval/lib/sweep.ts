@@ -73,6 +73,13 @@ export function sweep(cases: readonly Case[], stored: (id: string, variant: stri
  * more than one stretch, the stretch at the conservative end is taken.
  */
 export function plateau(rows: readonly Row[], conservative: 'high' | 'low'): { best: number; from: number; to: number; pick: number } {
+  const { best, stretches } = bestStretches(rows)
+  const [from, to] = conservative === 'high' ? stretches.at(-1)! : stretches[0]!
+  return { best, from, to, pick: conservative === 'high' ? to : from }
+}
+
+// The best score and every stretch of consecutive values that reaches it, lowest first.
+function bestStretches(rows: readonly Row[]): { best: number; stretches: [number, number][] } {
   if (rows.length === 0) throw new Error('no rows to choose from')
   const sorted = [...rows].sort((a, b) => a.value - b.value)
   const best = Math.max(...sorted.map((r) => r.right))
@@ -83,6 +90,23 @@ export function plateau(rows: readonly Row[], conservative: 'high' | 'low'): { b
     if (last !== undefined && sorted[i - 1]?.right === best) last[1] = r.value
     else stretches.push([r.value, r.value])
   })
-  const [from, to] = conservative === 'high' ? stretches.at(-1)! : stretches[0]!
-  return { best, from, to, pick: conservative === 'high' ? to : from }
+  return { best, stretches }
+}
+
+/** A threshold's value in a set of bars, by its path ('agent.down'). */
+export function valueAt(bars: Bars, path: string): number {
+  const [group, key] = split(path)
+  return (bars[group] as Record<string, number>)[key]!
+}
+
+/**
+ * The value the record's rules give a threshold swept alone: the start value when the best stretch covers the whole
+ * grid (amendment A14: no case holds it) or the start value is in a best stretch (A15: moving it gets no case more
+ * right); otherwise the conservative end of the best stretch (A3). A tie between stretches counts each as best.
+ */
+export function ruledValue(rows: readonly Row[], path: string, start: number): { value: number; rule: 'A14' | 'A15' | 'A3' } {
+  const { best, stretches } = bestStretches(rows)
+  if (rows.every((r) => r.right === best)) return { value: start, rule: 'A14' }
+  if (stretches.some(([from, to]) => from <= start && start <= to)) return { value: start, rule: 'A15' }
+  return { value: plateau(rows, conservativeFor(path)).pick, rule: 'A3' }
 }

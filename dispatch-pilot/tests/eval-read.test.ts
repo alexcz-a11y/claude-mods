@@ -5,7 +5,7 @@ import { skillBarsFor } from '../hooks/skills.ts'
 import { settleSubmit } from '../hooks/submit.ts'
 import { CHOSEN_BARS, START_BARS, mark, outcomeOf, shortlistOf } from '../eval/lib/read.ts'
 import type { Bars, Stored } from '../eval/lib/read.ts'
-import { conservativeFor, gridFor, plateau, sweep } from '../eval/lib/sweep.ts'
+import { conservativeFor, gridFor, plateau, ruledValue, sweep, valueAt } from '../eval/lib/sweep.ts'
 import type { Row } from '../eval/lib/sweep.ts'
 import type { AgentCase, MidrunCase, SkillCase, SubmitCase } from '../eval/lib/case.ts'
 
@@ -268,4 +268,35 @@ test('plateau：对得最多的一段，high 取最大的值，low 取最小的'
   const rows: Row[] = [3, 5, 5, 5, 4].map((right, i) => ({ value: [0.5, 0.55, 0.6, 0.65, 0.7][i]!, right, unusable: 0, marks: {} }))
   expect(plateau(rows, 'high')).toEqual({ best: 5, from: 0.55, to: 0.65, pick: 0.65 })
   expect(plateau(rows, 'low')).toEqual({ best: 5, from: 0.55, to: 0.65, pick: 0.55 })
+})
+
+const rowsOf = (values: readonly number[], rights: readonly number[]): Row[] => values.map((value, i) => ({ value, right: rights[i]!, unusable: 0, marks: {} }))
+
+test('ruledValue：最好的一段盖住整个网格，保留初值（修订 A14）', () => {
+  const grid = gridFor('submit.up')
+  expect(ruledValue(rowsOf(grid, grid.map(() => 4)), 'submit.up', 0.7)).toEqual({ value: 0.7, rule: 'A14' })
+})
+
+test('ruledValue：初值在最好的一段里，保留初值（修订 A15）；no 也一样', () => {
+  const grid = gridFor('submit.up')
+  // 0.50-0.60 score 3, 0.65-0.95 score 5: the start value 0.70 is inside.
+  expect(ruledValue(rowsOf(grid, grid.map((v) => (v < 0.65 ? 3 : 5))), 'submit.up', 0.7)).toEqual({ value: 0.7, rule: 'A15' })
+  const noGrid = gridFor('submit.no')
+  expect(ruledValue(rowsOf(noGrid, noGrid.map((v) => (v > 0.4 ? 2 : 4))), 'submit.no', 0.3)).toEqual({ value: 0.3, rule: 'A15' })
+  // Two stretches tie for best: the start value in either is kept.
+  expect(ruledValue(rowsOf(grid, grid.map((v) => (v === 0.7 || v === 0.9 ? 5 : 3))), 'submit.up', 0.7)).toEqual({ value: 0.7, rule: 'A15' })
+})
+
+test('ruledValue：初值在最好的一段之外，取那一段保守的一端（修订 A3）', () => {
+  const grid = gridFor('agent.down')
+  // As agent.down on fit: 2 right from 0.50 to 0.75, 3 from 0.80 to 0.95; the start 0.70 is outside.
+  expect(ruledValue(rowsOf(grid, grid.map((v) => (v < 0.8 ? 2 : 3))), 'agent.down', 0.7)).toEqual({ value: 0.95, rule: 'A3' })
+  const noGrid = gridFor('midrun.no')
+  expect(ruledValue(rowsOf(noGrid, noGrid.map((v) => (v >= 0.35 ? 5 : 4))), 'midrun.no', 0.3)).toEqual({ value: 0.35, rule: 'A3' })
+})
+
+test('valueAt：一个门槛在 Bars 里的值', () => {
+  expect(valueAt(START_BARS, 'agent.modelDown')).toBe(START.modelDown)
+  expect(valueAt(START_BARS, 'skill.named')).toBe(START_BARS.skill.named)
+  expect(() => valueAt(START_BARS, 'agent.nope')).toThrow()
 })

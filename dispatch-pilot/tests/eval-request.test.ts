@@ -1,4 +1,5 @@
 import { expect, test } from 'claude-code/testing'
+import type { SessionState } from '../hooks/state.ts'
 import { DIRECT_LEVEL, LONG_UNATTENDED, OPEN_LEVELS_B, readDirect } from '../eval/lib/controls.ts'
 import { VARIANTS, build } from '../eval/lib/request.ts'
 import type { Variant } from '../eval/lib/request.ts'
@@ -6,6 +7,8 @@ import type { AgentCase, MidrunCase, SkillCase, SubmitCase } from '../eval/lib/c
 import { agentQuestions, midrunQuestions, submitQuestions } from '../hooks/questions.ts'
 import { stageOne } from '../hooks/skills.ts'
 import { midrunState, submitState } from '../hooks/statebuild.ts'
+// The file's own step() builds a step record; the world's sends an engine step.
+import { KEYS, complete, drexOk, noul, score, start, step as engineStep, submit, turns, world } from './support/world.ts'
 
 const label = { by: 'model' as const, rationale: '只是改一个拼写。' }
 const previous = { request: 'add a flag', lastReply: 'Added --dry-run.', ended: 'answered' as const, level: 'medium' as const }
@@ -55,7 +58,7 @@ function variant(category: keyof typeof VARIANTS, name: string): Variant {
 const optionsOf = (q: unknown): string[] => Object.keys((q as { criteria: Record<string, unknown> }).criteria)
 
 test('每一类登记的给法和名字；第一项是 default（skill 是 stage-1）', () => {
-  expect(VARIANTS.submit.map((v) => v.name)).toEqual(['default', 'with-controls', 'no-previous', 'direct-shuffled', 'with-skills', 'open-b'])
+  expect(VARIANTS.submit.map((v) => v.name)).toEqual(['default', 'with-controls', 'no-previous', 'direct-shuffled', 'with-skills', 'open-b', 'first-message'])
   expect(VARIANTS.midrun.map((v) => v.name)).toEqual([
     'default', 'with-controls', 'recent-1', 'recent-3', 'progress-before', 'progress-after',
     'recent-1-with-controls', 'recent-3-with-controls', 'no-stated-next-with-controls', 'direct-shuffled', 'open-b',
@@ -102,6 +105,66 @@ test('submit 的 no-previous：没有 previous_turn，也没有 continues', () =
   const b = build(submitCase, variant('submit', 'no-previous'), ctx)
   expect(b.state).toEqual(submitState({ request: submitCase.input.request, previous: null }))
   expect(b.questions.continues).toBe(undefined)
+})
+
+// Final review I1: with no skill candidate (a session's first message, every message with skills off) the mod asks the
+// level questions alone. first-message is that request.
+const firstCase: SubmitCase = { ...submitCase, id: 'submit-02', input: { ...submitCase.input, previous: null } }
+
+test('submit 的 first-message：只有档位题，state 和 default 相同，不按 partial 发，没有对照题', () => {
+  for (const c of [submitCase, firstCase]) {
+    const b = build(c, variant('submit', 'first-message'), ctx)
+    expect(b.state).toEqual(build(c, variant('submit', 'default'), ctx).state)
+    expect(b.questions).toEqual(submitQuestions(c.input.previous !== null))
+    expect(noControl(b.questions)).toBe(true)
+    expect(b.partial).toBe(false)
+  }
+  expect(Object.keys(build(firstCase, variant('submit', 'first-message'), ctx).questions)).toEqual(['open', 'mechanical', 'unknown_cause'])
+  expect(Object.keys(build(submitCase, variant('submit', 'first-message'), ctx).questions)).toEqual(['open', 'mechanical', 'unknown_cause', 'continues'])
+})
+
+test('submit 的 first-message 和没有候选 skill 时的 default 是同一个请求（state、题、partial、hash）', () => {
+  for (const c of [submitCase, firstCase]) {
+    const b = build(c, variant('submit', 'first-message'), ctx)
+    const none = build(c, variant('submit', 'default'), { skills: [] })
+    expect([b.hash, b.state, b.questions, b.partial]).toEqual([none.hash, none.state, none.questions, none.partial])
+    // With candidates the default is the other request.
+    expect(b.hash === build(c, variant('submit', 'default'), ctx).hash).toBe(false)
+  }
+})
+
+const sessionOf = (w: ReturnType<typeof world>): SessionState => w.stateWrites.filter((s) => s.key === 'session' && s.isSet).at(-1)?.value as SessionState
+
+test('submit 的 first-message 逐题就是 mod 没有候选 skill 时发的请求：会话的第一条消息，和有上一轮的下一条', { options: KEYS }, async ($, on) => {
+  const answers = { open: score([0.05, 0.3, 0.3, 0.3, 0.05]), mechanical: noul(0.1), unknown_cause: noul(0.2) }
+  const w = world(on, { onSubmit: turns($), answer: ({ body }) => drexOk('continues' in body.questions ? { ...answers, continues: noul(0.1) } : answers) })
+  await start($)
+  const first = 'Fix the flaky retry in the uploader'
+  await submit($, first)
+  await engineStep($, { turnId: 't1', index: 0, effort: 'medium' })
+  await complete($, 't1', { answer: 'The retry now waits for the lock.' })
+  const previous = sessionOf(w).previous
+  expect(previous).toMatchObject({ request: first })
+  const next = 'Now the downloader'
+  await submit($, next)
+
+  // No listing has come, so neither message has a candidate skill.
+  expect(w.fetched).toHaveLength(2)
+  const cases: SubmitCase[] = [
+    { ...submitCase, input: { request: first, previous: null, base: 'medium' } },
+    { ...submitCase, input: { request: next, previous: previous!, base: 'medium' } },
+  ]
+  cases.forEach((c, i) => {
+    const b = build(c, variant('submit', 'first-message'), ctx)
+    const sent = w.fetched[i]!.body
+    expect(Object.keys(b.questions)).toEqual(Object.keys(sent.questions))
+    expect(b.questions).toEqual(sent.questions)
+    expect(b.state).toEqual(sent.state)
+    // The body is all that goes out; partial only says how the answer is read, and the mod's branch with no
+    // candidate passes skills.length > 0, false.
+    expect(sent).toEqual({ model: 'drex-max-v1.1', state: b.state, questions: b.questions })
+    expect(b.partial).toBe(false)
+  })
 })
 
 test('midrun 的 default（修订 A16）：只有 mod 的题，state 是 midrunState 的（最近 5 条，没有 stated_next，不带进展记录）', () => {
@@ -260,7 +323,8 @@ test('submit、midrun、agent：带对照题的给法题号和 with-controls 相
   for (const c of [submitCase, midrunCase, agentCase]) {
     const idsOf = (name: string): string[] => Object.keys(build(c, variant(c.category, name), ctx).questions).sort()
     for (const v of VARIANTS[c.category]) {
-      if (v.name === 'with-skills') continue
+      // Both are checked on their own: with-skills adds the skill questions, first-message leaves them out.
+      if (v.name === 'with-skills' || v.name === 'first-message') continue
       const got = Object.keys(build(c, v, ctx).questions).sort()
       const ids = idsOf(withControls.includes(v.name) ? 'with-controls' : 'default')
       // The mod asks continues only when there is a previous turn to go on from.

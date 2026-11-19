@@ -3,7 +3,7 @@ import { CAP, RATE_WAITS, mayAskHeldout, pool, spend } from '../eval/lib/budget.
 import type { Spent } from '../eval/lib/budget.ts'
 import { checkSessions } from '../eval/lib/case.ts'
 import type { AgentCase, Case, MidrunCase, SkillCase, SubmitCase } from '../eval/lib/case.ts'
-import { heldoutWants, sentState, variantsFor, wants } from '../eval/lib/plan.ts'
+import { heldoutWants, sentState, unknownVariants, variantsFor, wants } from '../eval/lib/plan.ts'
 
 test('花得起：返回花过之后的数', () => {
   expect(spend({ requests: 1, tokens: 10 }, { requests: 1, tokens: 5 })).toEqual({ requests: 2, tokens: 15 })
@@ -216,6 +216,16 @@ test('留出集的一次运行：每类每种登记的给法都发，default 3 �
     'skill-01 stage-1 #1', 'skill-01 stage-1 #2', 'skill-01 stage-1 #3', 'skill-01 stage-2 #1', 'skill-01 stage-2 #2', 'skill-01 stage-2 #3',
     'skill-01 stage-1-alone #1', 'skill-01 stage-2-alone #1', 'skill-01 stage-1-shuffled #1', 'skill-01 stage-2-shuffled #1',
   ])
+  // first-message was registered after the held-out pass, which is not asked again (amendment A1): the pass leaves it out.
+  expect(got.some((x) => x.includes('first-message'))).toBe(false)
+})
+
+test('--variant first-message：和别的给法一样能选（submit 才有），留出集的那一次运行不带它', () => {
+  expect(unknownVariants(['first-message'])).toEqual([])
+  expect(variantsFor('submit', ['first-message']).map((v) => v.name)).toEqual(['first-message'])
+  for (const category of ['midrun', 'agent', 'skill'] as const) expect(variantsFor(category, ['first-message'])).toEqual([])
+  expect(variantsFor('submit', ['all']).map((v) => v.name)).toContain('first-message')
+  expect(tally(wants([submitCase, agentCase], ['first-message'], 3))).toEqual(['submit-01 first-message #1', 'submit-01 first-message #2', 'submit-01 first-message #3'])
 })
 
 test('--variant：不给是每类的 default（skill 是 stage-1 加 stage-2）；可以给几次；all 是全部；skill 的一步带上它那一对', () => {

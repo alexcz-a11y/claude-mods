@@ -20,12 +20,13 @@ import type { ProgressNote } from '../hooks/statebuild.ts'
 import { pool } from './lib/budget.ts'
 import { checkCase } from './lib/case.ts'
 import type { MidrunCase } from './lib/case.ts'
-import { callsFor, firstPrompt, foldNotes, noteArgs, notesWanted, withNotes, withoutTelemetry } from './lib/notes.ts'
+import { callRecord, callsFor, firstPrompt, foldNotes, noteArgs, noteEnv, notesWanted, withNotes } from './lib/notes.ts'
 import type { Notes } from './lib/notes.ts'
 
 const USAGE = 'usage: node dispatch-pilot/eval/notes.ts [--data <dir>] [--dry-run] [--only <case id>] [--force]'
 const REPO_FILE = fileURLToPath(new URL('./cases/midrun.json', import.meta.url))
-// Each call runs in a fresh empty directory here, so its session record does not land among this project's.
+// Each call runs in a fresh empty directory here, so its session record does not land among this project's; that record
+// (cleaned real session text) is removed after the call, as the call's directory is.
 const CALL_ROOT = '/private/tmp/dp-notes'
 const CALL_MS = 120_000
 const CONCURRENCY = 4
@@ -89,7 +90,14 @@ function killGroup(pid: number): void {
   }
 }
 
-/** One note: claude -p in a fresh directory, without the telemetry variables; killed (its whole group) after CALL_MS. */
+// A call's directory and the session record Claude Code wrote for it under ~/.claude/projects/.
+function removeCall(dir: string): void {
+  rmSync(dir, { recursive: true, force: true })
+  const record = callRecord(homedir(), dir)
+  if (record !== null) rmSync(record, { recursive: true, force: true })
+}
+
+/** One note: claude -p in a fresh directory, without the telemetry variables or the key; killed (its whole group) after CALL_MS. */
 function call(p: Prompt): Promise<Called> {
   mkdirSync(CALL_ROOT, { recursive: true, mode: 0o700 })
   const dir = mkdtempSync(join(CALL_ROOT, 'call-'))
@@ -101,11 +109,11 @@ function call(p: Prompt): Promise<Called> {
       settled = true
       clearTimeout(timer)
       if (child.pid !== undefined) live.delete(child.pid)
-      rmSync(dir, { recursive: true, force: true })
+      removeCall(dir)
       resolve(c)
     }
     // detached: its own process group, so a kill takes the hooks and tools it started too.
-    const child = spawn('claude', noteArgs(p.system), { cwd: dir, env: withoutTelemetry(process.env), stdio: ['pipe', 'pipe', 'ignore'], detached: true })
+    const child = spawn('claude', noteArgs(p.system), { cwd: dir, env: noteEnv(process.env), stdio: ['pipe', 'pipe', 'ignore'], detached: true })
     if (child.pid !== undefined) live.set(child.pid, dir)
     const timer = setTimeout(() => {
       if (child.pid !== undefined) killGroup(child.pid)
@@ -166,7 +174,7 @@ async function main(): Promise<void> {
   const onSignal = (): void => {
     for (const [pid, dir] of live) {
       killGroup(pid)
-      rmSync(dir, { recursive: true, force: true })
+      removeCall(dir)
     }
     cleanRoot()
     process.exit(130)

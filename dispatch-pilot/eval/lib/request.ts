@@ -16,7 +16,8 @@ import { DIRECT_LEVEL, LONG_UNATTENDED, OPEN_LEVELS_B } from './controls.ts'
  * sends, put back as midrunState used to put it, so the requests asked with it keep their hash. partial: when skill
  * questions ride along, the request is asked as hooks/flows/submit.ts asks it (ask's partial). openLevels 'b': the open
  * question's criteria are OPEN_LEVELS_B (controls.ts), nothing else changed. oldNote: the mid-run note as it read
- * before it stopped naming stated_next, for the requests asked with it.
+ * before it stopped naming stated_next, for the requests asked with it. afterHeldout: registered after the held-out
+ * pass, which is not asked again (amendment A1), so that pass leaves it out.
  */
 export type Variant = {
   name: string
@@ -32,6 +33,7 @@ export type Variant = {
   oldNote?: boolean
   shuffle?: number
   stage?: 1 | 2
+  afterHeldout?: boolean
 }
 /** partial: send it with ask's partial, as the mod sends a request whose skill questions ride along. */
 export type Built = { caseId: string; variant: string; state: Record<string, unknown>; questions: Record<string, Question>; partial: boolean; hash: string }
@@ -52,6 +54,9 @@ export const VARIANTS: Record<Category, readonly Variant[]> = {
     // Ruling C18b: the skill questions beside the level's and the controls, asked as before A16 (not partial).
     { name: 'with-skills', previous: true, controls: true, skills: true },
     { name: 'open-b', previous: true, skills: true, partial: true, openLevels: 'b' },
+    // Final review I1: the request the mod sends when no skill is a candidate (a session's first message, every
+    // message with skills off), the level questions alone; asked on the tuning set only, after the held-out pass.
+    { name: 'first-message', previous: true, afterHeldout: true },
   ],
   midrun: [
     { name: 'default', recent: 5, progress: 'none' },

@@ -158,6 +158,7 @@ function onAssistant(j: TurnJournal, row: Row): TurnJournal {
   // A response: the results after it are a step of their own.
   const next = { ...j, joins: null }
   const said = row.text.trim()
+  // No longer sent (calibration, 2026-11-19), still kept: the calibration's miner reads it for its first pass's variants.
   if (said !== '') next.statedNext = clip(said, STATED_NEXT_TOKENS)
   for (const use of row.toolUses) {
     if (EDITS.has(use.name) || use.name === 'REPL') next.editedSinceError = true
