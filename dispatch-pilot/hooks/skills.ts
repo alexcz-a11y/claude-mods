@@ -110,10 +110,13 @@ export function stageOne(skills: Skill[], backend: Backend, withGate: boolean): 
   return questions
 }
 
-/** The cookbook's needs_skill: the action answers' mean at ACTION_BAR, or named at NAMED_BAR. One of the three missing: no mean. */
-export function wantsSkill(a: { acts?: number; procedure?: number; prose?: number; named?: number }): boolean {
-  const acting = a.acts !== undefined && a.procedure !== undefined && a.prose !== undefined && (a.acts + a.procedure + (1 - a.prose)) / 3 >= ACTION_BAR
-  return acting || (a.named !== undefined && a.named >= NAMED_BAR)
+/**
+ * The cookbook's needs_skill: the action answers' mean at ACTION_BAR, or named at NAMED_BAR. One of the three missing:
+ * no mean. bars: other thresholds, for calibration's sweep; the mod uses the defaults.
+ */
+export function wantsSkill(a: { acts?: number; procedure?: number; prose?: number; named?: number }, bars: { action: number; named: number } = { action: ACTION_BAR, named: NAMED_BAR }): boolean {
+  const acting = a.acts !== undefined && a.procedure !== undefined && a.prose !== undefined && (a.acts + a.procedure + (1 - a.prose)) / 3 >= bars.action
+  return acting || (a.named !== undefined && a.named >= bars.named)
 }
 
 function gateOf(answers: Record<string, Answer>): { acts?: number; procedure?: number; prose?: number; named?: number } {
@@ -160,10 +163,13 @@ function bestFit(short: Skill[], answers: Record<string, Answer>): number | unde
   return known.length === 0 ? undefined : Math.max(...known)
 }
 
-/** The suggestion: which's choice, once the best fits reaches FITS_BAR; null for other, or when none fits. A shortlist of one asked no which (Jev): its fits alone decides. */
-export function pick(short: Skill[], answers: Record<string, Answer>): Skill | null {
+/**
+ * The suggestion: which's choice, once the best fits reaches FITS_BAR (fits: another bar, for calibration's sweep);
+ * null for other, or when none fits. A shortlist of one asked no which (Jev): its fits alone decides.
+ */
+export function pick(short: Skill[], answers: Record<string, Answer>, fits: number = FITS_BAR): Skill | null {
   const best = bestFit(short, answers)
-  if (best === undefined || best < FITS_BAR) return null
+  if (best === undefined || best < fits) return null
   const which = answers.which
   if (which === undefined && short.length === 1) return short[0]!
   if (which?.type !== 'choice' || which.choice === 'other') return null
