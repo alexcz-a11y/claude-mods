@@ -12,7 +12,7 @@ import { answerDp, registerDp } from './flows/dp.ts'
 import { onRow } from './flows/midrun.ts'
 import { dropQueuedInput, noteCameBack, tickProgress } from './flows/progress.ts'
 import { openStep, readout } from './flows/readout.ts'
-import { findSkill, foldListing, holdSkill, recordSkill, takeSkillFor, takeUnclaimed } from './flows/skills.ts'
+import { findSkill, foldListing, holdSkill, recordDropped, recordSkill, takeSkillFor } from './flows/skills.ts'
 import { dropPending, endTurn, judgeMessage, mainStep, startTurn } from './flows/submit.ts'
 import { failOpen, firstDraw, verifies } from './runtime.ts'
 
@@ -30,19 +30,20 @@ export const register: Register = (on, options) => {
     return answer ?? next(e)
   })
 
-  // The person is waiting for the message to go in: the asks are the only wait here. The pending decision is
-  // written before next(e), inside which the engine starts the message's turn; a suggestion goes down as context.
+  // The person is waiting for the message to go in: the asks are the only wait here. The pending decision and the
+  // held skill judgement are written before next(e): the engine starts the message's turn.start hook inside it, and
+  // that hook may finish after next(e) returns (step 0 waits for it). A suggestion goes down as context.
   on('prompt.submit', async ($, e, next) => {
     // Switched off (enabled): every hook below passes its event on as it came and writes nothing.
     if (!cfg.enabled) return next(e)
     const skill = await failOpen($, 'prompt.submit', null, () => judgeMessage($, cfg, { text: e.text, origin: e.origin?.kind, turnId: e.turnId }))
     const block = skill?.skill && cfg.mode === 'apply' ? suggestionBlock(skill.skill) : null
-    if (skill !== null) holdSkill({ text: e.text, outcome: skill, applied: block !== null })
+    if (skill !== null) await failOpen($, 'prompt.submit', null, () => holdSkill($, { text: e.text, outcome: skill, applied: block !== null }))
     const r = await next(block === null ? e : { ...e, context: [...(e.context ?? []), block] })
-    if (r.drop !== undefined) await failOpen($, 'prompt.submit', null, () => dropPending($))
-    // Still here: no turn started with it (a drop, or the engine started none inside next).
-    if (skill !== null && takeUnclaimed(skill)) {
-      await failOpen($, 'prompt.submit', null, () => recordSkill($, skill, { turnId: null, applied: false }))
+    if (r.drop !== undefined) {
+      await failOpen($, 'prompt.submit', null, () => dropPending($))
+      // The one case decided here: a kept message's judgement waits for its turn.start, which may not have run yet.
+      if (skill !== null) await failOpen($, 'prompt.submit', null, () => recordDropped($, skill))
     }
     return r
   })
@@ -69,13 +70,14 @@ export const register: Register = (on, options) => {
     // A new main-loop turn: no input of the last one waits for a progress note (a call still in the air is kept, and
     // dropped when it comes back).
     if (e.agentId === undefined) dropQueuedInput()
+    // Taken before any await, so this turn's judgement is its own whatever runs meanwhile; recorded once the turn is.
+    const mine = e.agentId === undefined ? takeSkillFor(e.text) : null
     await failOpen($, 'turn.start', null, async () => {
       // A subagent's turns are its own: the main loop's turn is not touched by them.
       if (e.agentId !== undefined) return null
       // A decision that stays pending is taken by this turn's first step, once the effort is known.
       return startTurn($, e.turnId, e.text)
     })
-    const mine = e.agentId === undefined ? takeSkillFor(e.text) : null
     if (mine !== null) {
       await failOpen($, 'turn.start', null, () => recordSkill($, mine.outcome, { turnId: e.turnId, applied: mine.applied }))
     }

@@ -48,15 +48,25 @@ export async function suggestSkill($: EngineInterface, cfg: Config, c: { skills:
   return { ...none, second, ...readStageTwo(one.short, second) }
 }
 
-// A message's skill judgement, from its prompt.submit to the turn.start its next(e) raises with the same text, where
-// the turn's id is known (prompt.submit's own reads cannot see that turn: one dispatch reads one moment). The Decision
-// is recorded there, or after next(e) with no turn when none started. Module level: a hot reload in between loses
-// that one Decision.
+// A message's skill judgement, from its prompt.submit to the turn.start of its text, where the turn's id is known
+// (prompt.submit's own reads cannot see that turn: one dispatch reads one moment). prompt.submit cannot tell after
+// next(e) whether a turn took it: next(e) returns once turn.start's hook has started, and that hook may finish after
+// (measured on 2.1.328; F1). So it stays held until one of three records it, once: the turn.start of its text; the
+// prompt.submit of a dropped message; or the next message's holdSkill, with no turn, when no turn took it (none
+// started, or another mod rewrote the text). Module level: a hot reload or the session's end loses a held judgement.
 let skillOut: { text: string; outcome: SkillOutcome; applied: boolean } | null = null
 
-// A message's skill judgement, held for the turn.start of its text.
-export function holdSkill(held: NonNullable<typeof skillOut>): void {
-  skillOut = held
+// A message's skill judgement, held for the turn.start of its text. One still held (no turn took it) is recorded
+// first, with no turn; the new one is held even when that write fails.
+export async function holdSkill($: EngineInterface, held: NonNullable<typeof skillOut>): Promise<null> {
+  const stale = skillOut
+  skillOut = null
+  try {
+    if (stale !== null) await recordSkill($, stale.outcome, { turnId: null, applied: false })
+  } finally {
+    skillOut = held
+  }
+  return null
 }
 
 // The judgement held for this text, taken so it is recorded once (null: none held for it).
@@ -66,11 +76,11 @@ export function takeSkillFor(text: string): typeof skillOut {
   return mine
 }
 
-// After prompt.submit's next(e): whether this judgement is still held (no turn took it), taken if so.
-export function takeUnclaimed(outcome: SkillOutcome): boolean {
-  if (skillOut?.outcome !== outcome) return false
+// A message that did not go in starts no turn: its judgement, if still held, is recorded now, with none.
+export async function recordDropped($: EngineInterface, outcome: SkillOutcome): Promise<null> {
+  if (skillOut?.outcome !== outcome) return null
   skillOut = null
-  return true
+  return recordSkill($, outcome, { turnId: null, applied: false })
 }
 
 // A message sent while no candidate was recorded yet (measured: a session's first listing comes after its first message's

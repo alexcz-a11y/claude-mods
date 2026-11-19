@@ -59,8 +59,8 @@ dispatch-pilot/
 
 - **atom 要在用它的文件里声明。** `read`/`update` 的状态来源必须是字面量引用，或者是本文件里一个 const 的 `atom`/`memberOf`/`derive`。从别的文件导入的 atom 会让模块加载失败，validate 和测试工具都报 `the state library's read takes a source the scan can read: … written there or in a const of this file`。所以每个文件在顶部各自声明自己用到的 atom，一个一行，默认值取自 `hooks/state.ts` 或同样的字面量；同样的 plugin 和 key 在几个文件里各声明一次，加载和测试都没有问题。`eval/validate.ts` 检查同一个 key 的声明逐字相同。agents 这一族照旧在每个调用处写出字面量引用。
 - **`$` 可以交给导入的顶层函数。** validate 和测试工具都顺着导入扫描，validate 列出调用时写成 `$.command.register (via registerDp)` 这样。限制只是：不起别名、不解构、不交给局部函数。`on` 也一样可以交给导入的函数（入口里的 `registerBoard(on, cfg)`）。
-- **一次 dispatch 里的每次 `$.state` 读取读的是同一个时刻**（类型文件：「Every `get` of one dispatch reads one moment, whatever is written meanwhile.」）。所以 `prompt.submit` 自己读不到它的 `next(e)` 里开始的那一轮：一条消息的 skill 判断先放在模块级变量里，到同一段文字的 `turn.start` 上再记下（`flows/skills.ts` 的 `holdSkill` 和 `takeSkillFor`）。还没有候选时发的消息也一样：`holdUnjudged` 记下它的文字，`turn.start` 用 `takeUnjudged` 在那一轮上置 `skillsDue`，这一轮里第一份主循环的列表在 `foldListing` 里判断它（`judgeLate`，先用 `update` 把标记取走，两份列表同时到也只判断一次）。
-- **`turn.start` 在 `prompt.submit` 的 `next(e)` 里面触发**，带的就是 `prompt.submit` 交下去的那段文字（顺序：submit 的 hook 开始 → `turn.start` → submit 的 `next` 返回 → 第 0 步）。一轮进行中打的消息被引擎排队，到它自己那一轮开始时才有 `prompt.submit`（没见到带 `e.turnId` 的）；mod 注册的本地命令不触发 `prompt.submit`。所以发消息时的判断在 `next(e)` 之前写进 `session.pending`，`turn.start` 只在文字相同时留下它（一条消息的决定绑在它开始的那一轮上）。
+- **一次 dispatch 里的每次 `$.state` 读取读的是同一个时刻**（类型文件：「Every `get` of one dispatch reads one moment, whatever is written meanwhile.」）。所以 `prompt.submit` 自己读不到它的 `next(e)` 里开始的那一轮：一条消息的 skill 判断先放在模块级变量里，到同一段文字的 `turn.start` 上再记下（`flows/skills.ts` 的 `holdSkill` 和 `takeSkillFor`）；消息被丢掉时由 `prompt.submit` 记（`recordDropped`），没有轮来取的由下一条消息的 `holdSkill` 先记成没有轮。还没有候选时发的消息也一样：`holdUnjudged` 记下它的文字，`turn.start` 用 `takeUnjudged` 在那一轮上置 `skillsDue`，这一轮里第一份主循环的列表在 `foldListing` 里判断它（`judgeLate`，先用 `update` 把标记取走，两份列表同时到也只判断一次）。
+- **`turn.start` 的 hook 在 `prompt.submit` 的 `next(e)` 里面开始，可能在它返回之后才结束**，带的就是 `prompt.submit` 交下去的那段文字。2.1.328 上量了两遍的顺序：submit 的 hook 进入 → `turn.start` 的 hook 进入 → submit 的 `next` 返回 → `turn.start` 的 hook 在它的 await 之后接着跑 → `turn.start` 的 hook 返回 → 第 0 步。第 0 步等 `turn.start` 跑完才开始；`prompt.submit` 在 `next(e)` 返回之后看不出这一轮的 `turn.start` 做完了没有（见「实机验证」里的 F1）。没有密钥时，一轮进行中打的消息被引擎排队，到它自己那一轮开始时才有 `prompt.submit`（没见到带 `e.turnId` 的）；有密钥实测时它作为 `queued_command` 送进进行中的这一轮，那次 `prompt.submit` 带 `turnId`（见「实机验证」）；mod 注册的本地命令不触发 `prompt.submit`。所以发消息时的判断在 `next(e)` 之前写进 `session.pending`，`turn.start` 只在文字相同时留下它（一条消息的决定绑在它开始的那一轮上）。
 - **skill 列表是增量。** 第一次的 `skill_listing` 有全部条目（实测 169 条、约 3 万字符）；会话中途在磁盘上加一个 skill，再来的是只有那一条的列表，开头的说明相同。所以候选按名字合并，后来的同名条目替换旧的，从不整个替换或清空（`mergeSkills`）。`/clear` 之后的下一条消息前 12 秒内没有新的列表，`session.start` 也没有再触发。
 - **热重载。** 改入口文件会重载 mod（「reloaded in 3.2ms」），入口和它导入的模块的模块级变量都从头开始；只改一个被导入的模块，6 秒内没有重载。所以 `hooks/flows/*` 里的模块级变量（读数的 `openMain` 和 `agentStepsOpen`、进展记录的在途调用、一条消息的 skill 判断）热重载会丢，丢了的代价写在各自的注释里；改了 flow 文件之后要看到效果，就再保存一次入口文件。
 - **内联插件的选项。** `--plugin-dir` 加载的 mod 拿不到用户存的 plugin 选项（那些只给装好的 plugin）。选项（包括敏感的密钥）可以经 `--settings` 传：`{"pluginConfigs":{"dispatch-pilot@inline":{"options":{...}}}}`。
@@ -171,9 +171,42 @@ E1 到 E9 是 2.1.326（2026-11-17），E6 和 E10 到 E18 是 2.1.327（2026-11
 
 ## 实机验证
 
-下面都是没有密钥时实测的（2.1.327，tmux 里的交互会话），所以一次判断请求也没有发出过。**带着真实密钥在普通会话和 Code Mode 会话里实际跑完三项换挡和 skill 推荐的验证还没有做。**
+### 没有密钥（2.1.327）
+
+下面都是没有密钥时实测的（2.1.327，tmux 里的交互会话），所以一次判断请求也没有发出过。
 
 - **普通会话**（haiku，另加一个只挂 `http.fetch` 的一次性探针）：引擎的请求到 hook 时 `next.origin.plugin` 是 `engine`，请求体是字符串；`JSON.parse` 一次 0–3 ms（请求体 9 KB 到 207 KB）。主循环的请求带 `thread` 和 `output_config.effort`，旁路的请求（323 B、4 KB、约 200 KB）不带 `thread`；`body.model` 就是这一步的模型（`claude-haiku-5-5`）。一轮结束后时间轴那一行是「▮▮▯▯▯ medium  – 空闲   上一轮结束在 medium   下次评估 不评估 · 没有可用的后端 · 普通会话」。加载 `dispatch-pilot:find-skill` 时由 mod 的 `skill.prompt` hook 回答（模型读到的是「还没有记下 skill」那一句，不是字面的 Query 行）。调试日志里没有 dispatch-pilot 的错误。
 - **Code Mode 会话**（haiku，三个脚本）：Code Mode 的提示照常出现；一轮进行中时间轴每步多一格（第 1 步 … 第 5 步），在 medium 读到「✓ 已发出」，读数在 Code Mode 里也能用；会话类型在第一条回执行之前写「普通会话」，之后是「Code Mode 会话」；取值 ≤ 1 ms。`find-skill` 在 Code Mode 里同样由 mod 回答（mod 不调 `next`，排在它后面加载的探针看不到这个事件）。当时发现没有密钥时 mod 仍在发消息时和每个检查点评估，每次以没有密钥失败并记一条失败（「评 ×××××」）；之后改成没有可用的后端时不评估、不记录（`tests/midrun.test.ts` 里「没有可用的后端」的几条）。
-- **探针**（一次性的 mod）：挂 `ui.render`（AbovePrompt、SessionMode）不挡 Code Mode，band 画在提示符上方，SessionMode 的文字在脚部那一行的右端；`turn.start` 在 `prompt.submit` 的 `next(e)` 里触发（submit 的 hook 进入 → `turn.start` → submit 的 `next` 返回 → 第 0 步），`e.text` 就是 `prompt.submit` 往下传的文字，一轮进行中打的消息排队，到它自己那一轮开始时才触发它的 `prompt.submit`，mod 注册的本地命令不触发 `prompt.submit`；Code Mode 一轮里的行、skill 列表的增量和热重载见上面各条。
+- **探针**（一次性的 mod）：挂 `ui.render`（AbovePrompt、SessionMode）不挡 Code Mode，band 画在提示符上方，SessionMode 的文字在脚部那一行的右端；`turn.start` 的 hook 在 `prompt.submit` 的 `next(e)` 里开始（当时记的顺序是 submit 的 hook 进入 → `turn.start` → submit 的 `next` 返回 → 第 0 步；它的 hook 可能在 `next` 返回之后才结束，2.1.328 上才量出来，见「引擎规则」），`e.text` 就是 `prompt.submit` 往下传的文字，一轮进行中打的消息排队，到它自己那一轮开始时才触发它的 `prompt.submit`，mod 注册的本地命令不触发 `prompt.submit`；Code Mode 一轮里的行、skill 列表的增量和热重载见上面各条。
 - **agent 的模型**（2026-11-18）：见上面「调用没写模型的 agent 用它自己定义里的模型」。
+
+### 有密钥（2.1.328）
+
+2026-11-19 实测：Claude Code 2.1.328，tmux 里的交互会话，主模型 Sonnet 5.5，Drex `drex-max-v1.1`，一共 72 次判断请求，没有设任何 OpenTelemetry 变量。
+
+**普通会话**
+
+- **发消息定档**：改名这类机械改动 → `medium` 不变（最低档的概率 0.68，没过 0.70）；原因不明的偶发 502 → `medium → xhigh`；两条记录的 `sent` 都等于 `to`。发消息的那一次请求（effort 的题加 176 个候选的 skill 第一阶段）577–985 ms；skill 的第二次请求另加约 450–700 ms。
+- **中途换挡**：同一失败在修改后又出现 → 第 4 步后 `high → xhigh`（806 ms），说明加在那条工具结果行上，下一次请求带 `xhigh`（`sent: xhigh`），那一轮 1 条说明。模型用 `./check.sh; echo "exit=$?"` 把退出码吃掉时，那条结果行不是错误行，不算失败。
+- **一轮进行中打的消息**：引擎把它作为 `queued_command` attachment 送进进行中的这一轮（那次 `prompt.submit` 带 `turnId`，mod 不在那里判断），mod 在这一行上评估：一次不变，一次 `low → xhigh`（465 ms）。换挡之后紧接的那一步已经带新档（看板读到「✓ 已发出」），而说明排到下一条工具结果行才加上，这之间约 9 秒换挡记录写「还没发出」；说明加上后 `sent: xhigh`。所以经 delivery 进来的输入之后的那一步不加说明也带新档（只有这 1 例，普通会话）；mod 仍然加说明。
+- **agent**：`general-purpose` 在会话里第一次派出时模型不动，effort 按判断给，子 agent 的请求实际带的 effort 和记录一致；之后数行数的任务 `sonnet → haiku · low`，子 agent 实际跑在 `claude-haiku-5-5`；要深入分析的保持 `inherit · xhigh`。agent 的判断 489–668 ms。agent 的报告回来另起的那一轮不判断，按会话自己的档位跑。
+- **skill**：问模型看得到哪些 skill，它只说得出 `dispatch-pilot:find-skill` 和别的 hook、工具说明里出现过的名字；「用 GSAP 的 ScrollTrigger 做滚动动画」→ 推荐 `gsap-scrolltrigger`，推荐作为 `prompt.submit hook additional context` 进了模型的上下文；`dispatch-pilot:find-skill` 查「three.js 后处理 泛光 bloom」→ `threejs-postprocessing`。会话第一条消息的 skill 判断在列表到达时补做（1.4–2.4 s）。
+- **说明行**在终端里是一行 `❯ [dispatch-pilot] effort is now xhigh: the same failure came back after a fix.`，和用户消息用同一个记号。
+- **看板**：180 列时时间轴、面板和 `/dp log` 的 `sent` 一致；100 列时面板落到 prompt 上方的一个框里，只显示前 14 行（「下次评估」「功能」两节看不到），面板开着时不画时间轴。
+- **`/clear` 之后** `$.state` 是空的（轮数从 1 数起，候选清空），引擎重新发完整的 skill 列表，mod 再收起一次；`--continue` 恢复的会话同样从空的 `$.state` 开始。
+
+**Code Mode 会话**
+
+- Code Mode 的提示照常出现，调试日志里没有因这个 mod 拒绝 Code Mode 的字样；「下次评估」数的是脚本结果。
+- **每份脚本结果评估一次**（433–806 ms）。改名：第 1 份结果后 `medium → low`；那份结果经 delivery 行到达，说明排队，紧接的一步仍带 `medium`（看板写「! 要 low，实际发出 medium」），说明加在下一条 REPL 回执行上，之后带 `low`。失败循环：第 4 步后 `high → medium`，隔 3 份结果，第 8 步后 `medium → high`（同一失败又出现），两条说明都加在 Poll 的结果行上，`sent` 等于新档。
+- agent、skill 推荐和 find-skill 的结果同普通会话。派出 agent 的那一轮里，脚本结果和 agent 的报告各评估一次。
+- **打开进展记录**：每个检查点之后的 `$.model.complete`（`claude-haiku-5-5`，`effort: 'low'`）7 次都成功，1.6–2.6 s 一次；主循环的读数没有受它们影响。
+
+**这次发现并修掉的**
+
+- **F1：会话第一条之后，每条消息的 skill 决定都没记到它的轮上。** 现象：这些决定都记成 `turnId: null`、`applied: false`，虽然推荐已经随消息送下去了；`/dp log` 写「未执行」，也没有轮。原因（2.1.328 上用一次性探针量了两遍）：`prompt.submit` 的 `next(e)` 在 `turn.start` 的 hook 开始之后、结束之前就返回（顺序见「引擎规则」）；入口的 `turn.start` hook 先 await `startTurn` 再取判断，`prompt.submit` 在这中间看到判断还放着，就当作没有轮开始，记成了没有轮。会话的第一条不受影响，因为它的判断在列表到达时补做，那时轮已经开始了。
+- 现在的规则：一条消息的 skill 判断一直放着，直到同一段文字的 `turn.start` 记下它，带那一轮的 id，`applied` 是推荐有没有随消息送下去；不管这个 hook 在 `next(e)` 返回之前还是之后开始、结束都一样。`prompt.submit` 只在消息被丢掉（`next(e)` 回答 `drop`）时自己记（`turnId: null`、`applied: false`）。下一条消息的判断放下时，还放着的上一条（它的轮没开始，或者别的 mod 改了它的文字）先记成 `turnId: null`、`applied: false`。每个判断只记一次；热重载或会话结束会丢掉还放着的那一个（`flows/skills.ts`，`tests/skills.test.ts` 里 F1 的几条）。
+
+**没有验证的**
+
+- Desktop（自带的 Claude Code 低于 2.1.327）；Jev；颜色只在 tmux 里看过。

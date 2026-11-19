@@ -734,7 +734,7 @@ test('别的 plugin 的 find-skill：原样放行', { options: KEYS }, async ($,
   expect(w.fetched).toHaveLength(0)
 })
 
-test('消息被丢掉：推荐不算数，skill 决定记下但没有轮', { options: KEYS }, async ($, on) => {
+test('消息被丢掉：推荐不算数，skill 决定在 prompt.submit 里记下，没有轮；之后同样文字的 turn.start 不再记', { options: KEYS }, async ($, on) => {
   const w = world(on, { onSubmit: () => ({ drop: 'blocked by a hook' }), answer: answering({ gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 } }) })
   await start($)
   await attach($, listingOf(FIVE))
@@ -743,7 +743,76 @@ test('消息被丢掉：推荐不算数，skill 决定记下但没有轮', { opt
   expect(r.drop).toBe('blocked by a hook')
   // The suggestion went down with the message; the message did not go in.
   expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(skillDecisions(w)).toHaveLength(1)
   expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: false, turnId: null, step: 0 })
+  // The judgement was recorded once: a turn.start with the same text finds nothing held.
+  await turnStart($, 't1', TASK)
+  expect(skillDecisions(w)).toHaveLength(1)
+})
+
+// F1 (live run on 2.1.328): prompt.submit's next(e) returns once turn.start's hook has started, before it has finished.
+// The judgement stays held until the turn.start of its text records it, whenever that hook starts or finishes.
+
+const ONLY_PDF = { gates: WANTED, first: { pdf: 0.6 }, which: 'pdf', fits: { pdf: 0.9 } }
+
+test('next(e) 返回之后才有 turn.start：prompt.submit 不记，skill 决定等到这一轮才记，带它的 id', { options: KEYS }, async ($, on) => {
+  const w = world(on, { answer: answering(ONLY_PDF) })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+
+  expect(w.submitted[0]!.context).toEqual([suggestionBlock(PDF)])
+  expect(skillDecisions(w)).toHaveLength(0)
+  await turnStart($, 't1', TASK)
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, turnId: 't1', step: 0 })
+})
+
+test('turn.start 在 next(e) 里开始、在它返回之后才完（实测的顺序）：skill 决定记在这一轮上，只记一次', { options: KEYS }, async ($, on) => {
+  // The engine's prompt.submit answers without waiting for the turn.start it raised.
+  const raised: { turn: Promise<unknown> | null } = { turn: null }
+  const w = world(on, {
+    answer: answering(ONLY_PDF),
+    onSubmit: (e) => {
+      raised.turn = turnStart($, 't1', e.text)
+      return undefined
+    },
+  })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+  await raised.turn
+
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, turnId: 't1', step: 0 })
+})
+
+test('turn.start 在 next(e) 里开始也完：skill 决定照样记在这一轮上，只记一次', { options: KEYS }, async ($, on) => {
+  const w = world(on, { onSubmit: turns($), answer: answering(ONLY_PDF) })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: true, turnId: 't1', step: 0 })
+})
+
+test('一条消息的判断没有轮来取，下一条消息的判断放下时先记它（没有轮、未执行），下一条由它自己的轮记', { options: KEYS }, async ($, on) => {
+  const w = world(on, { answer: answering(ONLY_PDF) })
+  await start($)
+  await attach($, listingOf(FIVE))
+  await submit($, TASK)
+  expect(skillDecisions(w)).toHaveLength(0)
+
+  const OTHER = 'Merge the two PDF files in ~/Downloads into one'
+  await submit($, OTHER)
+  expect(skillDecisions(w)).toHaveLength(1)
+  expect(skillDecisions(w)[0]).toMatchObject({ to: 'pdf', applied: false, turnId: null })
+  await turnStart($, 't2', OTHER)
+  expect(skillDecisions(w).map((d) => [d.turnId, d.applied])).toEqual([
+    [null, false],
+    ['t2', true],
+  ])
 })
 
 test('锁定时只问 skill 题', { options: KEYS }, async ($, on) => {

@@ -77,8 +77,9 @@ export type WorldOptions = {
   pane?: 'placed' | 'refused'
   /**
    * Runs inside the engine's prompt.submit, before it answers. The engine starts a message's turn there
-   * (turn.start inside prompt.submit's next(e), with the text that reached it; measured on 2.1.327), so a
-   * test raises turn.start from here. Returning { drop } refuses the prompt.
+   * (turn.start's hook starts inside prompt.submit's next(e), with the text that reached it; measured on 2.1.327),
+   * so a test raises turn.start from here; awaited or not (the hook may finish after next(e) returns, measured on
+   * 2.1.328). Returning { drop } refuses the prompt.
    */
   onSubmit?: (e: { text: string; turnId: string | undefined }) => unknown
   /**
@@ -372,8 +373,9 @@ export function complete($: Engine, turnId: string, o: { answer?: string; isAbor
 }
 
 /**
- * An onSubmit that starts each message's turn as the engine does, inside prompt.submit's next(e) with the text that
- * reached it (measured on 2.1.327): t1, t2, … in order; a prompt delivered into a running turn (turnId set) starts none.
+ * An onSubmit that starts each message's turn inside prompt.submit's next(e) with the text that reached it (measured on
+ * 2.1.327), awaited there: t1, t2, … in order; a prompt delivered into a running turn (turnId set) starts none. (The
+ * engine may let next(e) return before the turn.start hook finishes; skills.test.ts drives that order too.)
  */
 export function turns($: Engine) {
   let n = 0

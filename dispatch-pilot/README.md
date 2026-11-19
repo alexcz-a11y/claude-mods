@@ -155,6 +155,6 @@ Claude Desktop 上，时间轴在输入框上方（空闲时引擎不显示它�
 
 ## 测试时的 Claude Code 版本
 
-1.0.0 在 Claude Code 2.1.327 上通过了 `claude plugin test`、`claude plugin validate --strict` 和 `tsc`。在 2.1.327 的交互终端里加载过（没有密钥、没有发消息）：Code Mode 照常开启，时间轴、脚部标签和 `/dp` 的面板都画了出来，看板的六个固定场景也逐个看过。带着真实密钥、在普通会话和 Code Mode 会话里实际跑完三项换挡和 skill 推荐的验证还没有做。Claude Desktop 上没有看过（见上面「脚部标签和 Desktop」）。
+1.0.0 在 Claude Code 2.1.328 上通过了 `claude plugin test`、`claude plugin validate --strict` 和 `tsc`。在 2.1.327 的交互终端里加载过（没有密钥、没有发消息）：Code Mode 照常开启，时间轴、脚部标签和 `/dp` 的面板都画了出来，看板的六个固定场景也逐个看过。带着真实密钥的实机验证在 2.1.328 上做过：普通会话和 Code Mode 会话里实际跑了三项换挡和 skill 推荐（结果见 DEVELOPMENT.md 的「实机验证」）。Claude Desktop 上没有看过（见上面「脚部标签和 Desktop」）。
 
 开发说明见 [DEVELOPMENT.md](DEVELOPMENT.md)。

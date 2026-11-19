@@ -71,9 +71,10 @@ export async function dropPending($: EngineInterface): Promise<null> {
   return null
 }
 
-// A main-loop turn begins. The engine raises turn.start inside prompt.submit's next(e), with the text
-// prompt.submit passed down (measured on 2.1.327): the pending decision is kept only for the turn its own
-// message starts, and dropped for any other.
+// A main-loop turn begins. The engine starts the turn.start hook inside prompt.submit's next(e), with the text
+// prompt.submit passed down (measured on 2.1.327); the hook may finish after next(e) returns, and step 0 waits for it
+// (measured on 2.1.328). The pending decision is kept only for the turn its own message starts, and dropped for any
+// other.
 export async function startTurn($: EngineInterface, turnId: string, text: string): Promise<null> {
   // The board's turn count, on its own: a write that fails must not keep the turn from starting.
   await failOpen($, 'turn.start', null, async () => {
