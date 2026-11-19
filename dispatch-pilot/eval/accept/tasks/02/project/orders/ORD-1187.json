@@ -1,0 +1,9 @@
+{
+  "id": "ORD-1187",
+  "customer": "Halvorsen Freight",
+  "lines": [
+    { "sku": "P-100", "qty": 5, "shipTo": "Dock office" },
+    { "sku": "L-015", "qty": 2, "shipTo": "Dock office" },
+    { "sku": "P-100", "qty": 60, "shipTo": "Warehouse 2" }
+  ]
+}

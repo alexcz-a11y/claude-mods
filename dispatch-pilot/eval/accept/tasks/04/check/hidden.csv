@@ -1,0 +1,11 @@
+member_id,name,email,phone,postcode,joined,birth_year,reminder_at,team_color,page,login,country,fee_paid,locker,last_ip,app_version,device,interests,newsletter,referral
+M-100001,Aldous Brink,aldous@brink.example,+00 (555) 010-2030,70115,2031-04-01,1970,06:00,#ABC,aldous-brink,Aldous,nl,"1,234,567.00",A-1,10.0.0.1,1.0.0,a1b2c3d4-e5f6-4a7b-8c9d0e1f2a3b,rowing;chess,Y,AB12-CD34
+M-100002,  Bette   Corwin ,BETTE@Corwin.Example,555 0100 221,70115-2200,2031-04-01,1971,06:00,#abc,bette,bette_c,NL,45.00,A-2,10.0.0.2,1.0.0,A1B2C3D4-E5F6-4A7B-8C9D0E1F2A3C,chess,y,AB12-CD34
+M-12345,Cyra Dunn,cyra@dunn.example,555.0144.87,70115,2031-04-01,88,06:00,#12,cyra-dunn-2,9lives,NLD,"12,50",A12,10.4.0.256,1.0.0,a1b2c3d4-e5f6-4a7b-8c9d0e1f2a3,chess; rowing,maybe,K7QM22XA
+M-100004,Dmitri Eze,dmitri@eze.example,,,2031-04-12,1999,23:59,#0F62FE,dmitri,dmitri_e,pt,"1,250",BC-70,172.16.5.9,2.10.3,,pottery;baking;archery,NO,
+M-100005,Elke Fosse,elke@fosse.example,(555) 010 77 81,82001,2031-05-31,2000,00:00,#0f62fe,elke-fosse,elke,Se,120,BC-71,10.0.0.3,2.10.3,ffffffff-0000-4111-922233344455,,n,ZZ99-0000
+M-100006,Farid Gul,farid@gul.example,555-0167-302,82001-0007,2031-06-30,,,#F00,farid,FARID_G,IE,120.50,XYZ-1042,,10.0.12,01234567-89ab-4cde-f0123456789a,baking;chess,yes,AB12-CD34
+M-100007,Gwen Hask,gwen.hask.example,phone me,8200,2031-04-31,1985,24:00,0f62fe,Bad_Slug,ab,n1,"1,2345.00",ABCD-1,10.4.0,3.12,g1b2c3d4-e5f6-4a7b-8c9d0e1f2a3b,Chess,no,k7qm-22xa
+M-100008,Hedda Ilves,hedda@ilves.example,+00 555 010 6612,70115,2031-07-04,2030,12:30,,hedda-ilves,hedda99,CZ,,Q-9,192.168.1.254,1.0.0,a1b2c3d4-e5f6-4a7b-8c9d0e1f2a3b,zither;yoga,Yes,QWER-1234
+M-100009,,ivo@jann.example,5550133908,70115-22,31/03/2031,2099,7:30,#123456,double--dash,ivo_j,cz,7,,255.255.255.255,v3.12.0,a1b2c3d4-e5f6-4a7b-8c9d0e1f2a3b,chess,N,K7QM-22XAZ
+M-100010,Jory Kest,jory@kest.example,555 0100 221,70115-2200,2031-12-31,1900,19:05,#FfAa00,jory,jory_k,PL,999,A-3,0.0.0.0,2.10.3,ABCDEF01-2345-4678-9ABCDEF01234,chess,no,AB12-CD34

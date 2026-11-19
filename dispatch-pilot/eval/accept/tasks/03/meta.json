@@ -1,0 +1,7 @@
+{
+  "id": "03",
+  "kind": "hard-then-mechanical",
+  "expect": "down",
+  "title": "nightly: every report must stay within 5 backend calls",
+  "why": "It opens as an unexplained cost problem: the run prints only a total (1216 backend calls for one day), nothing says which report or which call is responsible, and the client (backend.py) is declared off limits. The solver has to measure per report, see that the count follows the number of rows, and find that reports fetch related rows one get() at a time inside their loops (plain loops, helper functions, comprehensions, an lru_cache, a hand-rolled name cache, groupby), while backend.get_many() exists and two newer reports already use it. From there the work is the same change 18 times: collect the ids, one get_many() per table, look rows up in the dict. 18 of 20 report modules need it (about 30 get() call sites); dimension tables cannot be scanned, so there is no single place to fix it. The check gives each report a counting backend on hidden data (two days) and compares rows with the recorded originals."
+}

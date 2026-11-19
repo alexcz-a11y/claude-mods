@@ -1,0 +1,7 @@
+{
+  "id": "05",
+  "kind": "steady",
+  "expect": "none",
+  "title": "readlog: four small additions to a reading-list command line",
+  "why": "Nothing is broken at the start and nothing has to be diagnosed: the request is four independent additions of about the same size, each in its own file (a tag filter in list, two more lines in stats, add refusing a book that is already there, a new finish command). Each carries one small thing to get right and no more: --tag given twice needs the flag parser to keep more than the last value, the average has to skip unrated books and print - when there are none, titles are compared without case or surrounding spaces, a start that fits two titles or a rating outside 1 to 5 must leave the file alone. No item repeats another, so what remains at any checkpoint is the same kind of small decision as what was just done, and the last item is as much work as the first. The visible tests pass before and stay green under a correct change, so no run of failures appears. About 10 to 14 tool calls: read the handful of sources, four to six edits, a few runs."
+}

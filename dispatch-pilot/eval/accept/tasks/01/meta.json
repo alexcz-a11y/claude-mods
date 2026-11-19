@@ -1,0 +1,7 @@
+{
+  "id": "01",
+  "kind": "stuck",
+  "expect": "up",
+  "title": "roombook: the last slot of the day cannot be booked",
+  "why": "The error is one generic line, 'B is not available'. The rule the report points at (rules.py, opening hours) really does reject a booking that ends exactly at closing time, so fixing `end < closes` is the obvious first move, but the command then prints the very same line: is_available() stops at the first failing step, and the next step fails too. series.py matches the ISO weekday numbers stored in series.json (1 = Monday) against date.weekday() (0 = Monday), so the Monday series occupies Tuesday 17:00-18:00. That is only found by reading series.py together with the convention in README/series.json; the visible tests pass with both defects. The obvious fix is needed but not sufficient (both changes are required to pass)."
+}

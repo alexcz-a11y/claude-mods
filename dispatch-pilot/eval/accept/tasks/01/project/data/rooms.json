@@ -1,0 +1,5 @@
+{
+  "A": {"name": "A 会议室（大）", "opens": "08:00", "closes": "20:00", "max_minutes": 240},
+  "B": {"name": "B 会议室", "opens": "08:00", "closes": "18:00", "max_minutes": 120},
+  "C": {"name": "C 洽谈间", "opens": "09:00", "closes": "18:00", "max_minutes": 60}
+}

@@ -1,0 +1,28 @@
+diff -ruN a/src/pricing.mjs b/src/pricing.mjs
+--- a/src/pricing.mjs
++++ b/src/pricing.mjs
+@@ -8,7 +8,7 @@
+     const product = catalog[sku]
+     if (!product) throw new Error(`unknown SKU ${sku}`)
+     return tierFor(product.tiers, qty).unitCents
+-  })
++  }, (sku, qty) => `${sku} x ${qty}`)
+ 
+   const nameOf = memo((sku) => catalog[sku]?.name ?? sku)
+ 
+diff -ruN a/src/tiers.mjs b/src/tiers.mjs
+--- a/src/tiers.mjs
++++ b/src/tiers.mjs
+@@ -1,8 +1,10 @@
+ // Tiers are listed from the smallest minQty up. The tier for a quantity is the one with the
+ // largest minQty that the quantity reaches.
+ export function tierFor(tiers, qty) {
++  let found = null
+   for (const tier of tiers) {
+-    if (qty >= tier.minQty) return tier
++    if (qty >= tier.minQty) found = tier
+   }
+-  throw new Error(`no price tier for a quantity of ${qty}`)
++  if (found === null) throw new Error(`no price tier for a quantity of ${qty}`)
++  return found
+ }

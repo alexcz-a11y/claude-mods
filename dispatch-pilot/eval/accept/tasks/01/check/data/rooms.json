@@ -1,0 +1,5 @@
+{
+  "R1": {"name": "Room one", "opens": "08:00", "closes": "18:00", "max_minutes": 120},
+  "R2": {"name": "Room two", "opens": "07:00", "closes": "22:00", "max_minutes": 240},
+  "B": {"name": "B 会议室", "opens": "08:00", "closes": "18:00", "max_minutes": 120}
+}

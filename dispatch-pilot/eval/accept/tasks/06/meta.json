@@ -1,0 +1,7 @@
+{
+  "id": "06",
+  "kind": "steady",
+  "expect": "none",
+  "title": "standings: goal columns, tie-breaks, walkovers, deductions and a division filter for a league table",
+  "why": "One stated set of five changes to a small, working program, spread evenly over its four layers: the results parser learns two new line kinds (w/o, deduct), the table adds goals and a points deduction and a three-key order for teams level on points, the renderer gets three columns, the command line gets --division. Every change is spelled out in the request, none depends on finding out why something fails, and each needs one small decision of its own (a walkover is a 3-0 match that counts as played, a deduction belongs to its division and may stand before the team's first match, goal difference before goals scored before name). The season file in the project has no walkover or deduction lines, so no command fails at the start, and the visible tests stay green under a correct change. Work at the end (the option, the columns) is no easier or harder than work at the beginning (the parser), so there is no point where the remaining work becomes open-ended or turns into repetition. About 10 to 15 tool calls."
+}

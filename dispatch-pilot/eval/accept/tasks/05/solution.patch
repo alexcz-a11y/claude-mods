@@ -1,0 +1,295 @@
+diff -ruN a/README.md b/README.md
+--- a/README.md	2026-11-18 21:35:49
++++ b/README.md	2026-11-18 21:39:53
+@@ -5,7 +5,9 @@
+ ```
+ node bin/readlog.mjs list
+ node bin/readlog.mjs list --status reading
++node bin/readlog.mjs list --tag sci-fi --tag favourite
+ node bin/readlog.mjs add --title "Understory" --author "Kaito Mbeki" --pages 344 --tags nature,essays
++node bin/readlog.mjs finish "a field guide" --rating 4
+ node bin/readlog.mjs stats
+ ```
+ 
+@@ -14,10 +16,15 @@
+ ## Commands
+ 
+ - `list` prints one line per book, in the order of the file. `--status to-read|reading|done` keeps
+-  only the books in that state.
++  only the books in that state. `--tag <tag>` keeps the books that carry the tag, whatever its case;
++  given several times, a book has to carry all of them.
+ - `add` puts a book at the end of the list. `--title`, `--author` and `--pages` are required;
+   `--status` (default `to-read`), `--rating` (1 to 5) and `--tags` (separated by commas) are optional.
+-- `stats` counts the books, in all and per state.
++  A book whose title and author are already in the list (case and surrounding spaces aside) is refused.
++- `finish <start of a title>` marks the one book whose title starts that way as `done`; `--rating`
++  (1 to 5) records a rating with it. No match, or more than one, is an error.
++- `stats` counts the books, in all and per state, adds up the pages of the finished ones and gives
++  the average rating to one decimal (`-` when no book has a rating).
+ 
+ A command that cannot do what was asked prints `error: ...` on stderr and exits with 1; the file is
+ left as it was.
+diff -ruN a/src/args.mjs b/src/args.mjs
+--- a/src/args.mjs	2026-11-18 21:35:49
++++ b/src/args.mjs	2026-11-18 21:35:49
+@@ -1,5 +1,8 @@
+ // Splits a command line into the command, its flags and the words that belong to no flag.
+ // `--name value` gives flags.name = 'value'; a flag with nothing after it is true.
++// A flag named in REPEATABLE may be given several times: its value is always a list.
++const REPEATABLE = new Set(['tag'])
++
+ export function parseArgs(argv) {
+   const [command, ...rest] = argv
+   const flags = {}
+@@ -12,11 +15,13 @@
+     }
+     const name = word.slice(2)
+     const next = rest[i + 1]
+-    if (next === undefined || next.startsWith('--')) {
+-      flags[name] = true
++    const hasValue = next !== undefined && !next.startsWith('--')
++    if (hasValue) i += 1
++    if (REPEATABLE.has(name)) {
++      flags[name] ??= []
++      if (hasValue) flags[name].push(next)
+     } else {
+-      flags[name] = next
+-      i += 1
++      flags[name] = hasValue ? next : true
+     }
+   }
+   return { command, flags, positional }
+diff -ruN a/src/book.mjs b/src/book.mjs
+--- a/src/book.mjs	2026-11-18 21:35:49
++++ b/src/book.mjs	2026-11-18 21:35:49
+@@ -2,4 +2,19 @@
+ //   { title, author, pages, status, rating?, tags }
+ // rating (1 to 5) is only there once the reader has given one. tags is a list, possibly empty,
+ // kept the way the tags were typed.
++import { UsageError } from './errors.mjs'
++
+ export const STATUSES = ['to-read', 'reading', 'done']
++
++export function parseRating(value) {
++  const rating = Number(value)
++  if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
++    throw new UsageError('--rating has to be a whole number from 1 to 5')
++  }
++  return rating
++}
++
++// Titles and authors are compared without regard to case or to spaces around them.
++export function sameText(a, b) {
++  return a.trim().toLowerCase() === b.trim().toLowerCase()
++}
+diff -ruN a/src/cli.mjs b/src/cli.mjs
+--- a/src/cli.mjs	2026-11-18 21:35:49
++++ b/src/cli.mjs	2026-11-18 21:35:49
+@@ -1,5 +1,6 @@
+ import { parseArgs } from './args.mjs'
+ import { add } from './commands/add.mjs'
++import { finish } from './commands/finish.mjs'
+ import { list } from './commands/list.mjs'
+ import { stats } from './commands/stats.mjs'
+ import { UsageError } from './errors.mjs'
+@@ -7,7 +8,7 @@
+ 
+ // A command gets the books, the parsed command line and a function that writes a new list back
+ // to the file. It returns the lines to print.
+-const COMMANDS = { add, list, stats }
++const COMMANDS = { add, finish, list, stats }
+ 
+ export function main(argv, io) {
+   const args = parseArgs(argv)
+diff -ruN a/src/commands/add.mjs b/src/commands/add.mjs
+--- a/src/commands/add.mjs	2026-11-18 21:35:49
++++ b/src/commands/add.mjs	2026-11-18 21:35:49
+@@ -1,4 +1,4 @@
+-import { STATUSES } from '../book.mjs'
++import { STATUSES, parseRating, sameText } from '../book.mjs'
+ import { UsageError } from '../errors.mjs'
+ 
+ // add --title T --author A --pages N [--status S] [--rating 1-5] [--tags a,b]
+@@ -13,14 +13,11 @@
+   if (!STATUSES.includes(status)) {
+     throw new UsageError(`--status has to be one of ${STATUSES.join(', ')}`)
+   }
+-  const book = { title, author, pages, status }
+-  if (flags.rating !== undefined) {
+-    const rating = Number(flags.rating)
+-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+-      throw new UsageError('--rating has to be a whole number from 1 to 5')
+-    }
+-    book.rating = rating
++  if (books.some((other) => sameText(other.title, title) && sameText(other.author, author))) {
++    throw new UsageError(`${title} by ${author} is already in the list`)
+   }
++  const book = { title, author, pages, status }
++  if (flags.rating !== undefined) book.rating = parseRating(flags.rating)
+   book.tags = tagList(flags.tags)
+   save([...books, book])
+   return [`added: ${title}`]
+diff -ruN a/src/commands/finish.mjs b/src/commands/finish.mjs
+--- a/src/commands/finish.mjs	1969-12-31 16:00:00
++++ b/src/commands/finish.mjs	2026-11-18 21:35:49
+@@ -0,0 +1,21 @@
++import { parseRating } from '../book.mjs'
++import { UsageError } from '../errors.mjs'
++
++// finish <start of the title> [--rating 1-5]
++export function finish(books, { flags, positional }, save) {
++  const start = positional.join(' ').trim()
++  if (start === '') throw new UsageError('finish needs the start of a title')
++  const rating = flags.rating === undefined ? undefined : parseRating(flags.rating)
++  const matches = books.filter((book) => book.title.toLowerCase().startsWith(start.toLowerCase()))
++  if (matches.length === 0) throw new UsageError(`no title starts with "${start}"`)
++  if (matches.length > 1) {
++    throw new UsageError(`"${start}" could be any of: ${matches.map((book) => book.title).join('; ')}`)
++  }
++  const [found] = matches
++  save(books.map((book) => {
++    if (book !== found) return book
++    const { tags, ...rest } = book
++    return { ...rest, status: 'done', ...(rating === undefined ? {} : { rating }), tags }
++  }))
++  return [`finished: ${found.title}`]
++}
+diff -ruN a/src/commands/list.mjs b/src/commands/list.mjs
+--- a/src/commands/list.mjs	2026-11-18 21:35:49
++++ b/src/commands/list.mjs	2026-11-18 21:35:49
+@@ -2,7 +2,7 @@
+ import { UsageError } from '../errors.mjs'
+ import { formatBook } from '../format.mjs'
+ 
+-// list [--status to-read|reading|done]
++// list [--status to-read|reading|done] [--tag T]...
+ export function list(books, { flags }) {
+   let shown = books
+   if (flags.status !== undefined) {
+@@ -10,6 +10,13 @@
+       throw new UsageError(`--status has to be one of ${STATUSES.join(', ')}`)
+     }
+     shown = shown.filter((book) => book.status === flags.status)
++  }
++  const wanted = (flags.tag ?? []).map((tag) => tag.toLowerCase())
++  if (wanted.length > 0) {
++    shown = shown.filter((book) => {
++      const own = book.tags.map((tag) => tag.toLowerCase())
++      return wanted.every((tag) => own.includes(tag))
++    })
+   }
+   return shown.map(formatBook)
+ }
+diff -ruN a/src/commands/stats.mjs b/src/commands/stats.mjs
+--- a/src/commands/stats.mjs	2026-11-18 21:35:49
++++ b/src/commands/stats.mjs	2026-11-18 21:35:49
+@@ -6,5 +6,10 @@
+   for (const status of STATUSES) {
+     lines.push(`${status}: ${books.filter((book) => book.status === status).length}`)
+   }
++  const pages = books.filter((book) => book.status === 'done').reduce((sum, book) => sum + book.pages, 0)
++  lines.push(`pages read: ${pages}`)
++  const ratings = books.filter((book) => book.rating != null).map((book) => book.rating)
++  const average = ratings.length === 0 ? '-' : (ratings.reduce((sum, rating) => sum + rating, 0) / ratings.length).toFixed(1)
++  lines.push(`average rating: ${average}`)
+   return lines
+ }
+diff -ruN a/test/add.test.mjs b/test/add.test.mjs
+--- a/test/add.test.mjs	2026-11-18 21:35:49
++++ b/test/add.test.mjs	2026-11-18 21:35:49
+@@ -24,6 +24,13 @@
+   assert.deepEqual(books, BOOKS)
+ })
+ 
++test('add refuses a book that is already in the list', () => {
++  const { code, books } = run(['add', '--title', ' alder', '--author', 'ANN AMES ', '--pages', '100'])
++  assert.equal(code, 1)
++  assert.deepEqual(books, BOOKS)
++  assert.equal(run(['add', '--title', 'Alder', '--author', 'Someone Else', '--pages', '100']).code, 0)
++})
++
+ test('add refuses a rating outside 1 to 5', () => {
+   const { code, books } = run(['add', '--title', 'Fir', '--author', 'Flo Fay', '--pages', '12', '--rating', '6'])
+   assert.equal(code, 1)
+diff -ruN a/test/finish.test.mjs b/test/finish.test.mjs
+--- a/test/finish.test.mjs	1969-12-31 16:00:00
++++ b/test/finish.test.mjs	2026-11-18 21:35:49
+@@ -0,0 +1,32 @@
++import assert from 'node:assert/strict'
++import { test } from 'node:test'
++
++import { BOOKS, run } from './helpers.mjs'
++
++test('finish marks the book whose title starts that way', () => {
++  const { code, books } = run(['finish', 'bir', '--rating', '4'])
++  assert.equal(code, 0)
++  assert.deepEqual(books[1], { title: 'Birch', author: 'Bo Barr', pages: 250, status: 'done', rating: 4, tags: [] })
++  assert.deepEqual([books[0], books[2]], [BOOKS[0], BOOKS[2]])
++})
++
++test('finish without a rating leaves the rating out', () => {
++  const { books } = run(['finish', 'CEDAR'])
++  assert.equal(books[2].status, 'done')
++  assert.equal('rating' in books[2], false)
++})
++
++test('finish refuses a start that fits no title, or several', () => {
++  const two = [...BOOKS, { title: 'Birdsong', author: 'Bea Bly', pages: 60, status: 'to-read', tags: [] }]
++  for (const [start, books] of [['zzz', BOOKS], ['bir', two], ['edar', BOOKS]]) {
++    const done = run(['finish', start], books)
++    assert.equal(done.code, 1)
++    assert.deepEqual(done.books, books)
++  }
++})
++
++test('finish refuses a rating outside 1 to 5', () => {
++  const { code, books } = run(['finish', 'birch', '--rating', '0'])
++  assert.equal(code, 1)
++  assert.deepEqual(books, BOOKS)
++})
+diff -ruN a/test/list.test.mjs b/test/list.test.mjs
+--- a/test/list.test.mjs	2026-11-18 21:35:49
++++ b/test/list.test.mjs	2026-11-18 21:35:49
+@@ -17,6 +17,13 @@
+   assert.deepEqual(out, ['Birch / Bo Barr | 250 p. | reading'])
+ })
+ 
++test('--tag keeps the books that carry every tag given, whatever the case', () => {
++  assert.equal(run(['list', '--tag', 'TREES']).out.length, 2)
++  assert.deepEqual(run(['list', '--tag', 'trees', '--tag', 'Short']).out, ['Cedar / Cy Coe | 80 p. | to-read | #trees #short'])
++  assert.deepEqual(run(['list', '--tag', 'tree']).out, [])
++  assert.deepEqual(run(['list', '--tag', 'trees', '--status', 'done']).out, ['Alder / Ann Ames | 100 p. | done | 5/5 | #trees'])
++})
++
+ test('a status that does not exist is refused', () => {
+   const { code, out, err } = run(['list', '--status', 'lost'])
+   assert.equal(code, 1)
+diff -ruN a/test/stats.test.mjs b/test/stats.test.mjs
+--- a/test/stats.test.mjs	2026-11-18 21:35:49
++++ b/test/stats.test.mjs	2026-11-18 21:36:15
+@@ -1,7 +1,7 @@
+ import assert from 'node:assert/strict'
+ import { test } from 'node:test'
+ 
+-import { run } from './helpers.mjs'
++import { BOOKS, run } from './helpers.mjs'
+ 
+ test('stats counts the books, in all and per state', () => {
+   const { code, out } = run(['stats'])
+@@ -11,7 +11,16 @@
+   }
+ })
+ 
++test('stats adds up the pages read and averages the ratings', () => {
++  const books = [...BOOKS, { title: 'Dogwood', author: 'Di Dunn', pages: 310, status: 'done', rating: 4, tags: [] }]
++  const { out } = run(['stats'], books)
++  assert.ok(out.includes('pages read: 410'))
++  assert.ok(out.includes('average rating: 4.5'))
++})
++
+ test('stats on an empty list', () => {
+   const { out } = run(['stats'], [])
+   assert.ok(out.includes('books: 0'))
++  assert.ok(out.includes('pages read: 0'))
++  assert.ok(out.includes('average rating: -'))
+ })
