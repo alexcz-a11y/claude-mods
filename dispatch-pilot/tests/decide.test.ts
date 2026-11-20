@@ -44,7 +44,11 @@ test('中途：默认不动；同一失败复现升一档；降档要两个条�
   expect(midrunLevel('medium', { open: flat, sameFailure: 0.8 }, START)).toEqual({ level: 'high', reason: 'same-failure' })
   expect(midrunLevel('high', { open: easy }, START).level).toBe('high')
   expect(midrunLevel('high', { open: easy, onlyCarryingOut: 0.8 }, START).level).toBe('low')
-  expect(midrunLevel('xhigh', { open: [0, 0, 0, 0, 1], contradictsPlan: 0.9 }, START).level).toBe('xhigh')
+  expect(midrunLevel('xhigh', { open: [0, 0, 0, 0, 1], contradictsPlan: 0.9 }, START).level).toBe('max')
+  // into max mid-run takes the same upHigh bar as into xhigh
+  expect(midrunLevel('xhigh', { open: [0, 0, 0, 0.25, 0.75] }, START)).toEqual({ level: 'xhigh', reason: 'hold' })
+  expect(midrunLevel('xhigh', { open: [0, 0, 0, 0.2, 0.8] }, START)).toEqual({ level: 'max', reason: 'more-open' })
+  expect(midrunLevel('xhigh', { open: [0, 0, 0, 0.2, 0.8] }, { ...START, upHigh: 0.85 })).toEqual({ level: 'xhigh', reason: 'hold' })
 })
 test('agent：fableAgents 关着时继承的 fable 降到 opus，即使没有回答', () => {
   const opts = { agentModels: ['haiku', 'sonnet', 'opus'] as const, fableAgents: false }
@@ -103,13 +107,13 @@ test('中途的 reason：contradicts-plan、more-open、cause-found、carrying-o
   const easy = [0.8, 0.15, 0.05, 0, 0]
   expect(midrunLevel('low', { open: flat, contradictsPlan: 0.9 }, START)).toEqual({ level: 'medium', reason: 'contradicts-plan' })
   expect(midrunLevel('medium', { open: flat, sameFailure: 0.9, contradictsPlan: 0.9 }, START)).toEqual({ level: 'high', reason: 'same-failure' })
-  expect(midrunLevel('medium', { open: [0, 0, 0.1, 0.1, 0.8] }, START)).toEqual({ level: 'xhigh', reason: 'more-open' })
+  expect(midrunLevel('medium', { open: [0, 0, 0.1, 0.1, 0.8] }, START)).toEqual({ level: 'max', reason: 'more-open' })
   expect(midrunLevel('high', { open: easy, causeFound: 0.8 }, START)).toEqual({ level: 'low', reason: 'cause-found' })
   expect(midrunLevel('high', { open: easy, causeFound: 0.8, onlyCarryingOut: 0.8 }, START).reason).toBe('cause-found')
   expect(midrunLevel('high', { open: easy, onlyCarryingOut: 0.8 }, START)).toEqual({ level: 'low', reason: 'carrying-out' })
   expect(midrunLevel('high', { open: easy }, START)).toEqual({ level: 'high', reason: 'hold' })
-  // already at the cap: a flag has nothing to raise, and max is never lowered by a flag
-  expect(midrunLevel('xhigh', { open: [0, 0, 0, 0, 1], contradictsPlan: 0.9 }, START)).toEqual({ level: 'xhigh', reason: 'hold' })
+  // a flag from xhigh moves one step to max; at max a flag has nothing to raise, and max is never lowered by a flag
+  expect(midrunLevel('xhigh', { open: flat, contradictsPlan: 0.9 }, START)).toEqual({ level: 'max', reason: 'contradicts-plan' })
   expect(midrunLevel('max', { open: flat, sameFailure: 0.9 }, START)).toEqual({ level: 'max', reason: 'hold' })
 })
 test('agent：modelReason 的四个取值', () => {

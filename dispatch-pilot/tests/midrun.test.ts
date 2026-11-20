@@ -248,7 +248,7 @@ test('一轮最多 4 条说明，用完之后脚本结果不再发请求；两�
   expect(turnState(w).midrun).toMatchObject({ notes: 4, lastShiftAt: 10 })
 })
 
-test('中途最高到 xhigh', { options: KEYS }, async ($, on) => {
+test('中途可以升到 max，到了 max 不再升', { options: KEYS }, async ($, on) => {
   // The first check wants max; every later one wants it too and adds both flags that raise.
   const w = world(on, {
     onSubmit: turns($),
@@ -259,17 +259,17 @@ test('中途最高到 xhigh', { options: KEYS }, async ($, on) => {
   await appendAll($, first)
   await stepT1($, 1)
   const poll = first.find((r) => r.origin.kind === 'tool' && r.origin.tool === 'Poll')!
-  expect(reached(w, poll)!.message.content.at(-1)).toEqual(noteBlock('[dispatch-pilot] effort is now xhigh: the remaining problem is more open than assumed.'))
+  expect(reached(w, poll)!.message.content.at(-1)).toEqual(noteBlock('[dispatch-pilot] effort is now max: the remaining problem is more open than assumed.'))
   for (let n = 2; n <= 5; n++) {
     await appendAll($, scriptByPoll(n, `script ${n}`, 'still racing'))
     await stepT1($, n)
   }
-  expect(efforts(w)).toEqual(['high', 'xhigh', 'xhigh', 'xhigh', 'xhigh', 'xhigh'])
+  expect(efforts(w)).toEqual(['high', 'max', 'max', 'max', 'max', 'max'])
   // Steps 2 and 3 come within the gap since the shift and are not asked; from step 4 each is, and holds at the top.
   expect(midruns(w).map((d) => [d.step, d.from, d.to, d.reason, d.applied])).toEqual([
-    [1, 'high', 'xhigh', 'more-open', true],
-    [4, 'xhigh', 'xhigh', 'hold', false],
-    [5, 'xhigh', 'xhigh', 'hold', false],
+    [1, 'high', 'max', 'more-open', true],
+    [4, 'max', 'max', 'hold', false],
+    [5, 'max', 'max', 'hold', false],
   ])
   expect(turnState(w).midrun.notes).toBe(1)
 })

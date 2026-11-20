@@ -306,7 +306,7 @@ function forecastOf(cfg: Config, from: Level | null, judged: Decision | null): F
   const probs = judged === null ? null : probsOf(judged)
   if (from === null || probs === null) return null
   const bars = cfg.bars.midrun
-  const m = margins(from, probs, bars, 'xhigh')
+  const m = margins(from, probs, bars, 'max')
   const rows: TableRow[] = []
   const notes: string[] = []
   const up = near(from, 1)
@@ -315,7 +315,7 @@ function forecastOf(cfg: Config, from: Level | null, judged: Decision | null): F
   if (m.down !== null && down !== null) rows.push({ label: rungLabel(down, 'down'), p: m.down.sum, bar: m.down.bar, mark: `→ 降到 ${down}`, tone: 'medium' })
   if (m.down !== null) notes.push('降还要：原因已查明，或剩下只是照做')
   if (m.up !== null) notes.push('直接升一档：同一失败又出现，或结果和计划矛盾')
-  else notes.push(`一轮中途最高到 xhigh，${from === 'max' ? '不会再升' : '不会升到 max'}`)
+  else notes.push('已是最高档 max，不会再升')
   return { rows, notes }
 }
 

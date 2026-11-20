@@ -164,7 +164,8 @@ export function midrunLevel(
   t: Thresholds,
   trace?: TraceStep[],
 ): Verdict {
-  const cap = 'xhigh'
+  // Mid-run reaches max as well (2026-11-20, ADR 0031); moving into xhigh or max takes the same upHigh bar.
+  const cap = 'max'
   const decided = decide(current, a.open, t, cap, trace)
   const i = rank(current)
   if (isYes(a.sameFailure, t)) trace?.push({ k: 'flag', id: 'same_failure', value: a.sameFailure!, effect: 'up-one' })

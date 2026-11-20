@@ -90,10 +90,10 @@ test('id 要形如 <category>-<两位数字>', () => {
 test('hold 的 midrun 用例 accept 必须是 [current]', () => {
   expect(checkCase({ ...okMidrun, expect: { action: 'hold', accept: ['high'] } }, [])).toHaveLength(1)
 })
-test('up 的 midrun 用例：accept 都高于 current 且不超过 xhigh；down 的都低于 current', () => {
+test('up 的 midrun 用例：accept 都高于 current（可以到 max）；down 的都低于 current', () => {
   expect(checkCase({ ...okMidrun, expect: { action: 'up', accept: ['high', 'xhigh'] } }, [])).toEqual([])
   expect(checkCase({ ...okMidrun, expect: { action: 'up', accept: ['medium', 'high'] } }, [])).toHaveLength(1)
-  expect(checkCase({ ...okMidrun, expect: { action: 'up', accept: ['xhigh', 'max'] } }, [])).toHaveLength(1)
+  expect(checkCase({ ...okMidrun, expect: { action: 'up', accept: ['xhigh', 'max'] } }, [])).toEqual([])
   expect(checkCase({ ...okMidrun, expect: { action: 'down', accept: ['low'] } }, [])).toEqual([])
   expect(checkCase({ ...okMidrun, expect: { action: 'down', accept: ['medium'] } }, [])).toHaveLength(1)
 })

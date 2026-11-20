@@ -109,11 +109,11 @@ test('midrun：期望 hold 而换了挡是 needless-shift；期望换而没换�
   expect(mark({ ...midrunCase, expect: { action: 'up', accept: ['high'] } }, stays)).toBe('missed-shift')
 })
 
-test("midrun 的 form 'direct'：升档和 midrunLevel 一样不超过 xhigh，已在 xhigh 以上不再升；降档照读", () => {
+test("midrun 的 form 'direct'：升档和 midrunLevel 一样可以到 max；降档照读", () => {
   const direct = (pick: string) => ok({ direct: choice(pick, { low: 0.02, medium: 0.03, high: 0.05, xhigh: 0.1, max: 0.8, [pick]: 0.8 }) })
   const at = (current: MidrunCase['input']['current'], pick: string) => outcomeOf({ ...midrunCase, input: { ...midrunCase.input, current } }, direct(pick), START_BARS, { form: 'direct' })?.level
-  expect(at('medium', 'max')).toBe('xhigh')
-  expect(at('xhigh', 'max')).toBe('xhigh')
+  expect(at('medium', 'max')).toBe('max')
+  expect(at('xhigh', 'max')).toBe('max')
   expect(at('max', 'max')).toBe('max')
   expect(at('medium', 'high')).toBe('high')
   expect(at('max', 'low')).toBe('low')
