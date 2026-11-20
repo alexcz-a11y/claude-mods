@@ -154,13 +154,13 @@ test('六个场景：其余各项', () => {
     { at: '第 3 步后', from: 'medium', to: 'high', why: '同一失败在修改后又出现', reading: 'sent' },
     { at: '第 7 步后', from: 'high', to: 'xhigh', why: '最新结果和原计划矛盾', reading: 'queued' },
   ])
-  // Mid-run the cap is xhigh, so no level further up; the shift came from a flag, so its reason says why.
+  // Mid-run the open question stopped short of max; the shift came from a flag, so its reason says why.
   expect(notsent.last).toMatchObject({ at: '第 7 步后', mark: 'up', text: '升到 xhigh' })
-  expect(notsent.basis).toMatchObject({ from: 'high', to: 'xhigh', reading: 'queued', notes: ['xhigh 是一轮中途能到的最高档'] })
-  expect(notsent.basis?.rows.map((r) => [r.label, r.mark])).toEqual([['该用 xhigh 或更高', '✓ 到这里'], ['结果和计划矛盾', '✓ 直接升一档']])
-  // At xhigh mid-run: only the way down, and the cap said.
-  expect(notsent.forecast?.rows.map((r) => r.mark)).toEqual(['→ 降到 high'])
-  expect(notsent.forecast?.notes).toEqual(['降还要：原因已查明，或剩下只是照做', '一轮中途最高到 xhigh，不会升到 max'])
+  expect(notsent.basis).toMatchObject({ from: 'high', to: 'xhigh', reading: 'queued', notes: [] })
+  expect(notsent.basis?.rows.map((r) => [r.label, r.mark])).toEqual([['该用 xhigh 或更高', '✓ 到这里'], ['该用 max', '✗ 停'], ['结果和计划矛盾', '✓ 直接升一档']])
+  // At xhigh mid-run: max is still one step up.
+  expect(notsent.forecast?.rows.map((r) => r.mark)).toEqual(['→ 升到 max', '→ 降到 high'])
+  expect(notsent.forecast?.notes).toEqual(['降还要：原因已查明，或剩下只是照做', '直接升一档：同一失败又出现，或结果和计划矛盾'])
   // Just shifted (step 7): the next results within the gap are not asked, so the count waits for it (final review G6).
   expect(notsent.next).toMatchObject({ main: '再 3 份脚本结果', sub: '换挡后隔 3 份脚本结果才再评估 · 本轮还可换挡 2 次' })
 

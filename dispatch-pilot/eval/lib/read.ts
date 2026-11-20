@@ -64,10 +64,9 @@ function submitOutcome(c: SubmitCase, a: Answers, t: Thresholds, opt: Opt): Outc
   return out === null ? null : { level: out, model: null, skill: null }
 }
 
-// A rise mid-run stops at xhigh, as in midrunLevel; a level already above it is not raised.
-function capRise(current: Level, level: Level | null): Level | null {
-  if (level === null || rank(level) <= rank(current)) return level
-  return rank(current) < rank('xhigh') ? LEVELS[Math.min(rank(level), rank('xhigh'))]! : current
+// A rise mid-run may go up to max, as in midrunLevel (ADR 0031): nothing to cap, so the level is read as it is.
+function capRise(_current: Level, level: Level | null): Level | null {
+  return level
 }
 
 // long_unattended is not asked mid-run (Task 4), so the rule does not apply here.

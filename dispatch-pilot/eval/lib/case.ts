@@ -146,7 +146,7 @@ function checkMidrun(p: Problems, input: Obj, expect: Obj): void {
   if (current === null || action === null || accept === null) return
   const at = levelAt(current)
   if (action === 'hold') p.need(accept.length === 1 && accept[0] === current, 'expect.accept', `[current] ('${current}') when the action is hold`)
-  if (action === 'up') p.need(accept.every((l) => levelAt(l) > at && levelAt(l) <= levelAt('xhigh')), 'expect.accept', `above current ('${current}') and at most xhigh when the action is up`)
+  if (action === 'up') p.need(accept.every((l) => levelAt(l) > at), 'expect.accept', `above current ('${current}') when the action is up`)
   if (action === 'down') p.need(accept.every((l) => levelAt(l) < at), 'expect.accept', `below current ('${current}') when the action is down`)
 }
 
